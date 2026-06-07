@@ -1,0 +1,310 @@
+devices:
+- as: null
+  bgp_router_id: null
+  hostname: CORE-IOS
+  id: core-ios
+  ospf_router_id: null
+  sections: []
+  vendor: cisco_ios
+- as: null
+  bgp_router_id: null
+  hostname: EDGE-JUNOS
+  id: edge-junos
+  ospf_router_id: null
+  sections: []
+  vendor: juniper_junos
+- as: 65010
+  bgp_router_id: null
+  hostname: RTR-A
+  id: rtr-a
+  ospf_router_id: null
+  sections: []
+  vendor: cisco_ios
+- as: 65020
+  bgp_router_id: null
+  hostname: RTR-B
+  id: rtr-b
+  ospf_router_id: null
+  sections: []
+  vendor: cisco_ios
+interfaces:
+- addresses:
+  - af: v4
+    ip: 10.250.0.1
+    prefix: 32
+  admin_status: up
+  description: null
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::Loopback0
+  ip: 10.250.0.1/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.2.0.1
+    prefix: 30
+  admin_status: up
+  description: OSPF-LINK-to-JUNOS
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::GigabitEthernet0/0
+  ip: 10.2.0.1/30
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.20.0.1
+    prefix: 24
+  admin_status: up
+  description: CAMPUS-LAN
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::GigabitEthernet0/1
+  ip: 10.20.0.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 100.1.1.2
+    prefix: 24
+  admin_status: up
+  description: CORE-LINK-to-RTR-B
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::GigabitEthernet0/2
+  ip: 100.1.1.2/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/2
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.250.0.2
+    prefix: 32
+  admin_status: up
+  description: null
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::lo0
+  ip: 10.250.0.2/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.2.0.2
+    prefix: 30
+  admin_status: up
+  description: OSPF-LINK-to-IOS
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::ge-0/0/0
+  ip: 10.2.0.2/30
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.30.0.1
+    prefix: 24
+  admin_status: up
+  description: WAN-EDGE
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::ge-0/0/1
+  ip: 10.30.0.1/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.255.0.1
+    prefix: 32
+  admin_status: up
+  description: null
+  device: rtr-a
+  duplex: null
+  encapsulation: null
+  id: rtr-a::Loopback0
+  ip: 10.255.0.1/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.1.0.1
+    prefix: 30
+  admin_status: up
+  description: CORE-LINK-to-RTR-B
+  device: rtr-a
+  duplex: null
+  encapsulation: null
+  id: rtr-a::GigabitEthernet0/0
+  ip: 10.1.0.1/30
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 172.16.10.1
+    prefix: 24
+  admin_status: up
+  description: SITE-A-LAN
+  device: rtr-a
+  duplex: null
+  encapsulation: null
+  id: rtr-a::GigabitEthernet0/1
+  ip: 172.16.10.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.255.0.2
+    prefix: 32
+  admin_status: up
+  description: null
+  device: rtr-b
+  duplex: null
+  encapsulation: null
+  id: rtr-b::Loopback0
+  ip: 10.255.0.2/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.1.0.2
+    prefix: 30
+  admin_status: up
+  description: CORE-LINK-to-RTR-A
+  device: rtr-b
+  duplex: null
+  encapsulation: null
+  id: rtr-b::GigabitEthernet0/0
+  ip: 10.1.0.2/30
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 172.16.20.1
+    prefix: 24
+  admin_status: up
+  description: SITE-B-LAN
+  device: rtr-b
+  duplex: null
+  encapsulation: null
+  id: rtr-b::GigabitEthernet0/1
+  ip: 172.16.20.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 100.1.1.1
+    prefix: 24
+  admin_status: up
+  description: CORE-LINK-to-CORE-IOS
+  device: rtr-b
+  duplex: null
+  encapsulation: null
+  id: rtr-b::GigabitEthernet0/2
+  ip: 100.1.1.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/2
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null

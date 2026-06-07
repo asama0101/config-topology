@@ -1,0 +1,15 @@
+bgp:
+- af: v4
+  device: rtr-a
+  local_as: 65010
+  local_ip: 10.1.0.1
+  neighbor_ip: 10.1.0.2
+  peer_as: 65020
+  type: ebgp
+- af: v4
+  device: rtr-b
+  local_as: 65020
+  local_ip: 10.1.0.2
+  neighbor_ip: 10.1.0.1
+  peer_as: 65010
+  type: ebgp

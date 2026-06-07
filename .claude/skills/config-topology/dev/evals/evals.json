@@ -1,0 +1,131 @@
+{
+  "skill_name": "config-topology",
+  "evals": [
+    {
+      "id": 0,
+      "name": "ebgp-p2p",
+      "prompt": "添付した2台のCiscoルータのconfig（rA.cfg, rB.cfg）から、ネットワーク構成図を作ってほしい。中間の層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と、ブラウザで見られるインタラクティブな HTML 構成図の両方が欲しい。機器間のリンクやBGPの対向関係が分かるようにして。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=2(RTR-A/RTR-B, AS 65010/65020)。10.1.0.0/30 で1本のlink。bgp は両機器 ebgp、local_ip/neighbor_ip 解決済み。loopback/LAN はスタブ。static デフォルトルートあり。HTMLは自己完結でズーム/パン可。",
+      "files": ["evals/inputs/ebgp-p2p/rA.cfg", "evals/inputs/ebgp-p2p/rB.cfg"],
+      "assertions": [
+        "devices レイヤに2台が存在する（RTR-A=AS65010, RTR-B=AS65020）",
+        "physical に 10.1.0.0/30 の p2p link が1本ある",
+        "routing.bgp が両機器とも eBGP（65010↔65020）で local_ip/neighbor_ip が解決済み",
+        "loopback / LAN はリンク化されずスタブである",
+        "static にデフォルトルート(0.0.0.0/0)がある",
+        "HTML 構成図は外部リソース参照を持たず自己完結し、ズーム/パンできる"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "cross-vendor-ospf",
+      "prompt": "Cisco の config（iosC.cfg）と Juniper の config（junosD.conf、set形式）が混在しています。この2台のネットワーク構成図を1枚にまとめて作成してください。OSPFで繋がっているはずなので、機器間のリンクが見えるようにお願いします。層別YAML（./topology/）と HTML 図をください。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=2(CORE-IOS=cisco_ios, EDGE-JUNOS=juniper_junos)。10.2.0.0/30 でクロスベンダーのlink 1本。ospf オーバーレイあり。HTMLは自己完結。",
+      "files": ["evals/inputs/cross-vendor-ospf/iosC.cfg", "evals/inputs/cross-vendor-ospf/junosD.conf"],
+      "assertions": [
+        "devices レイヤに2台が存在する（CORE-IOS=cisco_ios, EDGE-JUNOS=juniper_junos）",
+        "physical に 10.2.0.0/30 のクロスベンダー link が1本ある",
+        "routing.ospf のオーバーレイ（OSPF 隣接/ネットワーク）が存在する",
+        "HTML 構成図は外部リソース参照を持たず自己完結している"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "segment-static",
+      "prompt": "同じ L2 セグメント（192.168.100.0/24）に3台のルータがぶら下がっている構成です（sw-r1/sw-r2/sw-r3）。configから構成図を起こしてください。3台が共有メディアで繋がっていることと、互いのループバック宛 static ルートが分かるようにしたいです。層別YAML（./topology/）と インタラクティブHTMLをお願いします。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=3。192.168.100.0/24 を共有する segment ノードが1つ生成され、3台のIFが接続。各機器に loopback宛の static ルート2本ずつ。point-to-point link ではなく segment になっていること。HTMLは自己完結。",
+      "files": ["evals/inputs/segment-static/sw-r1.cfg", "evals/inputs/segment-static/sw-r2.cfg", "evals/inputs/segment-static/sw-r3.cfg"],
+      "assertions": [
+        "devices レイヤに3台が存在する",
+        "192.168.100.0/24 を共有する segment ノードが1つ生成され、3台のIFが接続している",
+        "p2p link ではなく segment として表現されている",
+        "各機器に他2台の loopback 宛 static ルートが2本ずつある",
+        "HTML 構成図は外部リソース参照を持たず自己完結している"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "multi-as-area",
+      "prompt": "7台構成のネットワークです（core1/core2/edge1/cust1/cust2/acc1/acc2）。Cisco IOS 6台と Juniper JunOS（set形式）1台（cust2）が混在し、iBGP/eBGP の複数AS（65000/65100/65200）と OSPF の複数エリア（area0 バックボーンと area1 アクセス）、さらに 192.168.50.0/24 の共有L2セグメントが含まれます。これらの config からネットワーク構成図を作ってください。中間の層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と、ブラウザで見られるインタラクティブな HTML 構成図の両方が欲しいです。機器間リンク・共有セグメント・AS境界（iBGP/eBGP）・OSPFエリアが分かるようにしてください。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=7（cisco_ios×6, juniper_junos×1=cust2）。192.168.50.0/24 は3メンバ（core1/acc1/acc2）の segment ノード。p2p link は4本（core1-core2, core1-edge1, edge1-cust1, core2-cust2）。bgp は AS65000 内 iBGP 3機（core1/core2/edge1）と eBGP（core2-cust2=65000/65200, edge1-cust1=65000/65100）。ospf は area0（core1/core2/edge1）と area1（core1/acc1/acc2）で core1 はマルチエリア。static は acc1/acc2 の相互 loopback ルート。HTMLは自己完結でズーム/パン可、AS枠とOSPF area が見える。",
+      "files": [
+        "evals/inputs/multi-as-area/core1.cfg",
+        "evals/inputs/multi-as-area/core2.cfg",
+        "evals/inputs/multi-as-area/edge1.cfg",
+        "evals/inputs/multi-as-area/cust1.cfg",
+        "evals/inputs/multi-as-area/cust2.conf",
+        "evals/inputs/multi-as-area/acc1.cfg",
+        "evals/inputs/multi-as-area/acc2.cfg"
+      ],
+      "assertions": [
+        "devices レイヤに7台が存在する（hostname: CORE1/CORE2/EDGE1/CUST1/CUST2/ACC1/ACC2）",
+        "vendor は cisco_ios が6台、juniper_junos が1台（CUST2）である",
+        "segment が1つ生成され、subnet が 192.168.50.0/24、members が3つ（core1/acc1/acc2 の各1IF）である",
+        "physical の p2p link がちょうど4本で、subnet が 10.0.0.0/30・10.0.1.0/30・10.1.0.0/30・10.2.0.0/30 である",
+        "routing.bgp に type=ibgp のエントリが3つあり、いずれも local_as=65000（core1/core2/edge1）である",
+        "routing.bgp に eBGP ピアとして 65000/65200（core2-cust2）と 65000/65100（edge1-cust1）の関係が存在する",
+        "routing.ospf に area 0 と area 1 の両方が存在する",
+        "core1 が OSPF で area 0（10.0.0.0/30, 10.0.1.0/30）と area 1（192.168.50.0/24）の両方に属する（マルチエリア）",
+        "routing.static に acc1→10.255.3.2/32(next-hop 192.168.50.3) と acc2→10.255.3.1/32(next-hop 192.168.50.2) の相互 loopback ルートがある",
+        "HTML 構成図は外部リソース参照を持たず自己完結している",
+        "HTML に7台すべてのノードが描画されている",
+        "HTML に AS65000・AS65100・AS65200 の3つの AS 枠が表示される",
+        "HTML の OSPF 表示に Area 0 と Area 1 が現れる"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "rich-if",
+      "prompt": "Cisco IOS のスイッチ（sw1.cfg）と Juniper JunOS のスイッチ（sw2.conf、set形式）の2台です。各インターフェースに description / MTU / speed/duplex / switchport(アクセス/トランク・VLAN) / shutdown などの運用属性が設定されています。この config から構成図を作り、さらに各IFの運用属性（status・MTU・VLAN など）を横断で確認できるIF棚卸し（インターフェース一覧）も見たいです。未使用っぽいIF（IPなし＆down）も分かるとうれしい。層別YAML（./topology/）とインタラクティブHTMLをください。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=2（SW1=cisco_ios, SW2=juniper_junos）。各IFに admin_status（SW1 Gi0/3=shutdown→down, SW2 ge-0/0/3=disable→down）・mtu（Gi0/0/ge-0/0/0=9000）・speed/duplex・switchport(Gi0/1=access vlan10, Gi0/2=trunk)・description が反映。10.0.1.0/30 で SW1↔SW2 の L3リンク1本。HTMLに「IF一覧(ifinv)」タブがあり、全IF横断表＋status集計＋未使用候補抽出＋検索/ソートができる。自己完結。",
+      "files": ["evals/inputs/rich-if/sw1.cfg", "evals/inputs/rich-if/sw2.conf"],
+      "assertions": [
+        "devices レイヤに2台が存在する（hostname: SW1/SW2）",
+        "vendor は SW1=cisco_ios, SW2=juniper_junos である",
+        "SW1 Gi0/3 と SW2 ge-0/0/3 の admin_status が down（shutdown/disable 由来）である",
+        "MTU が反映されている（SW1 Gi0/0=9000, SW2 ge-0/0/0=9000）",
+        "switchport/VLAN が反映されている（SW1 Gi0/1=access vlan10, Gi0/2=trunk）",
+        "physical に 10.0.1.0/30 の SW1↔SW2 L3リンクが1本ある",
+        "HTML に IF一覧(ifinv) タブが存在し、全機器のIFを横断する表が描画される",
+        "IF一覧に status 集計（up/down 等の件数）が表示される",
+        "IF一覧で未使用候補（IPなし&down系。例: SW1 Gi0/3）が data-unused で識別される",
+        "HTML 構成図は外部リソース参照を持たず自己完結している"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "dualstack",
+      "prompt": "IPv4 と IPv6 を併記した dual-stack 構成の Cisco（r1.cfg）と Juniper（r2.conf、set形式）の2台です。v4 と v6 の両方のサブネット一致で機器間リンクが見えるようにしてください。リンクローカル（fe80::）は結線に使わないでほしいです。secondary な v4 アドレスや、v6 のみのリンクも含まれます。層別YAML（./topology/）とインタラクティブHTMLをください。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=2（DS-R1, DS-R2）。各 interface は addresses:[{af,ip,prefix,...}] を持ち v4/v6 併記。10.0.0.0/30(v4) と 2001:db8:1::/127(v6) は同一IF間の dual-stack リンクで、図では1本に統合表示。2001:db8:3::/127(v6) は v6-only リンク1本。fe80:: は結線対象外。secondary 10.0.0.4/30 も addresses に保持。HTMLは自己完結で、リンクの hover/title に v4/v6 両 subnet が出る。",
+      "files": ["evals/inputs/dualstack/r1.cfg", "evals/inputs/dualstack/r2.conf"],
+      "assertions": [
+        "devices レイヤに2台が存在する（hostname: DS-R1/DS-R2）",
+        "interface が addresses リストで v4 と v6 の両方のアドレスを保持している",
+        "DS-R1↔DS-R2 の dual-stack リンクで v4(10.0.0.0/30) と v6(2001:db8:1::/127) の両サブネットが結線されている",
+        "v6-only リンク 2001:db8:3::/127 が physical に1本ある",
+        "link-local fe80:: は結線（link/segment）に使われていない",
+        "secondary な v4 アドレス 10.0.0.4/30 が addresses に保持されている",
+        "図上で dual-stack リンクが1本に統合され、title/hover に v4/v6 両サブネットが併記される",
+        "HTML 構成図は外部リソース参照を持たず自己完結している"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "v6routing",
+      "prompt": "IPv6 のルーティングを含む dual-stack 2台構成です。Cisco（iosR.cfg）は OSPFv3（area 0 と area 1 のマルチエリア）・BGP の IPv6 アドレスファミリ（iBGP と eBGP）・IPv6 static デフォルトルートを持ち、Juniper（junosR.conf、set形式）は ospf3 area0・v6 の eBGP・inet6 static を持ちます。これらの config から構成図を作り、IPv6 の OSPFv3 隣接・BGP v6 セッション・IPv6 static 経路が図と表で分かるようにしてください。層別YAML（./topology/）とインタラクティブHTMLをください。",
+      "expected_output": "層別YAML（./topology/ 配下の _meta/devices/physical/routing.*）と ./topology.html。devices=2（IOS-R1, JUNOS-R1）。routing.ospf に af=v6 の OSPFv3 area 0（と IOS-R1 の area 1）。IOS-R1 はマルチエリア。routing.bgp に v6 BGP: iBGP(AS65100, 2001:db8:2::0) と eBGP(AS65200, 2001:db8:1::0/v6 neighbor)。routing.static に af=v6 の ::/0 ルート（IOS-R1/JUNOS-R1 双方）。HTMLは自己完結で、BGP/OSPF ビューに v6 セッション/隣接が出て、Part1 のマーキング（行↔図双方向）が v6 でも効く。",
+      "files": ["evals/inputs/v6routing/iosR.cfg", "evals/inputs/v6routing/junosR.conf"],
+      "assertions": [
+        "devices レイヤに2台が存在する（hostname: IOS-R1/JUNOS-R1）",
+        "routing.ospf に af=v6（OSPFv3）の area 0 エントリが存在する",
+        "IOS-R1 が OSPFv3 で area 0 と area 1 の両方に属する（マルチエリア v6）",
+        "routing.bgp に v6 の iBGP（local_as=65100, neighbor 2001:db8:2::0）が存在する",
+        "routing.bgp に v6 の eBGP（65100↔65200, neighbor 2001:db8:1::*）が存在する",
+        "routing.static に af=v6 の ::/0（デフォルト）ルートが存在する",
+        "HTML の BGP ビューに v6 の BGP セッションが表示される",
+        "HTML の OSPF ビューに OSPFv3（area 0/area 1）が表示される",
+        "HTML 構成図は外部リソース参照を持たず自己完結している"
+      ]
+    }
+  ]
+}

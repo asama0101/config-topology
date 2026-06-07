@@ -1,0 +1,23 @@
+# 生成物（ホスト直下のみ・ルート相対で限定。dev/examples/topology/ を誤除外しないこと）
+/topology.html
+/topology/
+/history/
+# eval 成果物（評価ワークスペース・レビューHTML）
+# ルート直下だけでなく、スキル配下 (.claude/skills/*/eval-workspace/) も除外する。
+/eval-workspace/
+eval-workspace/
+/eval-review.html
+# 入力（機密を含みうる）
+/workspace/*
+!/workspace/.gitkeep
+# 任意の venv（必須でない）
+/.venv/
+# Python キャッシュ
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+# Jupyter 自動保存の残骸
+.ipynb_checkpoints/
+# 一時チェック/検証スクリプト（開発中のみ使用、リポジトリには含めない）
+.claude/skills/config-topology/dev/_*.py

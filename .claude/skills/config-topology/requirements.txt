@@ -1,0 +1,4 @@
+# config-topology 依存パッケージ
+# 中間表現（レイヤー別 YAML 正本）の読み書きに使用。lib/topology_io.py は
+# yaml.safe_load / yaml.safe_dump のみ使用する（任意オブジェクト復元は行わない）。
+PyYAML>=6.0
