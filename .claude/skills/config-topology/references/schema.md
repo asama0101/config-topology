@@ -69,7 +69,7 @@ topology/
 | `ip` | string \| null | `"a.b.c.d/prefixlen"`（CIDR 正規化済み）。IP 未設定 IF は null |
 | `vlan` | int \| null | access/SVI の VLAN（v1 では基本 null。L2 は将来拡張） |
 | `description` | string \| null | IF の description |
-| `shutdown` | bool | 管理停止状態。`true` のIFは結線推論から除外する |
+| `shutdown` | bool | 管理停止状態。`true` のIFも結線推論には含めるが、対向と結ぶリンクは `links[].admin_down=true`（グレー破線）として推論される。対向の無いスタブはリンク化しない |
 | `admin_status` | string \| null | **Phase 2D** 管理状態。`"up"` / `"down"`。`shutdown` 由来（IOS: shutdown文、JunOS: disable）。設定由来が取れない場合は null |
 | `oper_status` | string \| null | **Phase 2D** 運用状態。config から取得不可のため現状常に null（将来 SNMP 連携等で up/down 受け入れ予定） |
 | `mtu` | int \| null | **Phase 2D** MTU 値（バイト）。config に `mtu` 行がなければ null |
@@ -90,8 +90,9 @@ topology/
 | `a_if` / `b_if` | string | 端点 IF 名 |
 | `subnet` | string | 共有サブネット CIDR（IPv4 例 `10.0.0.0/30`、IPv6 例 `2001:db8:1::/127`）。IPv4 または IPv6 CIDR どちらも取り得る |
 | `kind` | string | 結線の由来。初版は常に `"inferred-subnet"` |
-| `ospf_area` | string \| null | **任意**。OSPF 参加リンクの area 番号。両端が同一 area なら単一値（例 `"0"`）。両端で異なる場合は昇順スラッシュ区切り（例 `"0/1"`）。OSPF 非参加リンクには付かない（フィールド欠如）。 |
-| `ospf_network` | string \| null | **任意**。`ospf_area` が付くリンクの subnet CIDR（`subnet` フィールドと同値）。OSPF 非参加リンクには付かない（フィールド欠如）。 |
+| `admin_down` | bool | **任意**。`true` のとき、片端または両端の IF が `shutdown` 状態のリンク（グレー破線で表示）。両端 up のリンクには付かない（フィールド欠如）。`admin_down=true` のリンクには `ospf_area` / `ospf_network` を付けない（shutdown IF は OSPF 隣接を張れないため）。 |
+| `ospf_area` | string \| null | **任意**。OSPF 参加リンクの area 番号。両端が同一 area なら単一値（例 `"0"`）。両端で異なる場合は昇順スラッシュ区切り（例 `"0/1"`）。OSPF 非参加リンクおよび `admin_down=true` リンクには付かない（フィールド欠如）。 |
+| `ospf_network` | string \| null | **任意**。`ospf_area` が付くリンクの subnet CIDR（`subnet` フィールドと同値）。OSPF 非参加リンクおよび `admin_down=true` リンクには付かない（フィールド欠如）。 |
 
 `links` には `id` を設けない（`segments` とは異なる）。リンクは `(subnet, a_device, a_if, b_device, b_if)` の複合キーで一意に定まるため。将来 CDP/LLDP 由来の結線を混在させる際は `kind` で由来を区別する。
 

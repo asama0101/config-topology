@@ -13861,21 +13861,27 @@ def test_p2_ifinv_row_click_calls_toggle_if_chip_highlight(rendered_html):
 
 @pytest.mark.unit
 def test_p2_ibgp_row_has_loopback_iface_id():
-    """#1-G: iBGP セッション行に data-loopback-iface-id 属性が付いている（解決可能ケース）。"""
+    """#1-G: iBGP セッション行に data-iface-id 属性が付いている（解決可能ケース）。
+
+    仕様変更: BGP 行の IF 連動属性を data-loopback-iface-id から data-iface-id に統一。
+    iBGP/eBGP 問わず source IF の iface_id を data-iface-id として付与する。
+    """
     from lib.rendering import render
     html = render(_make_ibgp_loopback_topology())
-    # BGP Sessions の tr[data-bgp-id] に data-loopback-iface-id が付いていること
-    # r1 の iBGP 行に r1::Loopback0 の iface-id が解決されること
-    assert 'data-loopback-iface-id="r1::Loopback0"' in html, \
-        "iBGP 行（r1）に data-loopback-iface-id=\"r1::Loopback0\" が付いていない"
+    # BGP Sessions の tr に data-iface-id="r1::Loopback0" が付いていること
+    assert 'data-iface-id="r1::Loopback0"' in html, \
+        "iBGP 行（r1）に data-iface-id=\"r1::Loopback0\" が付いていない"
 
 @pytest.mark.unit
 def test_p2_ibgp_row_loopback_iface_id_r2():
-    """#1-G2: r2 の iBGP 行にも data-loopback-iface-id が付く。"""
+    """#1-G2: r2 の iBGP 行にも data-iface-id が付く。
+
+    仕様変更: data-loopback-iface-id → data-iface-id に統一。
+    """
     from lib.rendering import render
     html = render(_make_ibgp_loopback_topology())
-    assert 'data-loopback-iface-id="r2::Loopback0"' in html, \
-        "iBGP 行（r2）に data-loopback-iface-id=\"r2::Loopback0\" が付いていない"
+    assert 'data-iface-id="r2::Loopback0"' in html, \
+        "iBGP 行（r2）に data-iface-id=\"r2::Loopback0\" が付いていない"
 
 # ---------------------------------------------------------------------------
 # #1-H: eBGP 行には data-loopback-iface-id が付かない（非回帰）

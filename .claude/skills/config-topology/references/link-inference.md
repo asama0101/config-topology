@@ -3,12 +3,14 @@
 正規化済みの全機器・全 IF から、topology dict（→ レイヤー別 YAML 正本）の `links` / `segments` / `routing` を組み立てる。Config 以外の入力（CDP/LLDP 等）は v1 では使わず、**IP/サブネット一致のみ**で推論する。
 
 ## 1. サブネットによる結線
-1. 全 IF を走査し、`ip` を持ち `shutdown=False` のものだけを対象にする。
+1. 全 IF を走査し、`ip` を持つものを対象にする（`shutdown` 状態に関わらず含める）。
 2. 各 IF の `ip`（CIDR）から `ipaddress.ip_interface(ip).network` でネットワークを算出。
 3. ネットワークをキーに IF をグルーピング。
    - **メンバー 2** → `links` に 1 本（point-to-point）。`a`/`b` は device id の昇順で安定化。
-   - **メンバー ≥ 3** → `segments` に 1 ノード生成し、全メンバー IF を接続。
-   - **メンバー 1** → スタブ（リンクなし）。LAN 側 IF や Loopback はここに該当することが多い。
+     - 片端または両端が `shutdown=True` の場合は `admin_down: true` を付与（グレー破線で表示）。
+     - 両端 up の場合は `admin_down` フィールドを付けない（後方互換）。
+   - **メンバー ≥ 3** → `segments` に 1 ノード生成し、全メンバー IF（shutdown 含む）を接続。
+   - **メンバー 1** → スタブ（リンクなし）。shutdown のみのスタブも同様（リンクなし）。LAN 側 IF や Loopback はここに該当することが多い。
 4. `/30`・`/31` は典型的な P2P だが、**判定はサブネット一致で統一**しマスク長に特別扱いを設けない（メンバー数だけで links / segments を決める）。
 5. ループバック（`/32`）は単独メンバーになりスタブ扱い。
 

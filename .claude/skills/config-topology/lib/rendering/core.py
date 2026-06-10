@@ -9,7 +9,7 @@ import math
 
 from lib.rendering.cards import _device_cards
 from lib.rendering.layout import _compute_canvas
-from lib.rendering.svg import _build_ip_to_device, _esc, _make_ext_id, _make_iface_by_device, _make_link_id, _normalize_subnet
+from lib.rendering.svg import _build_bgp_source_iface_map, _build_ip_to_device, _esc, _make_ext_id, _make_iface_by_device, _make_link_id, _normalize_subnet
 from lib.rendering.template import _layer_toggles, _node_filter_ui, build_html
 from lib.rendering.views import (
     _bgp_has_external_peers,
@@ -326,7 +326,9 @@ def _build_ibgp_loopback_map(
     bgp_entries: list[dict],
     interfaces: list[dict],
 ) -> dict[tuple[str, str], str]:
-    """iBGP エントリから (device, neighbor_ip) → loopback_iface_id マップを構築する。
+    """**DEPRECATED（未使用）**: `_build_bgp_source_iface_map`（svg.py）に置換済み。削除はユーザー承認待ち。
+
+    iBGP エントリから (device, neighbor_ip) → loopback_iface_id マップを構築する。
 
     iBGP セッション（type == "ibgp"）の各エントリについて、その機器（device）の
     Loopback IF の iface_id を解決して返す。
@@ -644,9 +646,10 @@ def render(topology: dict) -> str:
     )
 
     # ---------------------------------------------------------------------------
-    # P2 #1-G: iBGP Loopback マップ（iBGP BGP 行に data-loopback-iface-id を付与するため）
+    # BGP source IF マップ（BGP 行に data-iface-id を付与しチップ連動を実現するため）
+    # eBGP/iBGP 問わず (device, neighbor_ip) → source iface_id を解決する。
     # ---------------------------------------------------------------------------
-    ibgp_loopback_map = _build_ibgp_loopback_map(
+    bgp_source_iface_map = _build_bgp_source_iface_map(
         routing.get("bgp", []),
         interfaces,
     )
@@ -667,7 +670,7 @@ def render(topology: dict) -> str:
         static_route_map=static_route_map,
         bgp_session_map=bgp_session_map,
         ospf_marking_map=ospf_marking_map,
-        ibgp_loopback_map=ibgp_loopback_map,
+        bgp_source_iface_map=bgp_source_iface_map,
         static_loopback_map=static_loopback_map,
     )
 

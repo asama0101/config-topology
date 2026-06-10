@@ -33,7 +33,12 @@ _PROJECT_ROOT = os.path.dirname(_HERE)  # バンドルルート（scripts/ の1�
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from lib.parsers.base import Device, sort_addresses as _sort_addresses_base, derive_ip_from_addresses as _derive_ip_base
+from lib.parsers.base import (
+    AF_V4 as _AF_V4,
+    Device,
+    derive_ip_from_addresses as _derive_ip_base,
+    sort_addresses as _sort_addresses_base,
+)
 
 
 # ================================================================
@@ -258,66 +263,73 @@ def _infer_links_and_segments(
 ) -> tuple[list[dict], list[dict]]:
     """サブネットによる結線推論を行い links と segments を返す。
 
-    Rules (link-inference.md 準拠, Phase 3F 拡張):
-    - shutdown=False の IF のみ対象
+    Rules (link-inference.md 準拠, Phase 3F 拡張, admin_down 拡張):
+    - shutdown=True の IF も結線グルーピングに含める（admin_down リンク生成のため）
     - Phase 3F: addresses リストの各アドレスごとにネットワークを算出してグルーピング
       - addresses が空の場合は従来の ip フィールドにフォールバック（後方互換）
       - link-local（fe80::/10 = is_link_local）は結線推論から除外
       - 同一 IF が同一 network に複数アドレスで属しても members に IF を1回のみ登録
     - ネットワーク（ip_interface.network）でグルーピング
       - メンバー 2 かつ別機器ペアが存在 → links に 1 本
-      - メンバー >= 3 → segments に 1 ノード
-      - メンバー 1 → スタブ（何もしない）
+        - 片端または両端が shutdown の場合: link に admin_down=True を付与
+        - 両端 up の場合: admin_down フィールドなし（後方互換）
+      - メンバー >= 3 → segments に 1 ノード（shutdown メンバーも含む）
+      - メンバー 1 → スタブ（shutdown でも何もしない）
     - 同一機器内の同一サブネット: 自己ループ link を作らない
 
     後方互換保証:
-      IPv4-only config（addresses なし or v4 のみ）では links/segments が従来と完全一致する。
+      両端 up の IPv4-only config では links/segments が従来と完全一致する（admin_down なし）。
     """
-    # (network_str) → list of (dev_id, if_name)
+    # (network_str) → list of (dev_id, if_name, is_shutdown)
     # 同一 IF が同一 network に重複登録されないよう set で管理
-    subnet_to_members: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    # 重複除去用: (network_str, dev_id, if_name) の集合
+    subnet_to_members: dict[str, list[tuple[str, str, bool]]] = defaultdict(list)
+    # 重複除去用: (network_str, dev_id, if_name) の集合（shutdown bool はキーに含めない）
     seen_entries: set[tuple[str, str, str]] = set()
 
     for dev, dev_id in zip(devices, device_ids):
         for iface in dev.interfaces:
-            if iface.shutdown:
-                continue
+            # shutdown=True の IF も含める（admin_down リンク生成のため）
+            is_shutdown = bool(iface.shutdown)
 
             addresses = getattr(iface, "addresses", [])
 
-            if addresses:
-                # Phase 3F: addresses から各アドレスをグルーピングに追加
-                for addr in addresses:
-                    ip_str = addr.get("ip", "")
-                    prefix = addr.get("prefix", 0)
-                    if not ip_str:
-                        continue
-                    cidr = f"{ip_str}/{prefix}"
-                    try:
-                        net = ipaddress.ip_interface(cidr).network
-                    except ValueError:
-                        continue
-                    # link-local を除外（fe80::/10 = is_link_local）
-                    if net.is_link_local:
-                        continue
-                    network_str = str(net)
-                    key = (network_str, dev_id, iface.name)
-                    if key not in seen_entries:
-                        seen_entries.add(key)
-                        subnet_to_members[network_str].append((dev_id, iface.name))
-            else:
-                # フォールバック: 旧形式（ip フィールドのみ）
+            if not addresses:
+                # フォールバック: 旧形式（ip フィールドのみ）から直接 network を計算して早期 continue
+                # ip_interface の二重生成（合成 dict → 再 parse）を排除した最適化パス
                 if iface.ip is None:
                     continue
                 try:
-                    network = str(ipaddress.ip_interface(iface.ip).network)
+                    net = ipaddress.ip_interface(iface.ip).network
                 except ValueError:
                     continue
-                key = (network, dev_id, iface.name)
+                if net.is_link_local:
+                    continue
+                network_str = str(net)
+                key = (network_str, dev_id, iface.name)
                 if key not in seen_entries:
                     seen_entries.add(key)
-                    subnet_to_members[network].append((dev_id, iface.name))
+                    subnet_to_members[network_str].append((dev_id, iface.name, is_shutdown))
+                continue
+
+            # addresses ありのパスのみ共通ループへ（link-local 除外・dedup・network 計算）
+            for addr in addresses:
+                ip_str = addr.get("ip", "")
+                prefix = addr.get("prefix", 0)
+                if not ip_str:
+                    continue
+                cidr = f"{ip_str}/{prefix}"
+                try:
+                    net = ipaddress.ip_interface(cidr).network
+                except ValueError:
+                    continue
+                # link-local を除外（fe80::/10 = is_link_local）
+                if net.is_link_local:
+                    continue
+                network_str = str(net)
+                key = (network_str, dev_id, iface.name)
+                if key not in seen_entries:
+                    seen_entries.add(key)
+                    subnet_to_members[network_str].append((dev_id, iface.name, is_shutdown))
 
     links_out: list[dict] = []
     segments_out: list[dict] = []
@@ -326,32 +338,36 @@ def _infer_links_and_segments(
         count = len(members)
 
         if count == 1:
-            # スタブ: 何もしない
+            # スタブ: shutdown でも何もしない
             continue
 
         if count == 2:
             # メンバー 2: link 候補
-            (dev_a, if_a), (dev_b, if_b) = members
+            (dev_a, if_a, shut_a), (dev_b, if_b, shut_b) = members
             if dev_a == dev_b:
                 # 同一機器 → 自己ループを作らない
                 continue
-            # a < b で安定化
+            # a < b で安定化（ソートキーは dev_id のみ。shutdown bool はキーに含めない）
             if dev_a > dev_b:
-                dev_a, if_a, dev_b, if_b = dev_b, if_b, dev_a, if_a
-            links_out.append({
+                dev_a, if_a, shut_a, dev_b, if_b, shut_b = dev_b, if_b, shut_b, dev_a, if_a, shut_a
+            link: dict = {
                 "a_device": dev_a,
                 "a_if": if_a,
                 "b_device": dev_b,
                 "b_if": if_b,
                 "subnet": network_str,
                 "kind": "inferred-subnet",
-            })
+            }
+            # 片端または両端が shutdown の場合のみ admin_down=True を付与（両端 up は付けない）
+            if shut_a or shut_b:
+                link["admin_down"] = True
+            links_out.append(link)
 
         else:
-            # メンバー >= 3: segment
+            # メンバー >= 3: segment（shutdown メンバーも含む、admin_down 概念なし）
             seg_id = "seg-" + network_str.replace(".", "_").replace("/", "_")
             member_ids = sorted(
-                f"{dev_id}::{if_name}" for dev_id, if_name in members
+                f"{dev_id}::{if_name}" for dev_id, if_name, _shut in members
             )
             segments_out.append({
                 "id": seg_id,
@@ -624,6 +640,11 @@ def _annotate_links_with_ospf_area(
     id_to_device = _make_id_to_device(devices, device_ids)
 
     for link in links:
+        # admin_down リンクには OSPF enrichment を付けない
+        # （shutdown IF は OSPF 隣接を張れないため down link が OSPF レイヤーに出ないように）
+        if link.get("admin_down"):
+            continue
+
         try:
             subnet_network = ipaddress.ip_network(link["subnet"], strict=False)
         except ValueError:
@@ -841,12 +862,20 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Build layer-split YAML topology from network config files."
+        description=(
+            "Build layer-split YAML topology from network config files. "
+            "When no paths are given, automatically scans ./workspace/ for "
+            "*.cfg, *.conf, and *.txt files in alphabetical order."
+        )
     )
     parser.add_argument(
         "paths",
         nargs="*",
-        help="Config file paths. If omitted, collects from workspace/.",
+        help=(
+            "Config file paths (*.cfg, *.conf, *.txt), directory, or glob pattern. "
+            "If omitted, automatically scans ./workspace/ for *.cfg/*.conf/*.txt "
+            "in alphabetical order."
+        ),
     )
     parser.add_argument(
         "-o",

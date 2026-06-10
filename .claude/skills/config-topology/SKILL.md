@@ -102,6 +102,33 @@ TS=$(date +%Y-%m-%d_%H%M); mkdir -p "./history/$TS"
 HTML 構成図は提示前に**サブエージェントで敵対的にクロスレビュー**する（層別 YAML(topology) と HTML を突合し、
 ノード/リンク/ルーティングの欠落・誤接続・ラベル不整合・描画崩れを洗い出す）。指摘があれば修正してから提示する。
 
+## トラブルシューティング
+
+### `[WARN] Unknown vendor, skipping: <path>` が出る
+対応ベンダーは **Cisco IOS / IOS-XE running-config** と **Juniper JunOS（set 形式）** のみ。
+`detect` が判定に失敗したファイルはスキップされる。主な原因と対処:
+- `show` コマンド出力や設定の抜粋のみ → **running-config 全文**（IOS）/ **set 形式**（JunOS）で保存し直す。
+- 別ベンダー（NX-OS / Arista 等）→ v1 はスコープ外（「拡張の指針」のベンダー追加を参照）。
+- 設定行が無い・文字化け → ファイルの中身とエンコーディング（UTF-8）を確認する。
+
+### `./workspace/` に置いたのに「config が見つからない」
+`paths` 省略時は `./workspace/` 配下の `*.cfg *.conf *.txt` だけを走査する。該当が無いと
+stderr に `[INFO]` 案内が出る（workspace が無い場合は `workspace/ not found. Place config
+files (*.cfg, *.conf, *.txt) in ...`、存在するが対象ファイル 0 件の場合は `workspace/ exists
+but no *.cfg, *.conf, or *.txt files found in ...`）。
+- ディレクトリ名・拡張子・置き場所（**ホスト cwd 直下の workspace/**）を確認する。
+- workspace を使わず、パスを直接渡してもよい:
+  `python3 "$SKILL/scripts/build_topology.py" path/to/a.cfg path/to/b.conf -o ./topology`
+
+### 層別 YAML を手編集したら「参照整合エラー」が出る
+`render_topology.py`（`topology_io.load_topology`）は device / interface ID の dangling 参照を、
+**ファイル名・フィールド・値付きの `ValueError`** で弾く。多くは device id を変えたのに参照側を
+直し忘れたケース。
+- 正しい device id 一覧は `devices.yaml` の `devices[].id`:
+  `grep "id:" ./topology/devices.yaml`
+- エラーに出た参照元（`interfaces[].device` / `physical.yaml` の `links[].a_device`・`b_device` /
+  `segments[].members[]` / `routing.*.yaml` の `device`）を、正しい id に揃える。
+
 ## スコープ（v1）
 - **対象**: 機器・IF・IP・サブネット結線（コア）＋ ルーティング（BGP / OSPF / static）。
 - **スコープ外（将来拡張）**: VLAN/L2・SVI、HSRP/VRRP・LAG/Port-channel、CDP/LLDP 由来リンク、

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import sys
 
 from .base import (
     ADMIN_DOWN, ADMIN_UP, AF_V4, AF_V6, L2, L3, SCOPE_LINK_LOCAL, SOURCE_PARSED,
@@ -78,10 +79,32 @@ def _mask_to_prefixlen(mask: str) -> int:
 
 
 def _wildcard_to_prefixlen(wildcard: str) -> int:
-    """OSPF ワイルドカードマスクを prefix 長に変換する（逆マスク）。"""
-    # ワイルドカードの各オクテットを 255 から引いてサブネットマスクを得る
+    """OSPF ワイルドカードマスクを prefix 長に変換する（逆マスク）。
+
+    不正な wildcard は ValueError を raise する:
+    - オクテット数が 4 でない
+    - 各オクテットが 0〜255 の範囲外
+    - 各オクテットが数値でない
+    """
     parts = wildcard.split(".")
-    subnet_mask = ".".join(str(255 - int(p)) for p in parts)
+    if len(parts) != 4:
+        raise ValueError(
+            f"invalid OSPF wildcard mask (expected 4 octets): {wildcard!r}"
+        )
+    octets = []
+    for p in parts:
+        try:
+            octet = int(p)
+        except ValueError:
+            raise ValueError(
+                f"invalid OSPF wildcard mask (non-numeric octet {p!r}): {wildcard!r}"
+            )
+        if not (0 <= octet <= 255):
+            raise ValueError(
+                f"invalid OSPF wildcard mask (octet {octet} out of range 0-255): {wildcard!r}"
+            )
+        octets.append(octet)
+    subnet_mask = ".".join(str(255 - o) for o in octets)
     return _mask_to_prefixlen(subnet_mask)
 
 
@@ -359,8 +382,11 @@ def parse(text: str) -> Device:
                                 network=network_cidr,
                                 area=area,
                             ))
-                    except ValueError:
-                        pass
+                    except ValueError as e:
+                        print(
+                            f"[WARN] Skipping invalid OSPF network: {addr} {wildcard} area {area} ({e})",
+                            file=sys.stderr,
+                        )
                 i += 1
             continue
 

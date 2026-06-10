@@ -90,6 +90,7 @@ def sort_addresses(addresses: list) -> list:
         try:
             ip_obj = ipaddress.ip_address(ip_str)
         except ValueError:
+            # 不正IPはソートキー上のみ sentinel(全1アドレス)へ丸めて決定的に末尾配置する。addr dict 自体は改変しない。
             ip_obj = (
                 ipaddress.ip_address("255.255.255.255") if af == AF_V4
                 else ipaddress.ip_address("ffff::ffff")

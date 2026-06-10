@@ -38,6 +38,10 @@ workspace/*.{cfg,conf,txt}
   2 = `link`、3 以上 = `segment`、1 = スタブ。link-local（fe80::/10）は結線から除外。
 - **dual-stack**: `interfaces[].addresses`（`[{af,ip,prefix,secondary?,scope?}]`）が IP の正本。
   `interfaces[].ip` は最初の非 secondary v4 から派生する後方互換フィールド。
+- **render の実体は `lib/rendering/`**（`render_topology.py` は薄い CLI）。巨大な CSS/JS 定数
+  `_CSS`/`_JS` は `assets.py`、色関数（`_as_color`/`_ospf_area_color`/`_AS_COLOR_PALETTE`）は
+  `colors.py` に分離し、`template.py`/`svg.py` が再 export（既存 import 互換）。CSS/JS や色を
+  直すときは定義元のこの2ファイルを見る。
 
 ## 不変条件（変更時に壊さないこと）
 - **決定性**: 乱数・時刻に依存せず、同一入力 → 同一の層別 YAML → 同一 HTML。

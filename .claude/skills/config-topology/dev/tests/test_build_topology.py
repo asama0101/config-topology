@@ -285,13 +285,16 @@ class TestLinkInference:
         assert result["segments"] == []
 
     @pytest.mark.unit
-    def test_shutdown_if_excluded_from_links(self):
-        """shutdown=True の IF はリンク推論から除外される。"""
+    def test_shutdown_if_creates_admin_down_link(self):
+        """shutdown=True の IF が対向 up IF と同一サブネット → admin_down=True のリンクを生成する。
+        （旧: shutdown IF はリンク推論から除外された。admin_down リンク機能追加により仕様変更。）
+        """
         d1 = make_device("R1", interfaces=[make_iface("eth0", ip="10.0.0.1/30", shutdown=True)])
         d2 = make_device("R2", interfaces=[make_iface("eth0", ip="10.0.0.2/30")])
         from scripts.build_topology import build
         result = build([d1, d2], generated_from=[])
-        assert result["links"] == []
+        assert len(result["links"]) == 1
+        assert result["links"][0].get("admin_down") is True
 
     @pytest.mark.unit
     def test_no_ip_if_excluded_from_links(self):

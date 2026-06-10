@@ -48,7 +48,21 @@ def collect_inputs(arg: str | None = None) -> list[str]:
     """
     if arg is None:
         drop_dir = os.path.join(os.getcwd(), "workspace")
-        return _collect_from_dir(drop_dir)
+        results = _collect_from_dir(drop_dir)
+        if not results:
+            if not os.path.isdir(drop_dir):
+                print(
+                    f"[INFO] workspace/ not found. Place config files (*.cfg, *.conf, *.txt)"
+                    f" in {drop_dir}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"[INFO] workspace/ exists but no *.cfg, *.conf, or *.txt files found"
+                    f" in {drop_dir}",
+                    file=sys.stderr,
+                )
+        return results
 
     if os.path.isdir(arg):
         return _collect_from_dir(arg)
@@ -93,7 +107,11 @@ def parse_paths(paths: list[str]) -> list[Device]:
 
         device = parse_text(text)
         if device is None:
-            print(f"[WARN] Unknown vendor, skipping: {path}", file=sys.stderr)
+            print(
+                f"[WARN] Unknown vendor, skipping: {path}"
+                " (supported: Cisco IOS/IOS-XE running-config, Juniper JunOS set 形式)",
+                file=sys.stderr,
+            )
             continue
 
         devices.append(device)

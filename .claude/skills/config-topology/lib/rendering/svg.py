@@ -23,6 +23,7 @@ from lib.rendering.layout import (
     _AS_GROUP_RY,
     OSPF_AREA_LABEL_FORMAT,
 )
+from lib.rendering.colors import _AS_COLOR_PALETTE, _ospf_area_color, _as_color  # noqa: F401
 
 
 # B4: 外部ピア ID プレフィックス定数（マジックナンバー "ext:" と 4 を排除）
@@ -811,8 +812,10 @@ def _svg_links(
         if b_iface_id:
             iface_attrs += f' data-b-iface="{_esc(b_iface_id)}"'
 
+        # admin_down リンクには link-down クラスを付与（グレー破線表示）
+        g_class = "link-edge link-down" if link.get("admin_down") else "link-edge"
         parts.append(
-            f'<g class="link-edge" data-subnet="{primary_subnet}" '
+            f'<g class="{g_class}" data-subnet="{primary_subnet}" '
             f'data-a="{_esc(a_dev)}" data-b="{_esc(b_dev)}" data-link-id="{link_id}"{iface_attrs}>'
             f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" '
             f'class="link-line layer-physical" data-link-id="{link_id}"/>'
@@ -1219,64 +1222,6 @@ def _svg_bgp_external_edges(
             f'</g>'
         )
     return "\n".join(parts)
-
-
-_AS_COLOR_PALETTE = [
-    # (stroke, fill_rgba)  — 6色・色覚配慮・判別しやすい固定パレット
-    # Phase 1C #5: AS番号ごとに決定的色分け（asn % len(_AS_COLOR_PALETTE) で循環）
-    # label_bg は常に stroke と同色のため 2 要素に簡素化。
-    # _as_color() 内で label_bg = stroke として展開する。
-    ("#2563eb", "rgba(219,234,254,0.35)"),   # 青系  (index 0)
-    ("#16a34a", "rgba(187,247,208,0.35)"),   # 緑系  (index 1)
-    ("#d97706", "rgba(254,243,199,0.35)"),   # 橙系  (index 2)
-    ("#9333ea", "rgba(243,232,255,0.35)"),   # 紫系  (index 3)
-    ("#0891b2", "rgba(207,250,254,0.35)"),   # 水色系 (index 4)
-    ("#dc2626", "rgba(254,226,226,0.35)"),   # 赤系  (index 5)
-]
-
-
-def _ospf_area_color(area: str | None) -> str | None:
-    """OSPF area 文字列から決定的な stroke 色を返す（area が None または "" は None）。
-
-    複合 area（"0/1"）は先頭 area の色（決定的）。数値 area は int%len で循環。
-    非数値 area（ドット記法等）は文字コード和で決定的にフォールバック。
-    呼び出し側は None のとき --area-stroke を出力せず従来色にフォールバックする。
-
-    実装メモ: 色パレットは ``_AS_COLOR_PALETTE`` を意図的に流用。AS番号と OSPF area は
-    独立した循環体系のため AS0 と area0 が同色になりうるが、これは意図的な設計。
-    ``_as_color`` は (stroke, fill_rgba, label_bg) の3要素タプルを返すが、本関数は
-    stroke のみを返す（OSPF 楕円に fill は不要なため）。
-
-    Args:
-        area: OSPF エリア文字列（例: "0", "1", "0/1", "0.0.0.1", "backbone"）。
-              None または空文字のとき None を返す。
-
-    Returns:
-        stroke 色文字列（例: "#2563eb"）。area が None または "" のとき None。
-    """
-    if not area:
-        return None
-    first = str(area).split("/")[0].strip()
-    try:
-        idx = int(first) % len(_AS_COLOR_PALETTE)
-    except (ValueError, TypeError):
-        idx = sum(ord(c) for c in first) % len(_AS_COLOR_PALETTE)
-    return _AS_COLOR_PALETTE[idx][0]  # stroke のみ
-
-
-def _as_color(asn: int) -> tuple[str, str, str]:
-    """AS番号から (stroke, fill_rgba, label_bg) 色タプルを返す（決定的・循環）。
-
-    ``asn % len(_AS_COLOR_PALETTE)`` でパレットインデックスを決定する。
-    同一 asn は常に同じ色（決定的）。asn が len を超えると循環する。
-    label_bg は stroke と同色（_AS_COLOR_PALETTE は 2 要素で管理）。
-
-    前提: asn は int（parser が int を保証する）。
-    """
-    idx = asn % len(_AS_COLOR_PALETTE)
-    stroke, fill_rgba = _AS_COLOR_PALETTE[idx]
-    label_bg = stroke  # ラベルチップ背景は枠線と同色
-    return stroke, fill_rgba, label_bg
 
 
 def _svg_bgp_as_groups(
@@ -1801,6 +1746,76 @@ def _build_ip_to_iface_id(interfaces: list[dict]) -> dict[str, str]:
             if iface.get("ip"):
                 ip_only = iface["ip"].split("/")[0]
                 result[ip_only] = iface_id
+    return result
+
+
+def _build_bgp_source_iface_map(
+    bgp_entries: list[dict],
+    interfaces: list[dict],
+) -> dict[tuple[str, str], str]:
+    """BGP エントリから (device, neighbor_ip) → source iface_id マップを構築する。
+
+    eBGP/iBGP 問わず各セッションの実際の source インタフェースを解決する。
+    本関数は chip_positions フィルタを行わないが、BGP チップ集合
+    （_build_bgp_chip_iface_ids）が同じ source/neighbor IF を含むため、
+    通常 data-iface-id と SVG の data-a-iface は一致する。
+    cards 行の data-iface-id と図の data-a-iface を対応させることが目的。
+
+    解決規則（決定的・bgp entry を (device, neighbor_ip) 昇順で処理）:
+    1. local_ip が存在し、ip_to_iface_id で解決できる → その iface_id
+    2. local_ip が None/空 → その機器の Loopback（_is_loopback、iface_id ソート先頭）
+    3. local_ip があるが解決不能 → キーを持たない（エントリをスキップ）
+
+    Args:
+        bgp_entries: routing["bgp"] のエントリリスト
+        interfaces:  topology の interfaces リスト
+
+    Returns:
+        ``{(device_id, neighbor_ip): source_iface_id}`` 辞書（安定順序）。
+        解決できないエントリはキーを持たない。
+    """
+    ip_to_iface_id = _build_ip_to_iface_id(interfaces)
+
+    # device -> Loopback iface_id リスト（iface_id ソート、local_ip=null フォールバック用）
+    dev_loopbacks: dict[str, list[str]] = {}
+    for iface in interfaces:
+        if _is_loopback(iface.get("name", "")):
+            dev_id = iface.get("device", "")
+            if dev_id:
+                dev_loopbacks.setdefault(dev_id, []).append(iface["id"])
+    for dev_id in dev_loopbacks:
+        dev_loopbacks[dev_id].sort()
+
+    result: dict[tuple[str, str], str] = {}
+    # 決定性のため (device, neighbor_ip) 昇順で処理
+    for entry in sorted(
+        bgp_entries,
+        key=lambda e: (e.get("device", ""), e.get("neighbor_ip", "")),
+    ):
+        dev_id = entry.get("device", "")
+        neighbor_ip = entry.get("neighbor_ip", "")
+        if not (dev_id and neighbor_ip):
+            continue
+
+        local_ip_raw = (entry.get("local_ip") or "").split("/")[0]
+        if local_ip_raw:
+            # local_ip あり: ip_to_iface_id で解決
+            # Phase 3H: IPv6 long-form を short-form に正規化して照合（_build_ip_to_iface_id と対称）
+            local_ip_key = local_ip_raw
+            try:
+                local_ip_key = str(ipaddress.ip_address(local_ip_raw))
+            except (ValueError, TypeError):
+                pass
+            iface_id = ip_to_iface_id.get(local_ip_key)
+            if iface_id:
+                result[(dev_id, neighbor_ip)] = iface_id
+            # 解決不能の場合はキーを持たない
+        else:
+            # local_ip なし: Loopback フォールバック（iface_id ソート先頭）
+            lbs = dev_loopbacks.get(dev_id, [])
+            if lbs:
+                result[(dev_id, neighbor_ip)] = lbs[0]
+
     return result
 
 
