@@ -11,6 +11,14 @@ def _set_l3(iface):
     iface.l2_l3 = "l3"   # L3 は switchport より優先（無条件上書き）
 
 
+def _iface_v6_network(iface):
+    """IF の最初のグローバル v6 アドレスのサブネットを返す（無ければ None）。"""
+    for a in iface.sorted_addresses():
+        if a.af == "v6" and a.scope != "link-local":
+            return norm_cidr_str("%s/%s" % (a.ip, a.prefix))
+    return None
+
+
 def _set_l2(iface):
     if iface.l2_l3 != "l3":   # L3 が既にあれば L2 にしない
         iface.l2_l3 = "l2"
@@ -95,6 +103,7 @@ def parse_ios(text, warnings):
     ospf_pid = None
     bgp_af = ["v4"]
     neighbors = {}
+    pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
 
     def finish_iface():
         nonlocal cur
@@ -162,11 +171,17 @@ def parse_ios(text, warnings):
             continue
 
         if context == "interface" and cur is not None:
-            _parse_iface_line(cur, s, warnings)
+            m = re.match(r"^ipv6 ospf\s+(\d+)\s+area\s+(\S+)", s)
+            if m:
+                pending_ospf3.append((cur, int(m.group(1)), norm_ospf_area(m.group(2))))
+            else:
+                _parse_iface_line(cur, s, warnings)
         elif context == "bgp":
             if s.startswith("address-family ipv6"):
                 bgp_af[0] = "v6"
             elif s.startswith("address-family ipv4"):
+                bgp_af[0] = "v4"
+            elif s == "exit-address-family":
                 bgp_af[0] = "v4"
             else:
                 _parse_bgp_line(dev, s, bgp_af, neighbors, warnings)
@@ -174,6 +189,9 @@ def parse_ios(text, warnings):
             _parse_ospf_line(dev, s, ospf_pid, warnings)
 
     finish_iface()
+    for iface, pid, area in pending_ospf3:
+        network = _iface_v6_network(iface) or iface.name
+        dev.ospf.append(OspfNetwork(pid, network, area, "v6"))
     return dev
 
 

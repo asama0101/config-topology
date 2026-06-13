@@ -157,3 +157,32 @@ def test_bad_line_warns_not_crash():
     dev, warnings = _parse(text)
     assert dev.interfaces[0].addresses == []
     assert len(warnings) >= 1
+
+
+def test_ipv6_ospf_interface_block_v6_subnet():
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address 2001:db8:5::1/64\n"
+            " ipv6 ospf 1 area 0\n!\n")
+    dev, _ = _parse(text)
+    o = [x for x in dev.ospf if x.af == "v6"]
+    assert len(o) == 1
+    assert (o[0].process, o[0].network, o[0].area, o[0].af) == (1, "2001:db8:5::/64", "0", "v6")
+
+
+def test_ipv6_ospf_interface_block_fallback_ifname():
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 ospf 1 area 0.0.0.1\n!\n")
+    dev, _ = _parse(text)
+    o = [x for x in dev.ospf if x.af == "v6"]
+    assert len(o) == 1
+    assert (o[0].process, o[0].network, o[0].area, o[0].af) == (1, "GigabitEthernet0/0", "1", "v6")
+
+
+def test_ipv6_ospf_decl_before_address_resolves():
+    # ipv6 ospf 行が ipv6 address より前でも IF サブネットを解決できる
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 ospf 1 area 0\n"
+            " ipv6 address 2001:db8:9::1/64\n!\n")
+    dev, _ = _parse(text)
+    o = [x for x in dev.ospf if x.af == "v6"]
+    assert o[0].network == "2001:db8:9::/64"
