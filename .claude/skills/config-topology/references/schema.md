@@ -187,3 +187,36 @@ network 宣言 1 件につき 1 エントリ。
 
 `build_data()` は `"checks": build_checks(topo, links=links)` を返り値に追加するため、
 埋め込み `DATA.checks` として HTML に含まれ、ブラウザ側の `renderChecksView()` が描画する。
+
+---
+
+## diff ツール出力構造（独立ツール・HTML とは別）
+
+`lib/diff.diff_topology(old, new)` が返す構造化 diff。**render 層 DATA とは独立**したツール出力であり、
+層別 YAML を読み込んだ topology dict を直接比較する（`load_topology` を通す）。
+
+### セクション別キーと比較フィールド
+
+| セクション（dict キー） | 自然キー（識別子） | changed で比較するフィールド |
+|---|---|---|
+| `devices` | `id` | `hostname`, `vendor`, `as`, `ospf_router_id`, `bgp_router_id` |
+| `interfaces` | `id` | `description`, `shutdown`, `mtu`, `speed`, `addresses`, `ospf` |
+| `links` | `(subnet, a_device, a_if, b_device, b_if)` ※端点は辞書順で安定化 | added/removed のみ（changed なし） |
+| `segments` | `id` | `members`（集合比較） |
+| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source` |
+| `routing_ospf` | `(device, network, af)` | `process`, `area`, `area_type` |
+| `routing_static` | `(device, prefix, af)` | `next_hop` |
+
+各セクションは `{"added": [...], "removed": [...], "changed": [...]}` を返す。
+全リストはキー昇順ソートで決定的。同一入力→空 diff。
+
+### CLI
+
+```bash
+python3 "$SKILL/scripts/diff_topology.py" old_topology/ new_topology/
+python3 "$SKILL/scripts/diff_topology.py" old_topology/ new_topology/ -o diff_report.md
+```
+
+- 引数: `old_dir`, `new_dir`（層別 YAML ディレクトリ）、`-o/--output`（省略時 stdout）。
+- 終了コード: 常に 0（差分あり/なし問わずレポート生成は成功。エラー時のみ 1）。
+- 出力: Markdown 形式のレポート（見出し・件数サマリ `+N -M ~K`・added(+)/removed(-)/changed(~) 行）。

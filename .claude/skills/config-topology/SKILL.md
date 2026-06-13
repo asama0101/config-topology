@@ -103,6 +103,23 @@ python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html
 HTML 構成図は提示前に**サブエージェントで敵対的にクロスレビュー**する（層別 YAML(topology) と HTML を突合し、
 ノード/リンク/ルーティングの欠落・誤接続・ラベル不整合・描画崩れを洗い出す）。指摘があれば修正してから提示する。
 
+## 差分レポート（2 つの topology を比較）
+
+2 時点の層別 YAML（`topology/` ディレクトリ）を比較し、Markdown レポートを出力する。
+`diff_topology.py` は `load_topology` を使うため参照整合検証付き。
+
+```bash
+# stdout に出力
+python3 "$SKILL/scripts/diff_topology.py" topology-old/ topology-new/
+
+# ファイルに保存
+python3 "$SKILL/scripts/diff_topology.py" topology-old/ topology-new/ -o diff_report.md
+```
+
+レポートには各セクション（devices / interfaces / links / segments / routing_bgp / routing_ospf / routing_static）の
+件数サマリ `+N -M ~K` と added(+)/removed(-)/changed(~) 行が含まれる。差分ゼロなら「差分なし」を明示。
+**決定性**: 時刻・乱数に依存せず、同一入力→同一レポート。
+
 ## トラブルシューティング
 
 ### `[WARN] <name>: skipped (unknown vendor)` が出る

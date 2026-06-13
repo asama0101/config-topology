@@ -1007,13 +1007,14 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 
 ### 10.1 コマンド構成
 
-パイプラインの各層に対応する 3 つの CLI を提供する：
+パイプラインの各層に対応する 3 つの CLI と、独立した差分ツール（パイプライン外）の計 4 つの CLI を提供する：
 
 | コマンド | 役割 | 引数 |
 |---------|------|------|
 | `parse_configs.py` | 正規化 Device リストの JSON 出力（デバッグ・ベンダー判定確認用） | `[paths...]` |
 | `build_topology.py` | パース＋推論を実行し層別 YAML を生成 | `[paths...] [-o DIR]` |
 | `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE]` |
+| `diff_topology.py` | 2 つの層別 YAML を比較し差分レポート（Markdown）を生成（§10.4・パイプライン外の独立ツール） | `<old_dir> <new_dir> [-o FILE]` |
 
 **共通の入力解決**（parse / build）:
 - `paths` はファイル・ディレクトリ・glob パターンを受け付ける。ディレクトリは `*.cfg *.conf *.txt` を名前順で走査。重複パスは 1 回のみ処理。
@@ -1047,7 +1048,35 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - 退避を行った場合は、退避先パスを stderr に出力する。
 - 決定性不変条件（§9.1）は成果物の内容に適用され、退避ディレクトリ名は対象外。
 
-### 10.4 実行サマリー（v2.0 新設）
+### 10.4 diff CLI（diff_topology.py）
+
+2 つの層別 YAML ディレクトリを比較し、Markdown 差分レポートを出力する独立ツール。
+既存パイプライン（parse / build / render）に変更を加えない加算的拡張。
+
+| 項目 | 仕様 |
+|------|------|
+| 入力 | `old_dir`, `new_dir`（層別 YAML ディレクトリ。`load_topology` で読込・参照整合検証付き） |
+| 出力 | Markdown レポート（stdout または `-o FILE`） |
+| 終了コード | 常に 0（差分あり/なし問わず。エラー時のみ 1） |
+| 決定性 | 時刻・乱数に依存しない。同一入力→同一レポート（§9.1 決定性不変条件と同様） |
+
+**セクション別比較**:
+
+| セクション | 自然キー | changed 比較フィールド |
+|---|---|---|
+| `devices` | `id` | `hostname`, `vendor`, `as`, `ospf_router_id`, `bgp_router_id` |
+| `interfaces` | `id` | `description`, `shutdown`, `mtu`, `speed`, `addresses`, `ospf` |
+| `links` | `(subnet, a_device, a_if, b_device, b_if)` | added/removed のみ |
+| `segments` | `id` | `members`（集合比較） |
+| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source` |
+| `routing_ospf` | `(device, network, af)` | `process`, `area`, `area_type` |
+| `routing_static` | `(device, prefix, af)` | `next_hop` |
+
+diff dict のセクションキーはアンダースコア区切り（`routing_bgp`/`routing_ospf`/`routing_static`）。自然キーは一意前提（重複時は先勝ち）。
+
+差分ゼロ時は「差分なし」を明示。全リストはキー昇順ソートで決定的。
+
+### 10.5 実行サマリー（v2.0 新設）
 
 `build_topology.py` は処理完了時、以下のサマリーを stderr に出力する：
 

@@ -40,7 +40,8 @@
 ### D. 業務支援機能
 - [x] D1 構成統計ダッシュボード（機器/IF/AS別/area別/リンク種別/dual-stack率/BGP/OSPF集計の新ビュー）— M ✅反復1完了
 - [x] D2 設計検証警告の集約パネル（重複IP・MTU不一致・未解決BGP local_ip・dangling next_hop）— M ✅反復3完了
-- [ ] D3 前回トポロジー差分レポート（history/ 旧YAML と現YAML を時刻非依存で diff）— L（D1後）
+- [x] D3 トポロジー差分レポート（コア: lib/diff.py + scripts/diff_topology.py）— M ✅反復8完了（HTML表示は D3b に分割）
+- [ ] D3b 差分の HTML 表示／history 自動連携（前回成果物との差分をビュー化）— M
 - [ ] D4 IPアドレス計画/サブネット使用率ビュー — M（D1後）
 
 ## 推奨順序
@@ -106,6 +107,14 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: schema.md・vendor-parsing.md・requirements.md §6.1/§6.2 を同期（IOS v4スコープ・ospf3 totally系反映）。
 - テスト 398→435 passed（+37）。golden byte 不変・render 決定性維持。
 
-### 観点カバレッジ: A=A1 / B=B1 / C=C2,C1,C3 / D=D1,D2 — 4観点すべて着手済み。
-### 次候補: 反復8 D4 サブネット使用率ビュー（render・観点D 業務支援）/ A2 リンクラベル重なり回避（layout/JS・観点A）/ B2 表ビュー列フィルタ（render・観点B）/ C4 BGP timers/RR-client（parser・観点C）。観点バランスでは D4 か A2。D4 は IPAM 的価値が高く data_transform で強TDD可能なので推奨。
-推奨順序の残り目安: D4 → A2 → B2 → C4 → A1b → D3 → C5 → C1b → 残り。
+### 反復8: D3 トポロジー差分レポート（コア）— ✅完了（2026-06-14）
+- 新規 `lib/diff.py`（純粋 diff エンジン `diff_topology`/`format_diff_report`）＋ `scripts/diff_topology.py`（決定的 Markdown レポート CLI、4本目）。既存コード無変更・パイプライン外の独立ツール。
+- 7セクション（devices/interfaces/links/segments/routing_bgp/ospf/static）の added/removed/changed。時刻・乱数非依存で本文決定的。
+- レビュー対応: CLI の YAMLError 捕捉、_diff_devices 死蔵コード除去＋first-wins ヘルパ DRY、addresses 順序 false-positive 排除、重複キー決定化、意図的スキップの docstring＋ネガティブテスト、弱アサーション強化、機密注意 WARN。
+- doc: SKILL.md・schema.md・requirements.md §10.1/§10.4・CLAUDE.md（開発コマンド/独立ツール注記）を同期。
+- テスト 435→512 passed（+77）。golden/既存 e2e 無影響。
+- 注: D4(サブネット使用率)は既存 ADDRESSES 表(IPAM風・使用率付き)と重複するため見送り、高価値・重複なしの D3 を優先した。
+
+### 観点カバレッジ: A=A1 / B=B1 / C=C2,C1,C3 / D=D1,D2,D3 — 4観点すべて着手済み。
+### 次候補: 反復9 A2 リンクラベル重なり回避（layout/JS・観点A 視認性）/ C4 BGP timers/next-hop-self/RR-client/community（parser・観点C 強TDD）/ B2 表ビュー列フィルタ（render・観点B）/ D3b 差分HTML表示。観点バランスでは A か B。ただし A2/B2 は render-JS で弱テスト傾向→node実ロジックテストで補強する前提なら可。強TDD志向なら C4（parser）。推奨は C4 か A2。
+推奨順序の残り目安: C4 → A2 → B2 → D3b → A1b → C5 → C1b → 残り。
