@@ -1,33 +1,54 @@
-"""
-パーサ registry
+"""ベンダー判定と dispatch（要件書 §2.3）。"""
+import re
 
-parse_text(text) -> Device | None
+from .base import is_sensitive_line  # noqa: F401  (再 export)
 
-detect の特異度が高い順にパーサを試行する。
-どのパーサも detect しない場合は None を返す（クラッシュしない設計）。
-"""
-
-from __future__ import annotations
-
-from .base import Device
-from . import cisco_ios, juniper_junos
-
-# 特異度の高い順に並べる
-# JunOS は "行の過半が set " という非常に特異な特徴を持つため先に試す
-_PARSERS = [
-    juniper_junos,
-    cisco_ios,
-]
+_IOS_IF_RE = re.compile(r"^\s*interface\s+\S*Ethernet", re.IGNORECASE)
 
 
-def parse_text(text: str) -> Device | None:
-    """
-    テキストのベンダーを自動判別して Device を返す。
+def _nonempty_lines(text):
+    return [ln for ln in text.splitlines() if ln.strip()]
 
-    未知ベンダー時は None を返す（ValueError を上げない）。
-    これにより parse_configs.py が None をスキップできる。
-    """
-    for parser in _PARSERS:
-        if parser.detect(text):
-            return parser.parse(text)
+
+def _set_ratio(lines):
+    if not lines:
+        return 0.0
+    n = sum(1 for ln in lines if ln.startswith("set "))
+    return n / len(lines)
+
+
+def _has_ios_features(lines):
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("hostname "):
+            return True
+        if _IOS_IF_RE.match(ln):
+            return True
+        if s == "!":
+            return True
+    return False
+
+
+def detect_vendor(text):
+    """特異度の高い順（JunOS → IOS）に判定。未知は None（§2.3）。"""
+    lines = _nonempty_lines(text)
+    ratio = _set_ratio(lines)
+    if ratio > 0.5:                                  # JunOS: set 行が過半
+        return "juniper_junos"
+    if ratio <= 0.4 and _has_ios_features(lines):    # IOS: 40% ガードを通過し特徴行あり
+        return "cisco_ios"
+    return None
+
+
+def parse_config(text, warnings=None):
+    """ベンダー判定 → 対応パーサへ dispatch。未知は None（§2.3）。"""
+    if warnings is None:
+        warnings = []
+    vendor = detect_vendor(text)
+    if vendor == "juniper_junos":
+        from .junos import parse_junos
+        return parse_junos(text, warnings)
+    if vendor == "cisco_ios":
+        from .ios import parse_ios
+        return parse_ios(text, warnings)
     return None

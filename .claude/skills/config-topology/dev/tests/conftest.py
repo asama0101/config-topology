@@ -1,11 +1,21 @@
-"""pytest 起動時にスキルバンドルのルートを sys.path へ追加し、
-`from lib...` / `from scripts...` を解決できるようにする。
-
-<bundle>/dev/tests/ から見て ../../ がバンドルルート。
-"""
-import os
 import sys
+from pathlib import Path
 
-_SKILL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if _SKILL_ROOT not in sys.path:
-    sys.path.insert(0, _SKILL_ROOT)
+import pytest
+
+# rebuild/ をインポートパスに追加（rebuild/lib を import 可能にする）
+REBUILD_ROOT = Path(__file__).resolve().parents[2]
+if str(REBUILD_ROOT) not in sys.path:
+    sys.path.insert(0, str(REBUILD_ROOT))
+
+CONFIG_DIR = REBUILD_ROOT / "dev" / "examples" / "configs"
+
+
+@pytest.fixture
+def ios_cfg_text():
+    return (CONFIG_DIR / "sample-ios-r1.cfg").read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def junos_cfg_text():
+    return (CONFIG_DIR / "sample-junos-r2.conf").read_text(encoding="utf-8")

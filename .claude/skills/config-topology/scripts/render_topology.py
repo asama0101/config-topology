@@ -1,86 +1,51 @@
-"""
-render_topology.py — 層別 YAML topology を自己完結 HTML (SVG + vanilla JS) にレンダリングする。
-
-公開 API:
-    render(topology: dict) -> str   # 自己完結 HTML 文字列を返す
-    main()                          # CLI エントリーポイント
-
-CLI:
-    python scripts/render_topology.py <topology_dir> [-o out.html]
-    topology_dir: 層別 YAML ディレクトリ（topology_io.load_topology() で読み込む）
-    -o: 出力 HTML ファイルパス（省略時は topology_dir/topology.html）
-
-設計原則:
-- レンダリングロジック（render）は決定論的: Math.random() や時刻に依存しない
-  （CLI/IO は topology_io 経由で PyYAML に依存。render 単体は lib.rendering で完結）
-- self-contained HTML: file:// で直接開ける（外部 CDN 不使用）
-- HTML エスケープ: hostname / description 等のユーザーデータは必ずエスケープ
-- 堅牢性: 空 topology でもクラッシュしない
-"""
-
-from __future__ import annotations
-
+#!/usr/bin/env python3
+"""CLI③: 層別 YAML から自己完結 HTML を生成（要件書 §10.1・§10.2・§10.3）。"""
 import argparse
-import os
 import sys
+from pathlib import Path
 
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# ---------------------------------------------------------------------------
-# sys.path セットアップ（scripts/ を直接実行したときも import できるよう）
-# ---------------------------------------------------------------------------
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_ROOT = os.path.dirname(_HERE)  # バンドルルート（scripts/ の1階層上）
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-
-# render はライブラリ（lib.rendering）が正本。main() から使う。
-from lib.rendering import render  # noqa: E402
+from lib.topology_io import load_topology       # noqa: E402
+from lib.rendering.template import render_html   # noqa: E402
+from lib.history import retain_for_render, current_timestamp  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    """CLI エントリーポイント"""
-    from lib.topology_io import load_topology
-
-    parser = argparse.ArgumentParser(
-        description="Render layer-split YAML topology to a self-contained HTML file."
-    )
-    parser.add_argument("topology_dir", help="入力: 層別 YAML ディレクトリパス")
-    parser.add_argument(
-        "-o",
-        "--output",
-        help="出力 HTML ファイルパス（必須）",
-        default=None,
-    )
-    args = parser.parse_args()
-
-    topology_dir = args.topology_dir
-    if not os.path.isdir(topology_dir):
-        print(f"Error: ディレクトリが見つかりません: {topology_dir}", file=sys.stderr)
-        sys.exit(1)
+def main(argv=None):
+    p = argparse.ArgumentParser(description="Render layered topology YAML to a self-contained HTML.")
+    p.add_argument("topology_dir", help="層別 YAML のディレクトリ")
+    p.add_argument("-o", "--output", default="./topology.html",
+                   help="出力 HTML（既定 ./topology.html）")
+    args = p.parse_args(argv)
 
     try:
-        topology = load_topology(topology_dir)
-    except (FileNotFoundError, ValueError, yaml.YAMLError) as e:
-        print(f"Error: topology 読み込みに失敗しました: {e}", file=sys.stderr)
-        sys.exit(1)
+        topo = load_topology(args.topology_dir)
+    except ValueError as e:
+        print("[ERROR] 参照整合エラー: %s" % e, file=sys.stderr)
+        return 1
+    except OSError as e:
+        print("[ERROR] 読込失敗: %s (%s)" % (args.topology_dir, e), file=sys.stderr)
+        return 1
 
-    html_content = render(topology)
+    html = render_html(topo)
 
-    if args.output:
-        out_path = args.output
-    else:
-        out_path = os.path.join(os.path.abspath(topology_dir), "topology.html")
+    # §10.3 既存 HTML を退避（生成前）
+    retained = retain_for_render(Path(args.output), current_timestamp())
+    if retained is not None:
+        print("[INFO] 旧 HTML を退避: %s" % retained, file=sys.stderr)
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
+    try:
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(html)
+    except OSError as e:
+        print("[ERROR] 出力失敗: %s (%s)" % (args.output, e), file=sys.stderr)
+        return 1
 
-    print(f"Generated: {out_path}")
+    print("Generated: %s" % args.output)
+    print("[WARN] 生成物には config 由来の自由記述（description 等）がそのまま含まれます。"
+          "共有前に内容を確認してください。", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

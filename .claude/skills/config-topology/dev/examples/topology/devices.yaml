@@ -14,7 +14,11 @@ devices:
   sections: []
   vendor: juniper_junos
 interfaces:
-- admin_status: up
+- addresses:
+  - af: v4
+    ip: 10.0.0.1
+    prefix: 30
+  admin_status: up
   description: to-R2
   device: r1
   duplex: null
@@ -30,7 +34,11 @@ interfaces:
   speed: null
   switchport: null
   vlan: null
-- admin_status: up
+- addresses:
+  - af: v4
+    ip: 192.168.1.1
+    prefix: 24
+  admin_status: up
   description: LAN
   device: r1
   duplex: null
@@ -46,7 +54,11 @@ interfaces:
   speed: null
   switchport: null
   vlan: null
-- admin_status: up
+- addresses:
+  - af: v4
+    ip: 1.1.1.1
+    prefix: 32
+  admin_status: up
   description: null
   device: r1
   duplex: null
@@ -62,7 +74,11 @@ interfaces:
   speed: null
   switchport: null
   vlan: null
-- admin_status: up
+- addresses:
+  - af: v4
+    ip: 10.0.0.2
+    prefix: 30
+  admin_status: up
   description: to-R1
   device: r2
   duplex: null
@@ -78,7 +94,11 @@ interfaces:
   speed: null
   switchport: null
   vlan: null
-- admin_status: up
+- addresses:
+  - af: v4
+    ip: 192.168.2.1
+    prefix: 24
+  admin_status: up
   description: LAN2
   device: r2
   duplex: null
@@ -94,7 +114,11 @@ interfaces:
   speed: null
   switchport: null
   vlan: null
-- admin_status: up
+- addresses:
+  - af: v4
+    ip: 2.2.2.2
+    prefix: 32
+  admin_status: up
   description: null
   device: r2
   duplex: null

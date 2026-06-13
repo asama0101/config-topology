@@ -1,3137 +1,1964 @@
-"""
-rendering/assets.py — 静的アセット定数（CSS / JS 文字列リテラル）
+"""CSS / BODY / JS アセット定数 — design-sample.html からの移植・適応（§8.1/§8.5/§8.7）.
 
-template.py から分離した定数のみのモジュール。
-他モジュールへの import は一切持たない（circular import 防止）。
+移植元: docs/design-sample.html（確認済みインタラクティブ挙動の正本）
+変更点:
+  - _CSS: dummy-data ribbon の CSS 規則を除去
+  - _BODY: id="ribbon" スパン・ステータスバーのサンプル固定テキストを除去
+  - _JS: const DATA / const POS リテラルを除去（template が globals として注入）
+         VIEWS グローバルでキーボードショートカットのタブ遷移を駆動
+         検索 corpus・ADDRESSES/INTERFACES 表に addrs[] を統合（secondary/link-local 対応）
+         SVG namespace 文字列を連結式に変更（literal http:// を排除）
 """
-from __future__ import annotations
-
-# ---------------------------------------------------------------------------
-# 静的 CSS 定数
-# ---------------------------------------------------------------------------
 
 _CSS = """\
-    /* CSS 変数によるカラースキーム（拡張用） */
-    :root {
-      /* --- 意味色（アクセント: 両テーマで判別性を保つ） --- */
-      --color-node-fill: #dbeafe;
-      --color-node-stroke: #3b82f6;
-      --color-node-text: #1e3a5f;
-      --color-node-fill-hover: #bfdbfe;   /* ノードホバー/ハイライト塗りつぶし（ライト） */
-      --color-node-fill-selected: #fef08a; /* ノード選択時塗りつぶし（ライト） */
-      --color-node-fill-dimmed: #f3f4f6;  /* dimmed ノード塗りつぶし（ライト）*/
-      --color-node-stroke-dimmed: #d1d5db; /* dimmed ノード枠線（ライト）*/
-      --color-seg-fill: #fef3c7;
-      --color-seg-stroke: #d97706;
-      --color-seg-label: #92400e;          /* セグメントラベル文字色（ライト: seg-fill上でコントラスト確保）*/
-      --color-link: #6b7280;
-      --color-bgp-ebgp: #2563eb;
-      --color-bgp-ibgp: #d97706;
-      --color-bgp-highlight: #dc2626;  /* BGPセッション選択時の共通ハイライト色（赤系）: iBGPアンバー・eBGP青と判別可能 */
-      --color-bgp-unknown: #9ca3af;
-      --color-highlight: #f59e0b;
-      --color-selected: #ef4444;
-      --color-card-bg: #f9fafb;
-      /* --color-card-border は --border-color に統一（二重定義解消）。参照箇所は var(--border-color) を使用 */
-      --color-ospf: #059669;  /* OSPFラベル・テーマ色（緑系）*/
-      --font-main: 'Segoe UI', Arial, sans-serif;
-      --font-mono: 'Consolas', 'Courier New', monospace;
-      /* --- 構造色（ライトテーマ既定値）--- */
-      --bg-page: #f3f4f6;
-      --bg-surface: #fff;
-      --bg-elevated: #e5e7eb;
-      --text-main: #111827;
-      --text-muted: #6b7280;
-      --text-heading: #1e3a5f;
-      --header-bg: #1e3a5f;
-      --header-text: #fff;
-      --tab-underline: #3b82f6;
-      --border-color: #e5e7eb;
-      --stripe-bg: #f3f4f6;
-      --kbd-bg: #e5e7eb;
-      --kbd-border: #9ca3af;
-      /* --- UI コンポーネント色 --- */
-      --btn-bg: rgba(255, 255, 255, 0.92);  /* zoom-btn 背景（ライト）*/
-      --btn-fg: var(--text-main);            /* zoom-btn 文字色 */
-      --btn-hover-bg: #e0e7ff;               /* zoom-btn ホバー背景（ライト）*/
-      --btn-hover-border: #6366f1;           /* zoom-btn ホバー枠線（ライト）*/
-      --btn-hover-fg: #3730a3;               /* zoom-btn ホバー文字色（ライト）*/
-      --overlay-bg: rgba(255, 255, 255, 0.88); /* ミニマップ等の不透明オーバーレイ背景（ライト）*/
-      /* --- テーブルハイライト（意味色: ライト固定値→ダークで上書き）--- */
-      --color-row-selected-bg: #fef08a;      /* 選択行の背景（ライト: 黄）*/
-      --color-row-highlighted-bg: #fef3c7;   /* ハイライト行の背景（ライト: 薄黄）*/
-      --color-row-unused-bg: #fff7ed;        /* 未使用候補行の背景（ライト: 薄橙）*/
-      --color-row-unused-fg: #92400e;        /* 未使用候補行の文字色（ライト）*/
-      --color-row-route-bg: #d1fae5;         /* ルート選択行の背景（ライト: 薄緑）*/
-      --color-row-search-bg: #fef3c7;        /* 検索マッチ行の背景（ライト: 薄黄）*/
-      /* --- バッジ（カード内: ライト固定値→ダークで上書き）--- */
-      --badge-vendor-bg: #e0e7ff;
-      --badge-vendor-fg: #3730a3;
-      --badge-as-bg: #d1fae5;
-      --badge-as-fg: #065f46;
-      --badge-rid-ospf-bg: #d1fae5;
-      --badge-rid-ospf-fg: #065f46;
-      --badge-rid-bgp-bg: #dbeafe;
-      --badge-rid-bgp-fg: #1e3a8a;
-      /* --- external ピアノード（BGPビュー）--- */
-      --color-external-fill: #f9fafb;        /* BGP 外部ピアノード塗りつぶし（ライト）*/
-      --color-external-fill-hover: #f3f4f6;  /* BGP 外部ピアノードホバー（ライト）*/
-      --color-external-stroke: #9ca3af;      /* BGP 外部ピアノード枠線（ライト）*/
-      /* --- ミニマップ --- */
-      --minimap-vp-fill: rgba(59, 130, 246, 0.15); /* ビューポート矩形塗りつぶし（ライト: 青半透明）*/
-    }
 
-    /* ダークテーマ上書き
-       NOTE: localStorage が file:// スキームやプライベートブラウズ環境では保持されない場合がある。
-             その場合は既定（ライト）テーマで表示される。
-       NOTE: AS枠の fill_rgba（svg.py _AS_COLOR_PALETTE 出力）はPythonインライン style のため
-             ここでは上書きできない。stroke で識別可能なため許容（別バックログ）。
-       NOTE: 意味色（--color-bgp-ebgp/--color-ospf/--color-highlight/--color-selected）は
-             両テーマで視認可能なため上書きしない（誤上書き退行防止）。 */
-    [data-theme="dark"] {
-      /* --- 構造色 --- */
-      --bg-page: #0f172a;
-      --bg-surface: #1e293b;
-      --bg-elevated: #334155;
-      --text-main: #e2e8f0;
-      --text-muted: #94a3b8;
-      --text-heading: #93c5fd;
-      --header-bg: #0f172a;
-      --header-text: #e2e8f0;
-      --tab-underline: #60a5fa;
-      --border-color: #334155;
-      --stripe-bg: #1e293b;
-      --kbd-bg: #334155;
-      --kbd-border: #475569;
-      /* --- 意味色: ダーク用に明度確保（色覚配慮: 青/橙/緑/赤の判別を維持） --- */
-      --color-node-fill: #1e3a8a;
-      --color-node-stroke: #60a5fa;          /* ダーク背景での視認性向上（ライト #3b82f6 → 明るい青）*/
-      --color-node-text: #dbeafe;
-      --color-node-fill-hover: #2d4fa0;      /* ダーク: ホバー塗りつぶしを濃色に（白ジャンプ防止）*/
-      --color-node-fill-selected: #78350f;   /* ダーク: 選択ノードは橙系暗色（黄 #fef08a との差別化）*/
-      --color-node-fill-dimmed: #1e293b;     /* ダーク: dimmed はページ背景相当（意図: 目立たない）*/
-      --color-node-stroke-dimmed: #334155;   /* ダーク: dimmed 枠線 */
-      --color-seg-fill: #78350f;
-      --color-seg-label: #fed7aa;            /* ダーク: seg-fill(#78350f)上でコントラスト確保（明橙系）*/
-      --color-card-bg: #1e293b;
-      --color-link: #94a3b8;
-      --color-bgp-ebgp: #60a5fa;             /* ダーク背景 #1e293b 上で WCAG 3:1 確保（コントラスト比 約4.5:1）*/
-      /* --- UI コンポーネント色 (ダーク) --- */
-      --btn-bg: #334155;                     /* zoom-btn 背景（ダーク: 暗青系）*/
-      --btn-fg: #e2e8f0;                     /* zoom-btn 文字色（ダーク: 明色）*/
-      --btn-hover-bg: #1e40af;               /* zoom-btn ホバー背景（ダーク: 中青）*/
-      --btn-hover-border: #60a5fa;           /* zoom-btn ホバー枠線（ダーク）*/
-      --btn-hover-fg: #bfdbfe;               /* zoom-btn ホバー文字色（ダーク）*/
-      --overlay-bg: rgba(15, 23, 42, 0.92);  /* ミニマップ等オーバーレイ背景（ダーク: --bg-page 相当）*/
-      /* --- テーブルハイライト (ダーク: 暗色で意味の色相を維持) --- */
-      --color-row-selected-bg: #713f12;      /* ダーク: 選択行 黄→暗橙（色相維持）*/
-      --color-row-highlighted-bg: #451a03;   /* ダーク: ハイライト行 薄黄→極暗橙 */
-      --color-row-unused-bg: #431407;        /* ダーク: 未使用候補行 薄橙→暗赤橙 */
-      --color-row-unused-fg: #fed7aa;        /* ダーク: 未使用候補行文字 → 明橙 */
-      --color-row-route-bg: #064e3b;         /* ダーク: ルート選択行 薄緑→暗緑 */
-      --color-row-search-bg: #451a03;        /* ダーク: 検索マッチ行 薄黄→暗橙 */
-      /* --- バッジ (ダーク) --- */
-      --badge-vendor-bg: #1e3a8a;
-      --badge-vendor-fg: #bfdbfe;
-      --badge-as-bg: #064e3b;
-      --badge-as-fg: #a7f3d0;
-      --badge-rid-ospf-bg: #064e3b;
-      --badge-rid-ospf-fg: #a7f3d0;
-      --badge-rid-bgp-bg: #1e3a8a;
-      --badge-rid-bgp-fg: #bfdbfe;
-      /* --- external ピアノード (ダーク) --- */
-      --color-external-fill: #1e293b;        /* ダーク: BGP外部ピア塗りつぶし（暗系）*/
-      --color-external-fill-hover: #334155;  /* ダーク: BGP外部ピアホバー */
-      --color-external-stroke: #64748b;      /* ダーク: BGP外部ピア枠線 */
-      /* --- ミニマップ (ダーク) --- */
-      --minimap-vp-fill: rgba(96, 165, 250, 0.25); /* ダーク: ビューポート矩形（明青半透明、暗背景で視認可能）*/
-    }
+/* ============================================================
+   config-topology v2.0 design sample
+   aesthetic: NOC instrument console (dark) / blueprint (light)
+   ============================================================ */
+:root, html[data-theme="dark"] {
+  --bg: #10141a;
+  --bg-dot: #1c232d;
+  --panel: #171d26;
+  --panel-edge: #232c38;
+  --panel-glow: rgba(255,180,84,.04);
+  --ink: #cfd8e3;
+  --ink-dim: #7e8a99;
+  --ink-faint: #4d5866;
+  --accent: #ffb454;          /* selection amber */
+  --search: #4fd6be;          /* search teal */
+  --danger: #ff6b6b;
+  --node-fill: #1d2630;
+  --node-edge: #3d4d61;
+  --node-ink: #e8eef5;
+  --link: #54657a;
+  --link-dim: #2c3743;
+  --seg-fill: #1a2230;
+  --shadow: 0 10px 30px rgba(0,0,0,.45);
+  --grid-size: 26px;
+}
+html[data-theme="light"] {
+  --bg: #eef0e9;
+  --bg-dot: #d9dccf;
+  --panel: #f7f8f2;
+  --panel-edge: #c9cdbd;
+  --panel-glow: rgba(36,64,128,.03);
+  --ink: #232c38;
+  --ink-dim: #5d6878;
+  --ink-faint: #97a0ac;
+  --accent: #d97706;
+  --search: #0e8f7a;
+  --danger: #c92a2a;
+  --node-fill: #fdfdf8;
+  --node-edge: #6b7a8d;
+  --node-ink: #1b2430;
+  --link: #7c8aa0;
+  --link-dim: #c3cad4;
+  --seg-fill: #eef1ea;
+  --shadow: 0 8px 24px rgba(40,50,70,.18);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+button, input { font: inherit; color: inherit; }
+
+/* ---------- header / toolbar ---------- */
+header {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-edge);
+  user-select: none;
+}
+.brand {
+  padding: 10px 18px 10px 16px;
+  border-right: 1px solid var(--panel-edge);
+  display: flex; flex-direction: column; justify-content: center;
+}
+.brand b { font-size: 13px; letter-spacing: .14em; color: var(--accent); }
+.brand span { font-size: 10px; color: var(--ink-faint); letter-spacing: .08em; }
+
+nav.tabs { display: flex; align-items: stretch; }
+nav.tabs button {
+  background: none; border: none; cursor: pointer;
+  padding: 0 20px; color: var(--ink-dim);
+  letter-spacing: .12em; font-size: 12px;
+  border-right: 1px solid var(--panel-edge);
+  border-bottom: 2px solid transparent;
+  position: relative;
+}
+nav.tabs button .k {
+  position: absolute; top: 5px; right: 6px;
+  font-size: 9px; color: var(--ink-faint);
+  border: 1px solid var(--panel-edge); border-radius: 3px; padding: 0 3px;
+}
+nav.tabs button:hover { color: var(--ink); }
+nav.tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--panel-glow);
+}
+
+.toolbar { flex: 1; display: flex; align-items: center; gap: 10px; padding: 8px 14px; flex-wrap: wrap; }
+/* 検索対象フィールドのドロップダウン（host: 等を書かずに選択） */
+.sfield {
+  background: var(--bg); color: var(--ink-dim);
+  border: 1px solid var(--panel-edge); border-radius: 6px;
+  padding: 6px 4px; font-size: 12px; cursor: pointer; outline: none;
+  margin-right: -4px;
+}
+.sfield:hover, .sfield:focus { color: var(--ink); border-color: var(--ink-faint); }
+.searchbox { position: relative; }
+.searchbox input {
+  width: 240px; padding: 6px 28px 6px 30px;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--panel-edge); border-radius: 6px;
+  outline: none;
+}
+.searchbox input:focus { border-color: var(--search); box-shadow: 0 0 0 2px color-mix(in srgb, var(--search) 25%, transparent); }
+/* ヒット 0 件のときは検索欄を警告色に */
+.searchbox input.nohit, .searchbox input.nohit:focus { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent); }
+.searchbox input.nohit + .count { color: var(--danger); }
+.searchbox::before {
+  content: "⌕"; position: absolute; left: 9px; top: 50%; transform: translateY(-52%);
+  color: var(--ink-faint); font-size: 15px;
+}
+.searchbox .count {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; color: var(--search);
+}
+.tbtn {
+  background: var(--bg); border: 1px solid var(--panel-edge); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer; color: var(--ink-dim);
+  letter-spacing: .04em; font-size: 12px;
+}
+.tbtn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.tbtn.on { color: var(--accent); border-color: var(--accent); }
+.tgroup { display: flex; gap: 0; }
+.tgroup .tbtn { border-radius: 0; border-right-width: 0; }
+.tgroup .tbtn:first-child { border-radius: 6px 0 0 6px; }
+.tgroup .tbtn:last-child { border-radius: 0 6px 6px 0; border-right-width: 1px; }
+.tsep { width: 1px; align-self: stretch; background: var(--panel-edge); margin: 4px 2px; }
+label.tchk {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  color: var(--ink-dim); font-size: 11px; letter-spacing: .05em;
+}
+label.tchk input { accent-color: var(--accent); }
+.kbd-hint { margin-left: auto; color: var(--ink-faint); font-size: 10px; letter-spacing: .05em; }
+.kbd-hint b { color: var(--ink-dim); border: 1px solid var(--panel-edge); border-radius: 3px; padding: 0 4px; font-weight: normal; }
+
+/* ---------- main layout ---------- */
+main { flex: 1; display: flex; min-height: 0; position: relative; }
+#stage { flex: 1; position: relative; min-width: 0; }
+#canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#canvas.dragging { cursor: grabbing; }
+#canvas .bgrect { fill: url(#dotgrid); }
+
+/* ---------- SVG elements ---------- */
+.lk { stroke: var(--link); stroke-width: 2; fill: none; transition: stroke .15s, opacity .2s; }
+.lk-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+.lk.admin-down { stroke-dasharray: 7 6; opacity: .55; }
+/* ライン hover 強調（ノード hover と同色＝--accent。選択/ライン選択より前に置き、それらを優先させる） */
+.lk.lk-hover { stroke: var(--accent); stroke-width: 3; opacity: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+.lk.sel-edge { stroke: var(--accent); stroke-width: 3.5; }
+.lk.sel-between { stroke: var(--accent); stroke-width: 5; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.lk.bgp-hot { stroke: var(--search); stroke-width: 4.5; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 70%, transparent)); }
+
+.bgp-edge { stroke-width: 2.5; fill: none; stroke-dasharray: 1 0; opacity: .95; }
+.bgp-edge.ibgp { stroke-dasharray: 6 4; stroke-linecap: round; }
+/* ライン hover 強調（ノード hover と同色＝--accent。選択より前に置く） */
+.bgp-edge.lk-hover { stroke: var(--accent); stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+/* ノード選択による強調は物理リンクと同一規則（eBGP/iBGP とも） */
+.bgp-edge.sel-edge { stroke: var(--accent); stroke-width: 3.5; }
+.bgp-edge.sel-between { stroke: var(--accent); stroke-width: 5; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.bgp-edge.bgp-hot { stroke: var(--search); stroke-width: 4.5; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 70%, transparent)); }
+
+g.node { cursor: pointer; }
+g.node rect.body {
+  fill: var(--node-fill); stroke: var(--node-edge); stroke-width: 1.4;
+  transition: stroke .15s, filter .2s;
+}
+g.node text.hn { fill: var(--node-ink); font-size: 14px; font-weight: bold; letter-spacing: .03em; }
+g.node text.sub { fill: var(--ink-dim); font-size: 10px; letter-spacing: .04em; }
+g.node .vbar { opacity: .9; }
+g.node.selected rect.body { stroke: var(--accent); stroke-width: 2.4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+g.node.search-hit rect.body { stroke: var(--search); stroke-width: 2.2; }
+/* hover はノード選択と同じハイライト（選択マーカーの ● だけ出さない） */
+g.node.hovered rect.body { stroke: var(--accent); stroke-width: 2.4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+
+g.segnode { cursor: pointer; }
+g.segnode ellipse { fill: var(--seg-fill); stroke: var(--node-edge); stroke-width: 1.2; stroke-dasharray: 3 3; }
+g.segnode text { fill: var(--ink-dim); font-size: 10px; }
+g.segnode.selected ellipse, g.segnode.hovered ellipse { stroke: var(--accent); stroke-width: 2; }
+g.segnode.search-hit ellipse { stroke: var(--search); stroke-width: 2; }
+
+/* 外部ピアは機器と同じノード描画（g.node スタイルを共用）。枠だけ点線で区別（凡例と対応） */
+g.node.ext rect.body { stroke-dasharray: 6 4; }
+
+.asframe { fill: none; stroke-width: 1.6; rx: 14; opacity: .9; }
+.asframe-fill { opacity: .07; }
+.aslabel { font-size: 11px; font-weight: bold; letter-spacing: .1em; }
+
+.area-badge rect { rx: 4; opacity: .95; }
+.area-badge text { font-size: 10px; font-weight: bold; }
+.subnet-tag { font-size: 9px; fill: var(--ink-dim); }
+
+/* 提案: 選択/ホバー時にリンク端へ IF 名を表示（IFチップ廃止の代替） */
+.iflabel { font-size: 9px; fill: var(--accent); opacity: 0; transition: opacity .18s; pointer-events: none; }
+.iflabel.show { opacity: 1; }
+.iflabel-bg { fill: var(--bg); opacity: 0; rx: 3; pointer-events: none; }
+.iflabel-bg.show { opacity: .85; }
+
+.dim { opacity: .16 !important; transition: opacity .25s; }
+.hidden { display: none !important; }
+
+/* ---------- tooltip ---------- */
+#tooltip {
+  position: absolute; pointer-events: none; z-index: 30;
+  background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px;
+  padding: 8px 11px; box-shadow: var(--shadow);
+  font-size: 11px; line-height: 1.55; display: none; max-width: 280px;
+}
+#tooltip .tt-title { color: var(--accent); font-weight: bold; letter-spacing: .06em; }
+#tooltip .tt-row { color: var(--ink-dim); }
+#tooltip .tt-row b { color: var(--ink); font-weight: normal; }
+
+/* ---------- details panel ---------- */
+#details {
+  width: 330px; background: var(--panel);
+  border-left: 1px solid var(--panel-edge);
+  display: flex; flex-direction: column; min-height: 0;
+}
+#details .dhead {
+  padding: 10px 14px; border-bottom: 1px solid var(--panel-edge);
+  display: flex; align-items: center; justify-content: space-between;
+  letter-spacing: .12em; font-size: 11px; color: var(--ink-dim);
+}
+#details .dhead .selcount { color: var(--accent); }
+#dbody { overflow-y: auto; padding: 12px; flex: 1; }
+.card {
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  margin-bottom: 12px; overflow: hidden; background: var(--bg);
+}
+.card .chead {
+  padding: 9px 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--panel-edge); background: var(--panel-glow);
+}
+.card .chead b { font-size: 14px; }
+.badge {
+  font-size: 9px; padding: 1px 6px; border-radius: 4px; letter-spacing: .06em;
+  border: 1px solid var(--panel-edge); color: var(--ink-dim);
+}
+.badge.as { color: var(--accent); border-color: var(--accent); }
+.badge.rid { color: var(--search); border-color: color-mix(in srgb, var(--search) 60%, transparent); }
+.csec { padding: 8px 12px; }
+.csec h4 { font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 6px; font-weight: normal; }
+table.dt { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.dt th { text-align: left; color: var(--ink-faint); font-weight: normal; padding: 2px 6px 4px 0; border-bottom: 1px solid var(--panel-edge); font-size: 10px; }
+table.dt td { padding: 4px 6px 4px 0; color: var(--ink); vertical-align: top; border-bottom: 1px dashed color-mix(in srgb, var(--panel-edge) 60%, transparent); }
+table.dt td.dim-t { color: var(--ink-dim); }
+.st-up { color: var(--search); } .st-down { color: var(--danger); }
+tr.bgprow, tr.ospfrow[data-net], tr.ifrow[data-net] { cursor: pointer; }
+tr.bgprow:hover td, tr.bgprow.hot td,
+tr.ospfrow[data-net]:hover td, tr.ospfrow.hot td,
+tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, var(--search) 12%, transparent); }
+.linkpair[data-net] { cursor: pointer; }
+.linkpair.hot { border-color: var(--search); background: color-mix(in srgb, var(--search) 10%, transparent); }
+.linkpair {
+  border: 1px dashed var(--panel-edge); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+  font-size: 11px; line-height: 1.6;
+}
+.linkpair .subnet { color: var(--accent); }
+.linkpair .ifn { color: var(--ink); }
+.linkpair .ipd { color: var(--ink-dim); }
+.placeholder { color: var(--ink-faint); font-size: 11px; line-height: 1.9; padding: 8px 4px; }
+.placeholder b { color: var(--ink-dim); font-weight: normal; }
+
+/* ---------- legend & minimap ---------- */
+#legend {
+  position: absolute; left: 14px; bottom: 38px; z-index: 20;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  padding: 10px 14px; font-size: 10px; line-height: 2;
+  box-shadow: var(--shadow); min-width: 150px;
+}
+#legend h4 { font-size: 9px; letter-spacing: .18em; color: var(--ink-faint); font-weight: normal; margin-bottom: 2px; }
+#legend .li { display: flex; align-items: center; gap: 8px; color: var(--ink-dim); }
+#legend .li.clk { cursor: pointer; }
+#legend .li.clk:hover { color: var(--ink); }
+#legend .li.on { color: var(--accent); }
+#legend .note { color: var(--ink-faint); font-size: 9px; line-height: 1.5; margin-top: 4px; }
+#legend .sw { width: 22px; height: 0; border-top: 2px solid var(--link); }
+#legend .sw.dash { border-top-style: dashed; }
+#legend .sw.box { height: 10px; border: 1.4px solid var(--node-edge); background: var(--node-fill); border-radius: 2px; }
+#legend .sw.seg { height: 10px; border: 1.2px dashed var(--node-edge); border-radius: 50%; background: var(--seg-fill); }
+#minimap {
+  position: absolute; right: 14px; bottom: 38px; z-index: 20;
+  width: 180px; height: 120px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+#minimap svg { width: 100%; height: 100%; display: block; }
+#minimap .mdot { fill: var(--ink-dim); }
+#minimap .mview { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+
+/* ---------- status bar (提案: 実行サマリーの常時表示) ---------- */
+#statusbar {
+  height: 26px; background: var(--panel); border-top: 1px solid var(--panel-edge);
+  display: flex; align-items: center; gap: 18px; padding: 0 14px;
+  font-size: 10px; color: var(--ink-dim); letter-spacing: .06em;
+}
+#statusbar .warn { color: var(--accent); }
+#statusbar .src { margin-left: auto; color: var(--ink-faint); }
+
+/* BGP ビューのアドレス・ソースIF ラベルは .iflabel（他ビューの IF ラベル）と同一スタイルを共用 */
+g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 60%, transparent)); }
+
+/* 詳細パネル: リサイズハンドルと最小化 */
+#resizer { width: 6px; flex: none; cursor: col-resize; background: transparent; border-left: 1px solid var(--panel-edge); }
+#resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+#details.min { width: 36px !important; min-width: 36px; }
+#details.min #dbody, #details.min .dhead span:not(.pbtns) { display: none; }
+.dhead .pbtns { display: flex; gap: 4px; margin-left: auto; }
+.dhead .pbtns button {
+  background: none; border: 1px solid var(--panel-edge); border-radius: 4px;
+  color: var(--ink-dim); cursor: pointer; width: 22px; height: 18px;
+  line-height: 1; font-size: 10px; padding: 0;
+}
+.dhead .pbtns button:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+/* ---------- 表ビュー（ADDRESSES / INTERFACES） ---------- */
+#tableview {
+  position: absolute; inset: 0; z-index: 22; display: none;
+  background: var(--bg); overflow-y: auto; padding: 18px 24px 48px;
+}
+#tableview .thead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; max-width: 1080px; }
+#tableview .thead h3 { font-size: 13px; letter-spacing: .16em; color: var(--ink-dim); font-weight: normal; }
+#tableview .thead .cnt { color: var(--accent); font-size: 11px; }
+#tableview .thead .tbtn { padding: 3px 9px; font-size: 11px; }
+#tableview .thead .sp { flex: 1; }
+#tableview table.dt { font-size: 12px; max-width: 1080px; }
+#tableview table.dt th { position: sticky; top: 0; background: var(--bg); padding: 6px 14px 6px 0; }
+#tableview table.dt th.sortable { cursor: pointer; user-select: none; }
+#tableview table.dt th.sortable:hover { color: var(--ink); }
+#tableview table.dt td { padding: 5px 14px 5px 0; }
+#tableview tr.trow:hover td { background: color-mix(in srgb, var(--ink-dim) 9%, transparent); }
+/* サブネットグループ見出し行（クリックで折りたたみ） */
+#tableview tr.grph td {
+  background: var(--panel); color: var(--ink); cursor: pointer; user-select: none;
+  letter-spacing: .05em; padding: 7px 14px 7px 6px;
+  border-top: 1px solid var(--panel-edge); border-bottom: 1px solid var(--panel-edge);
+}
+#tableview tr.grph:hover td { background: color-mix(in srgb, var(--panel) 78%, var(--ink-faint)); }
+#tableview tr.grph .usage { color: var(--accent); margin-left: 12px; font-size: 11px; }
+#tableview tr.grph .cards { color: var(--ink-dim); margin-left: 10px; font-size: 10px; }
+#tableview .chk-bad { color: var(--danger); }
+#tableview .no-desc { color: var(--accent); opacity: .75; }
+#tableview .tnote { color: var(--ink-faint); font-size: 10px; margin-top: 10px; line-height: 1.8; }
+/* IF 種別バッジ */
+#tableview .ifk { font-size: 9px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--panel-edge); margin-left: 6px; letter-spacing: .04em; }
+#tableview .ifk-conn   { color: var(--search); border-color: color-mix(in srgb, var(--search) 55%, transparent); }
+#tableview .ifk-stub   { color: var(--ink-dim); }
+#tableview .ifk-unused { color: var(--accent); border-color: var(--accent); }
+#tableview .ifk-loop   { color: var(--ink-faint); }
+#tableview .ifk-rsv    { color: #b794f6; border-color: color-mix(in srgb, #b794f6 55%, transparent); }   /* 予約 */
+#tableview .ifk-dis    { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }  /* 使用不可 */
+/* 状態指定ボタン（クリックで − → 予約 → 不可 → − を循環） */
+#tableview button.portset {
+  background: var(--bg); border: 1px solid var(--panel-edge); border-radius: 5px;
+  padding: 1px 8px; font-size: 11px; cursor: pointer; color: var(--ink-dim); min-width: 40px;
+}
+#tableview button.portset:hover { color: var(--ink); border-color: var(--ink-faint); }
+#tableview button.portset.set-reserved { color: #b794f6; border-color: color-mix(in srgb, #b794f6 55%, transparent); }
+#tableview button.portset.set-disabled { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+/* 備考メモ入力（クリックで編集・blur で永続保存） */
+#tableview input.noteinput {
+  width: 100%; min-width: 120px; background: transparent; color: var(--ink);
+  border: 1px solid transparent; border-radius: 5px; padding: 2px 6px; font-size: 11px; outline: none;
+}
+#tableview input.noteinput::placeholder { color: var(--ink-faint); }
+#tableview input.noteinput:hover { border-color: var(--panel-edge); }
+#tableview input.noteinput:focus { border-color: var(--search); background: var(--bg); }
+/* グループ見出しの複数行レイアウト */
+#tableview tr.grph .ghtop { font-size: 12px; }
+#tableview tr.grph .cards2 { color: var(--ink-dim); font-size: 11px; line-height: 1.7; margin-top: 3px; white-space: pre; font-variant-numeric: tabular-nums; }
+/* ポート状態カテゴリの色（機器サマリ・カード内訳・tnote 凡例で共通） */
+#tableview .c-used { color: var(--search); }
+#tableview .c-rsv  { color: #b794f6; }
+#tableview .c-dis  { color: var(--danger); }
+#tableview .c-free { color: var(--accent); }
+/* Connected to セル（リンクは対向行へジャンプ可能） */
+#tableview td.peer-jump { color: var(--search); cursor: pointer; }
+#tableview td.peer-jump:hover { text-decoration: underline; }
+/* 対向行ジャンプ時の一時ハイライト */
+@keyframes rowflash {
+  0% { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+  100% { background: transparent; }
+}
+#tableview tr.row-flash td { animation: rowflash 1.3s ease-out; }
+
+/* ---------- 表示ノード指定パネル ---------- */
+#nodepanel {
+  position: absolute; top: 12px; right: 14px; z-index: 25;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  padding: 10px 14px; font-size: 11px; line-height: 2;
+  box-shadow: var(--shadow); display: none; min-width: 170px;
+}
+#nodepanel h4 { font-size: 9px; letter-spacing: .18em; color: var(--ink-faint); font-weight: normal; margin-bottom: 4px; }
+#nodepanel label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--ink-dim); }
+#nodepanel label:hover { color: var(--ink); }
+#nodepanel input { accent-color: var(--accent); }
+#nodepanel .ntype { color: var(--ink-faint); font-size: 9px; margin-left: auto; }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-    html, body {
-      height: 100%;
-    }
-
-    body {
-      font-family: var(--font-main);
-      background: var(--bg-page);
-      color: var(--text-main);
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      overflow: hidden;
-    }
-
-    header {
-      background: var(--header-bg);
-      color: var(--header-text);
-      padding: 12px 20px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    header h1 {
-      font-size: 1.1rem;
-      font-weight: 600;
-    }
-
-    /* ビュー切替タブ */
-    .view-tabs {
-      background: var(--bg-surface);
-      border-bottom: 2px solid var(--border-color);
-      padding: 0 20px;
-      display: flex;
-      gap: 0;
-    }
-
-    .view-tab {
-      padding: 8px 16px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      border: none;
-      background: transparent;
-      color: var(--text-muted);
-      cursor: pointer;
-      border-bottom: 3px solid transparent;
-      margin-bottom: -2px;
-      transition: color 0.15s, border-color 0.15s;
-    }
-
-    .view-tab:hover {
-      color: var(--text-heading);
-    }
-
-    .view-tab.active {
-      color: var(--text-heading);
-      border-bottom-color: var(--tab-underline);
-    }
-
-    .controls {
-      background: var(--bg-surface);
-      border-bottom: 1px solid var(--border-color);
-      padding: 8px 20px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .controls-label {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .layer-toggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 0.85rem;
-      cursor: pointer;
-      padding: 3px 8px;
-      border-radius: 4px;
-      border: 1px solid var(--border-color);
-      background: var(--color-card-bg);
-      user-select: none;
-    }
-
-    .layer-toggle:hover {
-      background: var(--bg-elevated);
-    }
-
-    /* 検索ボックス */
-    #search-input {
-      padding: 4px 10px;
-      font-size: 0.85rem;
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      min-width: 200px;
-    }
-
-    kbd {
-      font-family: var(--font-mono);
-      background: var(--kbd-bg);
-      border: 1px solid var(--kbd-border);
-      border-radius: 3px;
-      padding: 1px 5px;
-      font-size: 0.75rem;
-    }
-
-    /* 上下スプリットペインコンテナ（ヘッダ等固定UI の下に残り高さを分割） */
-    #split-pane-container {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-    }
-
-    #svg-container {
-      /* transform モデル: SVG は width=100% でコンテナを覆うため溢れない。
-         overflow:hidden でスクロールバーの誤表示を防ぐ（overflow:auto は scroll(px)モデルの遺産）。
-         flex: 2 1 0（flex-basis:0）で内容サイズ非依存の比率配分にする。
-         cards-section 内容の高さ変化が svg-container の clientHeight に波及しなくなり
-         ResizeObserver が不要な再計算（図のパン）を起こさなくなる。[G3修正] */
-      overflow: hidden;
-      flex: 2 1 0;
-      min-height: 120px;
-      background: var(--bg-surface);
-      cursor: grab;
-      position: relative;
-    }
-
-    /* 上下ペイン境界バー（ドラッグで高さ可変） */
-    #split-divider {
-      height: 6px;
-      background: var(--bg-elevated);
-      border-top: 1px solid var(--border-color);
-      border-bottom: 1px solid var(--border-color);
-      cursor: row-resize;
-      flex-shrink: 0;
-      user-select: none;
-    }
-
-    #split-divider:hover {
-      background: var(--tab-underline);
-    }
-
-    #svg-container:active {
-      cursor: grabbing;
-    }
-
-    #topology-svg {
-      display: block;
-    }
-
-    /* ノード */
-    .node-rect {
-      fill: var(--color-node-fill);
-      stroke: var(--color-node-stroke);
-      stroke-width: 2;
-      transition: fill 0.15s, stroke-width 0.15s;
-    }
-
-    .device-node:hover .node-rect,
-    .device-node.highlighted .node-rect {
-      fill: var(--color-node-fill-hover);
-      stroke-width: 3;
-    }
-
-    .device-node.selected .node-rect {
-      fill: var(--color-node-fill-selected);
-      stroke: var(--color-selected);
-      stroke-width: 3;
-    }
-
-    .device-node.dimmed .node-rect {
-      fill: var(--color-node-fill-dimmed);
-      stroke: var(--color-node-stroke-dimmed);
-      opacity: 0.4;
-    }
-
-    .device-node.dimmed text {
-      opacity: 0.4;
-    }
-
-    .device-node.search-match .node-rect {
-      stroke: #f59e0b;
-      stroke-width: 3;
-    }
-
-    .node-label {
-      font-size: 13px;
-      font-weight: 700;
-      fill: var(--color-node-text);
-      pointer-events: none;
-    }
-
-    .node-sublabel {
-      font-size: 10px;
-      fill: var(--text-muted);
-      pointer-events: none;
-    }
-
-    .node-rid {
-      font-size: 9px;
-      fill: var(--text-muted);
-      font-family: var(--font-mono);
-      pointer-events: none;
-    }
-
-    /* BGP 外部ピアノード（B4: topology 外のピア。BGP ビューのみ表示） */
-    .external-rect {
-      fill: var(--color-external-fill);
-      stroke: var(--color-external-stroke);
-      stroke-width: 1.5;
-      stroke-dasharray: 5 3;
-    }
-
-    .device-node.external-node:hover .external-rect,
-    .device-node.external-node.highlighted .external-rect {
-      fill: var(--color-external-fill-hover);
-      stroke-width: 2.5;
-    }
-
-    .external-label {
-      fill: var(--text-muted);
-      font-weight: 600;
-    }
-
-    /* セグメントノード */
-    .seg-ellipse {
-      fill: var(--color-seg-fill);
-      stroke: var(--area-stroke, var(--color-seg-stroke));
-      stroke-width: 2;
-    }
-
-    .seg-label {
-      font-size: 10px;
-      fill: var(--color-seg-label);
-      pointer-events: none;
-    }
-
-    .seg-edge {
-      stroke: var(--area-stroke, var(--color-seg-stroke));
-      stroke-width: 1.5;
-      stroke-dasharray: 6 3;
-    }
-
-    .seg-edge.highlighted {
-      stroke: var(--color-highlight);
-      stroke-width: 3.5;
-      stroke-dasharray: none;
-    }
-
-    .segment-node.highlighted .seg-ellipse {
-      stroke: var(--color-highlight);
-      stroke-width: 3.5;
-    }
-
-    /* リンク */
-    .link-line {
-      stroke: var(--area-stroke, var(--color-link));
-      stroke-width: 2;
-      transition: stroke 0.15s, stroke-width 0.15s;
-    }
-
-    .link-edge:hover .link-line,
-    .link-edge.highlighted .link-line {
-      stroke: var(--color-highlight);
-      stroke-width: 4;
-    }
-
-    /* admin_down リンク（shutdown IF が張るはずだったリンク: グレー破線） */
-    .link-edge.link-down .link-line {
-      stroke: var(--text-muted, #9ca3af);
-      stroke-dasharray: 6 4;
-      opacity: 0.55;
-    }
-
-    /* admin_down リンクでも選択/ホバー時はハイライト色を出す（破線は維持） */
-    .link-edge.link-down.highlighted .link-line,
-    .link-edge.link-down:hover .link-line {
-      stroke: var(--color-highlight);
-      stroke-dasharray: 6 4;
-      opacity: 1;
-    }
-
-    /* BGP エッジ */
-    .bgp-edge {
-      stroke-width: 2;
-      stroke-dasharray: 8 4;
-      opacity: 0.8;
-    }
-
-    .bgp-ebgp { stroke: var(--color-bgp-ebgp); }
-    .bgp-ibgp { stroke: var(--color-bgp-ibgp); }
-    .bgp-unknown { stroke: var(--color-bgp-unknown); }
-
-    .bgp-badge {
-      font-size: 10px;
-      fill: var(--color-bgp-ebgp);
-      pointer-events: none;
-      font-family: var(--font-mono);
-    }
-
-    /* OSPF リンクラベル（A2/A3: bgp-badge と同一フォントサイズ・OSPFテーマ色） */
-    .link-label {
-      font-size: 10px;
-      fill: var(--color-ospf);
-      pointer-events: none;
-      font-family: var(--font-mono);
-    }
-
-    /* エッジラベルは既定非表示。対応エッジが highlighted の時だけ表示（重なり回避） */
-    .bgp-badge-group, .link-label-group { display: none; }
-    .bgp-badge-group.label-shown, .link-label-group.label-shown { display: inline; }
-
-    /* カード */
-    #cards-section {
-      /* flex: 1 1 0（flex-basis:0）で内容サイズ非依存の比率配分にする。
-         svg-container:cards-section = 2:1 の比率固定となり、カード内容の増減は
-         overflow:auto でスクロール吸収されるため svg-container の高さは不変。[G3修正] */
-      flex: 1 1 0;
-      padding: 0 20px 20px;
-      overflow: auto;
-      min-height: 80px;
-    }
-
-    /* sticky ヘッダ: LAYERS トグル + Device Details 見出し を上端に固定
-       background: var(--bg-surface) でスクロール時にカードがヘッダ下に潜らないよう不透明に覆う。
-       margin: 0 -20px / padding: 0 20px で #cards-section の左右パディング分を打ち消し、
-       横幅いっぱいの背景でカードがヘッダ脇から覗かないようにする。 */
-    #cards-header {
-      position: sticky;
-      top: 0;
-      z-index: 5;
-      background: var(--bg-surface);
-      margin: 0 -20px;
-      padding: 12px 20px 0;
-    }
-
-    #cards-section h2 {
-      font-size: 1rem;
-      font-weight: 700;
-      margin-bottom: 12px;
-      color: var(--text-main);
-    }
-
-    .cards-grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 16px;
-    }
-
-    .device-card {
-      background: var(--color-card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 16px;
-    }
-
-    .device-card h3 {
-      font-size: 1rem;
-      font-weight: 700;
-      margin-bottom: 10px;
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .device-card h4 {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin: 10px 0 4px;
-    }
-
-    .badge-vendor {
-      font-size: 0.7rem;
-      background: var(--badge-vendor-bg);
-      color: var(--badge-vendor-fg);
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-weight: 500;
-    }
-
-    .badge-as {
-      font-size: 0.7rem;
-      background: var(--badge-as-bg);
-      color: var(--badge-as-fg);
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-weight: 500;
-    }
-
-    .badge-rid {
-      font-size: 0.7rem;
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-weight: 500;
-    }
-
-    .badge-rid-ospf {
-      background: var(--badge-rid-ospf-bg);
-      color: var(--badge-rid-ospf-fg);
-    }
-
-    .badge-rid-bgp {
-      background: var(--badge-rid-bgp-bg);
-      color: var(--badge-rid-bgp-fg);
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.8rem;
-    }
-
-    th {
-      text-align: left;
-      padding: 3px 6px;
-      background: var(--stripe-bg);
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-
-    td {
-      padding: 3px 6px;
-      border-bottom: 1px solid var(--stripe-bg);
-      font-family: var(--font-mono);
-      word-break: break-all;
-    }
-
-    tr:last-child td { border-bottom: none; }
-
-    .section-table { margin-top: 4px; }
-
-    /* カード選択スタイル */
-    .device-card.selected {
-      border: 2px solid var(--color-selected);
-      box-shadow: 0 0 6px rgba(239,68,68,0.4);
-    }
-
-    tr.selected td {
-      background: var(--color-row-selected-bg);
-    }
-
-    tr.highlighted td {
-      background: var(--color-row-highlighted-bg);
-      font-weight: 600;
-    }
-
-    /* ノードフィルタ（非表示クラス: display:none 強制） */
-    .node-filtered {
-      display: none !important;
-    }
-
-    /* ノードフィルタ UI パネル */
-    .node-filter-panel {
-      background: var(--bg-surface);
-      border-bottom: 1px solid var(--border-color);
-      padding: 6px 20px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .node-filter-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 0.82rem;
-      cursor: pointer;
-      padding: 2px 6px;
-      border-radius: 4px;
-      border: 1px solid var(--border-color);
-      background: var(--color-card-bg);
-      user-select: none;
-    }
-
-    .node-filter-label:hover {
-      background: var(--bg-elevated);
-    }
-
-    .node-filter-btn {
-      padding: 3px 10px;
-      font-size: 0.82rem;
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      background: var(--badge-vendor-bg);
-      color: var(--badge-vendor-fg);
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    .node-filter-btn:hover {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
-      color: var(--btn-hover-fg);
-    }
-
-    /* IF チップ（Physical ビュー ノード内の接続IF/Loopback 表示、iteration-3 #2） */
-    .if-chip circle {
-      fill: var(--color-node-fill-hover);
-      stroke: var(--color-node-stroke);
-      stroke-width: 1.5;
-      transition: fill 0.1s;
-    }
-
-    .if-chip:hover circle {
-      fill: var(--tab-underline);
-    }
-
-    .if-chip-shutdown circle {
-      fill: var(--color-node-fill-dimmed);
-      stroke: var(--color-node-stroke-dimmed);
-      opacity: 0.5;
-    }
-
-    /* #7: Loopback チップ識別（緑系: 通常チップの青と区別）*/
-    .if-chip-loopback circle {
-      fill: #bbf7d0;
-      stroke: #16a34a;
-      stroke-width: 1.5;
-    }
-
-    .if-chip-loopback:hover circle {
-      fill: #86efac;
-    }
-
-    /* #7: Loopback かつ shutdown の複合状態（緑系薄表示） */
-    .if-chip-loopback.if-chip-shutdown circle {
-      fill: #d1fae5;
-      stroke: var(--text-muted);
-      opacity: 0.5;
-    }
-
-    /* P2 #1: IF チップ強調（クリックで .highlighted トグル） */
-    .if-chip.highlighted circle {
-      fill: var(--color-node-fill-selected);
-      stroke: var(--color-highlight);
-      stroke-width: 2.5;
-    }
-
-    /* #16: 旧 IF チップ凡例オーバーレイ(#chip-legend)の CSS は撤去。
-       IF チップ凡例は統合凡例パネル(#legend-panel)に統合済み。
-       overlay 背景変数 var(--overlay-bg) はミニマップが引き続き使用するため残存。 */
-
-    /* HC2: static 経路 next-hop ノードのハイライト（手動選択 .selected と独立） */
-    .device-node.route-target .node-rect {
-      fill: var(--color-row-route-bg);
-      stroke: var(--color-ospf);
-      stroke-width: 3;
-    }
-
-    .device-card.route-target {
-      border: 2px solid var(--color-ospf);
-      box-shadow: 0 0 6px rgba(5,150,105,0.4);
-    }
-
-    /* ズーム操作ボタン群（図ペイン右上に重ねる） */
-    #zoom-controls {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      display: flex;
-      gap: 4px;
-      z-index: 10;
-    }
-
-    .zoom-btn {
-      padding: 4px 8px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      background: var(--btn-bg);
-      color: var(--btn-fg);
-      cursor: pointer;
-      line-height: 1;
-    }
-
-    .zoom-btn:hover {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
-      color: var(--btn-hover-fg);
-    }
-
-    .zoom-btn.active {
-      background: var(--btn-hover-bg);
-      border-color: var(--btn-hover-border);
-      color: var(--btn-hover-fg);
-    }
-
-    /* Cards pane collapse: #split-pane-container.cards-collapsed */
-    #split-pane-container.cards-collapsed #cards-section,
-    #split-pane-container.cards-collapsed #split-divider { display: none; }
-    #split-pane-container.cards-collapsed #svg-container { flex: 1; height: auto !important; }
-
-    /* 統合凡例パネル（右上 zoom-controls の下、絶対配置） */
-    #legend-panel {
-      position: absolute;
-      top: 44px;
-      right: 8px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      padding: 10px 14px;
-      z-index: 20;
-      min-width: 180px;
-      max-height: 60vh;
-      overflow-y: auto;
-      font-size: 0.8rem;
-      color: var(--text-main);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    }
-
-    #legend-panel .legend-section-title {
-      font-weight: 700;
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-top: 8px;
-      margin-bottom: 4px;
-      padding-bottom: 2px;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    #legend-panel .legend-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 2px 0;
-    }
-
-    /* ヘッダ内ボタン共通クラス（凡例トグル・テーマ切替）
-       header 背景（--header-bg）の上に配置されるため rgba 透明度ベースで統一 */
-    .header-btn {
-      padding: 4px 10px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      border: 1px solid rgba(255,255,255,0.4);
-      border-radius: 4px;
-      background: rgba(255,255,255,0.15);
-      color: var(--header-text);
-      cursor: pointer;
-      line-height: 1.4;
-    }
-
-    .header-btn:hover {
-      background: rgba(255,255,255,0.25);
-    }
-
-    /* BGP ビュー AS グルーピング枠（iteration-3 Batch2 #4: 視認性改善）
-       色（fill/stroke）は svg のインライン style で AS 別に付与するためここでは省略 */
-    .as-group {
-      stroke-width: 2;
-      stroke-dasharray: none;
-    }
-
-    .as-group-label {
-      font-size: 15px;
-      font-weight: 700;
-      pointer-events: none;
-      font-family: var(--font-mono);
-    }
-
-    .as-group-label-bg {
-      opacity: 0.85;
-    }
-
-    .edge-label-bg {
-      fill: var(--bg-surface);
-      opacity: 0.8;
-      pointer-events: none;
-    }
-
-    /* #3: Static 行クリック時の行マーキング */
-    tr.route-row-selected td {
-      background: var(--color-row-route-bg);
-      outline: 2px solid var(--color-ospf);
-      outline-offset: -2px;
-      font-weight: 600;
-    }
-
-    /* #5: BGP セッションハイライト（iBGP/eBGP 共通: 既定アンバー・eBGP青と判別可能な赤系） */
-    .bgp-session.highlighted .bgp-edge {
-      stroke: var(--color-bgp-highlight);  /* 共通変数で赤系を使用: eBGP青・iBGPアンバーと明確に判別 */
-      stroke-width: 5;  /* 基本線幅(2)より太くして視認性を確保（#4 レビュー指摘対応）*/
-      opacity: 1;
-    }
-
-    /* 多ノードC: カード絞り込み（選択外カードを非表示） */
-    .card-unselected {
-      display: none;
-    }
-
-    /* B-pass1b: グローバル検索フォーカスノード（「次へ」で巡回中の対象） */
-    .device-node.search-focus .node-rect {
-      stroke: #dc2626;
-      stroke-width: 4;
-      filter: drop-shadow(0 0 6px rgba(220,38,38,0.6));
-    }
-
-    /* グローバル検索マッチ行強調 */
-    tr.search-match td {
-      background: var(--color-row-search-bg);
-    }
-
-    /* ミニマップ（Round D: 大規模対策） */
-    /* NOTE: left 配置（右から左下へ移動）— legend-panel は right:8px/z-index:20 のため
-             右側に置くと凡例パネルが縦伸びしたとき覆われるバグを回避する。
-             bottom:44px は旧 #chip-legend（撤去済み）との重なり回避の名残だが、
-             位置は据え置く（左下の安定した参照位置）。
-             z-index:21 は legend-panel(20) より高く将来の重なりでも前面を維持する。 */
-    .minimap {
-      position: absolute;
-      bottom: 44px;
-      left: 8px;
-      width: 180px;
-      height: 130px;
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      background: var(--overlay-bg);
-      z-index: 21;
-      overflow: hidden;
-      cursor: crosshair;
-    }
-
-    .minimap-viewport {
-      fill: var(--minimap-vp-fill);  /* テーマ追従: :root(ライト)/[data-theme="dark"](ダーク)で定義 */
-      stroke: var(--color-highlight);
-      stroke-width: 1.5;
-      vector-effect: non-scaling-stroke;
-      pointer-events: none;
-    }\
 """
 
-# ---------------------------------------------------------------------------
-# 静的 JS 定数
-# ---------------------------------------------------------------------------
+_BODY = """\
+
+
+<header>
+  <div class="brand"><b>CONFIG-TOPOLOGY</b><span>v2.0 design sample</span></div>
+  <nav class="tabs" id="tabs">
+    <button data-view="physical" class="active">PHYSICAL<span class="k">1</span></button>
+    <button data-view="bgp">BGP<span class="k">2</span></button>
+    <button data-view="ospf">OSPF<span class="k">3</span></button>
+    <button data-view="addr">ADDRESSES<span class="k">4</span></button>
+    <button data-view="ifs">INTERFACES<span class="k">5</span></button>
+  </nav>
+  <div class="toolbar">
+    <select id="sfield" class="sfield" title="検索対象フィールドを選択（ALL = hostname・IP・description・AS・vendor・IF名を横断）。host: 等の記法を書かずに絞り込めます">
+      <option value="all">ALL</option>
+      <option value="host">host</option>
+      <option value="ip">ip</option>
+      <option value="desc">desc</option>
+      <option value="as">as</option>
+      <option value="vendor">vendor</option>
+      <option value="net">net</option>
+    </select>
+    <div class="searchbox">
+      <input id="search" type="text" placeholder="検索: 文字列 / host: ip: desc: as: vendor: net:"
+        title="/ または Ctrl+F = 検索欄へフォーカス&#10;左のドロップダウンで対象フィールドを選択（host: 等を書かなくてよい）&#10;自由文字列 = hostname・IP(v4/v6)・description・AS番号・vendor・IF名を横断検索&#10;host:r1 = hostname のみ&#10;ip:10.0.0. = IPアドレスのみ&#10;desc:uplink = description のみ&#10;as:65001 = AS番号のみ&#10;vendor:junos = ベンダーのみ&#10;net:10.0.0 = サブネットのみ（テキスト記法はドロップダウンより優先）&#10;Enter = 次のヒットへ移動">
+      <span class="count" id="searchcount"></span>
+    </div>
+    <div class="tgroup gonly">
+      <button class="tbtn" id="zin" title="zoom in">＋</button>
+      <button class="tbtn" id="zout" title="zoom out">－</button>
+      <button class="tbtn" id="zfit" title="fit (F)">FIT</button>
+      <button class="tbtn" id="zreset" title="reset (Esc)">1:1</button>
+    </div>
+    <span class="tsep gonly"></span>
+    <label class="tchk gonly"><input type="checkbox" id="f-seg" checked>セグメント</label>
+    <label class="tchk gonly"><input type="checkbox" id="f-ext" checked>外部ピア</label>
+    <span class="tsep gonly"></span>
+    <button class="tbtn gonly" id="btn-nodes" title="表示するノードを個別に指定">表示ノード</button>
+    <button class="tbtn gonly" id="btn-connected" title="選択ノードの接続先のみ表示">接続先のみ</button>
+    <span class="tsep gonly"></span>
+    <button class="tbtn gonly" id="btn-minimap">MAP</button>
+    <button class="tbtn gonly" id="btn-legend">凡例</button>
+    <span class="tsep gonly"></span>
+    <div class="tgroup gonly">
+      <button class="tbtn" id="exp-svg" title="現在の表示をSVGで保存">SVG</button>
+      <button class="tbtn" id="exp-png" title="現在の表示をPNGで保存">PNG</button>
+    </div>
+    <button class="tbtn" id="btn-theme">☾/☀</button>
+    <span class="kbd-hint"><b>クリック</b>選択/解除 <b>ライン クリック</b>端ノード選択+表連動 <b>空白2回クリック</b>全解除 <b>F</b>fit <b>/ または ^F</b>検索 <b>1-5</b>タブ</span>
+  </div>
+</header>
+
+<main>
+  <div id="stage">
+    <svg id="canvas">
+      <defs>
+        <pattern id="dotgrid" width="26" height="26" patternUnits="userSpaceOnUse">
+          <circle cx="1.2" cy="1.2" r="1.2" fill="var(--bg-dot)"/>
+        </pattern>
+      </defs>
+      <rect class="bgrect" id="bgrect" x="0" y="0" width="100%" height="100%"/>
+      <g id="world"></g>
+    </svg>
+    <div id="legend"></div>
+    <div id="nodepanel"></div>
+    <div id="minimap"><svg id="minisvg" viewBox="0 0 1280 860"></svg></div>
+    <div id="tableview"></div>
+    <div id="tooltip"></div>
+  </div>
+  <div id="resizer" title="ドラッグで表の幅を変更"></div>
+  <aside id="details">
+    <div class="dhead"><span>DEVICE DETAILS</span><span class="selcount" id="selcount"></span>
+      <span class="pbtns"><button id="btn-panelmin" title="表を最小化/復元">—</button></span></div>
+    <div id="dbody"></div>
+  </aside>
+</main>
+
+<div id="statusbar">
+  <span>devices <b id="st-dev">0</b></span>
+  <span>links <b id="st-lk">0</b></span>
+  <span>segments <b id="st-seg">0</b></span>
+  <span>bgp <b id="st-bgp">0</b></span>
+</div>
+
+
+"""
 
 _JS = """\
-    // ============================================================
-    // テーマ切替（ライト / ダーク）
-    // ============================================================
-    var _THEME_KEY = 'ct-theme';
 
-    function toggleTheme() {
-      var root = document.documentElement;
-      var current = root.getAttribute('data-theme') || 'light';
-      var next = current === 'dark' ? 'light' : 'dark';
-      root.setAttribute('data-theme', next);
-      try { localStorage.setItem(_THEME_KEY, next); } catch(e) {}
-      var btn = document.getElementById('theme-toggle');
-      if (btn) { btn.textContent = next === 'dark' ? '☀' : '🌙'; }
+"use strict";
+const _SVG_NS = "http" + "://www.w3.org/2000/svg";  /* assembled to avoid literal URL */
+
+const NODE_W = 148, NODE_H = 56;
+const AS_PALETTE = ["#5b8def","#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f"];
+const AREA_PALETTE = ["#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f","#5b8def"];
+const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
+/* BGP セッション色はピア AS でなく種別で固定（eBGP/iBGP で統一。AS の識別は AS 枠の色が担う） */
+const BGP_COLOR = { ebgp:"#e8775a", ibgp:"#7aa2f7" };
+const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
+
+/* ================= state ================= */
+let hoverLink = null, hoverNode = null, hoverBgp = null, hotBgp = null, hotNet = null;
+const S = {
+  view:"physical", k:1, tx:0, ty:0,
+  sel:new Set(), search:"", matches:[], mi:-1,
+  connectedOnly:false,
+  filters:{seg:true, ext:true},
+  hiddenNodes:new Set(), nodePanel:false,
+  legend:true, minimap:true, legendHot:null,
+  sort:{addr:null, ifs:null},
+  collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
+};
+const isTableView = () => S.view === "addr" || S.view === "ifs";
+const $ = s => document.querySelector(s);
+const world = $("#world"), tooltip = $("#tooltip");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* search corpus per node（all=全文 / フィールド演算子用に host,ip,desc,as,vendor も持つ） */
+const corpus = {}, fcorpus = {};
+for (const [id,d] of Object.entries(DATA.devices)) {
+  corpus[id] = [d.hostname, d.vendor, "AS"+d.as, d.as, d.ospf_rid, d.bgp_rid,
+    ...d.ifs.flatMap(i => [i.n, i.ip, i.ip6, i.d,
+      ...(i.addrs||[]).flatMap(a=>[a.ip])])].filter(Boolean).join(" ").toLowerCase();
+  fcorpus[id] = {
+    host: d.hostname.toLowerCase(),
+    ip: d.ifs.flatMap(i=>[i.ip,i.ip6,...(i.addrs||[]).map(a=>a.ip)]).filter(Boolean).join(" ").toLowerCase(),
+    desc: d.ifs.map(i=>i.d).filter(Boolean).join(" ").toLowerCase(),
+    as: String(d.as), vendor: d.vendor.toLowerCase(),
+  };
+}
+for (const s of DATA.segments) {
+  corpus[s.id] = (s.subnet + " segment " + s.members.map(m=>m.ip).join(" ")).toLowerCase();
+  fcorpus[s.id] = { host:"", ip:(s.subnet+" "+s.members.map(m=>m.ip).join(" ")).toLowerCase(), desc:"", as:"", vendor:"" };
+}
+for (const e of DATA.extPeers) {
+  corpus[e.id] = (e.label + " " + e.sub + " external").toLowerCase();
+  fcorpus[e.id] = { host:e.label.toLowerCase(), ip:e.sub.toLowerCase(), desc:"", as:String(e.as), vendor:"" };
+}
+
+/* IP（ホスト部）→ 所属 subnet の逆引き（IF 行⇄ライン連動用） */
+const IP2NET = {};
+for (const l of DATA.links) {
+  IP2NET[l.aip] = l.subnet; IP2NET[l.bip] = l.subnet;
+  if (l.aip6) IP2NET[l.aip6] = l.dual;
+  if (l.bip6) IP2NET[l.bip6] = l.dual;
+}
+for (const s of DATA.segments) for (const m of s.members) IP2NET[m.ip] = s.subnet;
+
+/* dual-stack リンクの v4 ⇄ v6 subnet 対応表。ライン選択は両者を同一ラインとして扱う */
+const NET_PAIR = {};
+for (const l of DATA.links) if (l.dual) { NET_PAIR[l.subnet] = l.dual; NET_PAIR[l.dual] = l.subnet; }
+/* その subnet が現在のライン選択（hotNet）と同一ラインか（v4/v6 の対も一致とみなす） */
+const netHot = net => !!hotNet && (hotNet === net || NET_PAIR[net] === hotNet);
+
+/* 検索のフィールド演算子（グラフ・表 共通） */
+const OP_RE = /^(host|ip|desc|as|vendor|net):(.*)$/;
+
+const u32ToIp = u => [(u>>>24)&255, (u>>>16)&255, (u>>>8)&255, u&255].join(".");
+const ipToU32 = h => { const o = h.split(".").map(Number); return ((o[0]<<24)|(o[1]<<16)|(o[2]<<8)|o[3])>>>0; };
+/* v4 アドレスの所属ネットワーク: 結線推論（IP2NET）優先、無ければ自身の prefix から導出
+   （対外スタブ /30 等も管理対象に載せる。/32 は host route なので導出せず推論外グループへ） */
+function netOfV4(a) {
+  const host = a.split("/")[0], p = +a.split("/")[1];
+  if (IP2NET[host]) return IP2NET[host];
+  if (!(p >= 0 && p < 32)) return null;
+  const mask = p === 0 ? 0 : (~0 << (32 - p)) >>> 0;
+  return `${u32ToIp((ipToU32(host) & mask) >>> 0)}/${p}`;
+}
+
+/* fcorpus.net = そのノードが接続する subnet 群（net: 演算子用。表ビューと同じ netOfV4 導出で件数を一致させる） */
+for (const [id,d] of Object.entries(DATA.devices)) {
+  const nets = new Set();
+  for (const i of d.ifs) {
+    if (i.ip) { const n = netOfV4(i.ip); if (n) { nets.add(n); if (NET_PAIR[n]) nets.add(NET_PAIR[n]); } }
+    if (i.ip6) { const n = IP2NET[i.ip6.split("/")[0]]; if (n) { nets.add(n); if (NET_PAIR[n]) nets.add(NET_PAIR[n]); } }
+  }
+  fcorpus[id].net = [...nets].join(" ").toLowerCase();
+}
+for (const s of DATA.segments) fcorpus[s.id].net = s.subnet.toLowerCase();
+for (const e of DATA.extPeers) fcorpus[e.id].net = "";
+
+/* adjacency: nodeId -> Set(nodeId)。現在のビューで描画されるエッジのみ数える
+   （「接続先のみ」フィルタで接続線の見えないノードが浮かないように） */
+function adjacency() {
+  const adj = {};
+  const add = (a,b) => { (adj[a] ||= new Set()).add(b); (adj[b] ||= new Set()).add(a); };
+  for (const l of DATA.links) {
+    if (S.view === "bgp" && !DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id)) continue;
+    if (S.view === "ospf" && !(l.area && !l.admin_down)) continue;
+    add(l.a, l.b);
+  }
+  for (const s of DATA.segments) {
+    if (S.view === "bgp") continue;
+    if (S.view === "ospf" && !s.area) continue;
+    for (const m of s.members) add(s.id, m.dev);
+  }
+  if (S.view === "bgp") {
+    for (const e of DATA.bgpEdges) {
+      if (e.kind === "loopback") add(e.a, e.b);
+      if (e.kind === "external") add(e.a, e.ext);
     }
+  }
+  return adj;
+}
 
-    // DOMContentLoaded でテーマを復元（localStorage から）
-    document.addEventListener('DOMContentLoaded', function() {
-      try {
-        var saved = localStorage.getItem(_THEME_KEY);
-        if (saved === 'dark' || saved === 'light') {
-          document.documentElement.setAttribute('data-theme', saved);
-          var btn = document.getElementById('theme-toggle');
-          if (btn) { btn.textContent = saved === 'dark' ? '☀' : '🌙'; }
-        }
-      } catch(e) {}
-    });
+/* 積み上げラベル: IF名 / IPv4 / IPv6 を1行ずつ改行して縦に描画（caller 側で null 行を除去して渡す） */
+function stackLabel(parts, cx, topY, lines, opts) {
+  const show = opts.show ? "show" : "";
+  const deco = opts.deco ? ` data-deco="${opts.deco}"` : "";
+  lines.forEach((t, i) => {
+    const w = String(t).length*5.6+8, y0 = topY + i*13;
+    parts.push(`<rect class="iflabel-bg ${show}"${deco} x="${cx-w/2}" y="${y0}" width="${w}" height="12"/>` +
+               `<text class="iflabel ${show}"${deco} x="${cx}" y="${y0+9.5}" text-anchor="middle">${esc(t)}</text>`);
+  });
+}
 
-    // ============================================================
-    // 統合凡例パネル トグル
-    // ============================================================
-    function toggleLegend() {
-      var panel = document.getElementById('legend-panel');
-      if (!panel) return;
-      // getComputedStyle を使うことで CSS 由来の display:none も正しく検出する
-      var isHidden = window.getComputedStyle(panel).display === 'none';
-      panel.style.display = isHidden ? 'block' : 'none';
+/* ================= render ================= */
+function render() {
+  /* 表ビュー: SVG の代わりに #tableview を表示し、グラフ専用コントロールを隠す */
+  const tview = isTableView();
+  document.querySelectorAll(".gonly").forEach(el => el.classList.toggle("hidden", tview));
+  $("#tableview").style.display = tview ? "block" : "none";
+  if (tview) {
+    $("#legend").style.display = "none";
+    $("#minimap").style.display = "none";
+    $("#nodepanel").style.display = "none";
+    renderTableView();
+    return;
+  }
+  $("#nodepanel").style.display = S.nodePanel ? "block" : "none";
+  graphSearchFeedback();   /* 表ビューから戻ったとき件数/警告をノード基準へ戻す */
+  const showBgp  = S.view === "bgp";
+  const showOspf = S.view === "ospf";
+  const parts = [];
+
+  /* --- AS frames (BGP view) --- */
+  if (S.view === "bgp") {
+    const byAs = {};
+    /* 非表示ノードは AS 枠の計算からも除外（枠だけ宙に残らないように） */
+    for (const [id,d] of Object.entries(DATA.devices)) if (selectable(id)) (byAs[d.as] ||= []).push(id);
+    for (const e of DATA.extPeers) if (selectable(e.id)) (byAs[e.as] ||= []).push(e.id);
+    for (const [as, ids] of Object.entries(byAs)) {
+      const xs = ids.map(i=>POS[i].x), ys = ids.map(i=>POS[i].y);
+      const pad = 56;
+      const x = Math.min(...xs)-NODE_W/2-pad, y = Math.min(...ys)-NODE_H/2-pad-8;
+      const w = Math.max(...xs)-Math.min(...xs)+NODE_W+pad*2, h = Math.max(...ys)-Math.min(...ys)+NODE_H+pad*2;
+      const c = asColor(+as);
+      parts.push(`<g class="asgrp">
+        <rect class="asframe-fill" x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${c}"/>
+        <rect class="asframe" x="${x}" y="${y}" width="${w}" height="${h}" rx="14" stroke="${c}"/>
+        <text class="aslabel" x="${x+12}" y="${y+18}" fill="${c}">AS ${as}</text></g>`);
     }
+  }
 
-    // ============================================================
-    // Cards ペイントグル（表の表示/最小化）
-    // ============================================================
-    var _cardsCollapsedSavedHeight = null;
-    var _cardsCollapsedSavedFlex = null;
-    function toggleCardsPane() {
-      var container = document.getElementById('split-pane-container');
-      var svgContainer = document.getElementById('svg-container');
-      var btn = document.getElementById('cards-toggle');
-      if (!container || !svgContainer) return;
-      var isCollapsed = container.classList.contains('cards-collapsed');
-      if (!isCollapsed) {
-        // 折りたたみ: height/flex を退避してから解除
-        _cardsCollapsedSavedHeight = svgContainer.style.height || null;
-        _cardsCollapsedSavedFlex = svgContainer.style.flex || null;
-        svgContainer.style.height = '';
-        svgContainer.style.flex = '';
-        container.classList.add('cards-collapsed');
-        if (btn) btn.classList.add('active');
-      } else {
-        // 復元: 退避した height/flex を戻す
-        container.classList.remove('cards-collapsed');
-        if (_cardsCollapsedSavedHeight) {
-          svgContainer.style.height = _cardsCollapsedSavedHeight;
-          svgContainer.style.flex = 'none';
-        } else {
-          svgContainer.style.height = '';
-          svgContainer.style.flex = _cardsCollapsedSavedFlex || '';
-        }
-        _cardsCollapsedSavedHeight = null;
-        _cardsCollapsedSavedFlex = null;
-        if (btn) btn.classList.remove('active');
-      }
-      // F5: 表ペイン最小化トグルはレイアウトを変える。reflow 完了後（rAF）に
-      // ミニマップを同期する（同期呼び出しは reflow 前で clientHeight が旧値のため不正確）。
-      // ResizeObserver もサイズ変化で発火するが、確定寸法での最終同期を念押しする。
-      if (window.requestAnimationFrame) {
-        window.requestAnimationFrame(function() {
-          if (window._updateMinimap) { window._updateMinimap(); }
-        });
-      } else if (window._updateMinimap) {
-        window._updateMinimap();
-      }
+  /* --- physical links --- */
+  /* hover はノード選択と同じハイライト（プレビュー）。図のハイライト判定は hl を使う。
+     ただし複数選択モードの判定は確定選択のみ＝hover で表示が増えることはあっても減らない */
+  const hl = new Set(S.sel); if (hoverNode) hl.add(hoverNode);
+  const multiSel = S.sel.size >= 2;
+  for (const l of DATA.links) {
+    /* ビュー関連性: BGP/OSPF ビューでは当該プロトコルに関係しないリンクを描画しない */
+    if (S.view === "bgp" && !DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id)) continue;
+    if (S.view === "ospf" && !(l.area && !l.admin_down)) continue;
+    const a = POS[l.a], b = POS[l.b];
+    const cls = ["lk"];
+    if (l.admin_down) cls.push("admin-down");
+    if (hoverLink === l.id) cls.push("lk-hover");   /* ライン hover 強調 */
+    const selA = hl.has(l.a), selB = hl.has(l.b);
+    /* 複数選択時は「選択ノード間のリンク」のみハイライト */
+    if (selA && selB) cls.push("sel-between");
+    else if ((selA || selB) && !multiSel) cls.push("sel-edge");
+    /* BGP セッション連動: over-link セッションが hot ならリンクも強調（render 内で付与し再描画で消えないように） */
+    if (hotBgp) {
+      const he = DATA.bgpEdges.find(x => x.id === hotBgp && x.kind === "over-link" && x.link === l.id);
+      if (he) cls.push("bgp-hot");
     }
-
-    // ============================================================
-    // 接続フィルタ
-    // ============================================================
-    function filterConnected() {
-      // 選択ノードが空なら no-op
-      if (_selectedNodes.size === 0) return;
-
-      // 表示中の全デバイスノードを収集
-      var allDeviceIds = new Set();
-      document.querySelectorAll('.device-node[data-device]').forEach(function(n) {
-        allDeviceIds.add(n.getAttribute('data-device'));
-      });
-
-      // 隣接集合を現在のビュー別に計算
-      var adjacent = new Set(_selectedNodes);
-
-      // physical/bgp は selector の違いのみで同型 → ローカルヘルパで重複排除
-      function _addAdjacentByEdge(selector) {
-        document.querySelectorAll(selector).forEach(function(edge) {
-          var a = edge.getAttribute('data-a');
-          var b = edge.getAttribute('data-b');
-          if (_selectedNodes.has(a) || _selectedNodes.has(b)) {
-            adjacent.add(a);
-            adjacent.add(b);
-          }
-        });
-      }
-
-      if (_currentView === 'physical') {
-        _addAdjacentByEdge('.view-physical .link-edge[data-a][data-b]');
-      } else if (_currentView === 'bgp') {
-        _addAdjacentByEdge('.view-bgp .bgp-session[data-a][data-b]');
-      } else if (_currentView === 'ospf') {
-        // p2p リンク: physical/bgp と同型のヘルパーで隣接解決
-        _addAdjacentByEdge('.view-ospf .link-edge[data-a][data-b]');
-        // multi-access セグメント: seg-edge を data-seg-id でグルーピングし、
-        // 選択ノードが属するセグメントの全 device を隣接に追加
-        var segToDevs = {};
-        document.querySelectorAll('.view-ospf .seg-edge[data-seg-id][data-device]').forEach(function(edge) {
-          var segId = edge.getAttribute('data-seg-id');
-          var dev = edge.getAttribute('data-device');
-          if (!segToDevs[segId]) segToDevs[segId] = [];
-          segToDevs[segId].push(dev);
-        });
-        Object.keys(segToDevs).forEach(function(segId) {
-          var devs = segToDevs[segId];
-          var hasSelected = devs.some(function(d) { return _selectedNodes.has(d); });
-          if (hasSelected) {
-            devs.forEach(function(d) { adjacent.add(d); });
-          }
-        });
-      }
-
-      // チェックボックス連動: devId → cb の Map を事前構築（O(N)クエリ削減）
-      var cbMap = new Map();
-      document.querySelectorAll('.node-filter-cb[data-node-filter]').forEach(function(cb) {
-        cbMap.set(cb.getAttribute('data-node-filter'), cb);
-      });
-
-      // 表示集合 = adjacent、それ以外を隠す
-      allDeviceIds.forEach(function(devId) {
-        var visible = adjacent.has(devId);
-        setNodeVisibility(devId, visible);
-        var cb = cbMap.get(devId);
-        if (cb) cb.checked = visible;
-      });
+    /* 図⇄表ハイライト連動（全ビュー共通・subnet 単位の「ライン選択」。v4/v6 の対も一致） */
+    if (netHot(l.subnet)) cls.push("bgp-hot");
+    const stroke = (showOspf && l.area && !l.admin_down) ? `stroke="${areaColor(l.area)}"` : "";
+    /* dual-stack でも線種は変えない（v6 はラベル・ツールチップ・表に v4 と同じ形式で併記） */
+    parts.push(`<line class="${cls.join(" ")}" data-elem="link" data-id="${l.id}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${stroke}/>`);
+    parts.push(`<line class="lk-hit" data-elem="link" data-id="${l.id}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
+    /* IF/IP ラベルの表示条件: ノード「選択」（確定選択のみ。hover では出さない＝hover はライン強調のみ）
+       またはライン自体の選択（netHot）/ ライン hover。BGP ビューでは BGP ラベルと重複するため出さない */
+    const sA = S.sel.has(l.a), sB = S.sel.has(l.b);
+    const showIf = S.view !== "bgp" &&
+      ((multiSel ? (sA && sB) : (sA || sB)) || hoverLink === l.id || netHot(l.subnet));
+    /* リンク端ラベル: IF名 / IPv4 / IPv6 を改行で縦積み（ラインに被らないよう上方向へ伸ばす） */
+    for (const [p,q,ifn,ip,ip6] of [[a,b,l.ai,l.aip,l.aip6],[b,a,l.bi,l.bip,l.bip6]]) {
+      const t = 0.26;
+      const lx = p.x + (q.x-p.x)*t, ly = p.y + (q.y-p.y)*t - 8;
+      const lines = [ifn, ip, ip6].filter(Boolean);
+      stackLabel(parts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`});
     }
-
-    function invertSelection() {
-      // 2パス構造: physical/bgp/ospf 各ビューに同一 devId のノードが存在するため、
-      // pass1 で反転後の選択 devId 集合を先に確定し、
-      // pass2 で全ノード/カードに classList を一括適用する（逆転バグ防止）
-
-      // pass1: 表示中の devId を収集し、反転後の newSelected 集合を確定（DOM操作なし）
-      var newSelected = new Set();
-      document.querySelectorAll('.device-node[data-device]').forEach(function(node) {
-        var devId = node.getAttribute('data-device');
-        if (_hiddenNodes.has(devId)) return;  // 非表示ノードはスキップ
-        if (!_selectedNodes.has(devId)) {
-          newSelected.add(devId);
-        }
-      });
-
-      // pass2: 全 .device-node に newSelected に基づいて classList を一括適用
-      document.querySelectorAll('.device-node[data-device]').forEach(function(node) {
-        var devId = node.getAttribute('data-device');
-        if (_hiddenNodes.has(devId)) return;
-        if (newSelected.has(devId)) {
-          node.classList.add('selected');
-        } else {
-          node.classList.remove('selected');
-        }
-      });
-
-      // カードも同期（newSelected 確定後に適用）
-      document.querySelectorAll('.device-card[data-device]').forEach(function(card) {
-        var devId = card.getAttribute('data-device');
-        if (_hiddenNodes.has(devId)) return;
-        if (newSelected.has(devId)) {
-          card.classList.add('selected');
-        } else {
-          card.classList.remove('selected');
-        }
-      });
-      _selectedNodes.clear();
-      newSelected.forEach(function(d) { _selectedNodes.add(d); });
-      _updateEdgeHighlightForSelection();
-      _updateCardFilter();
+    /* リンクのネットワーク情報（subnet。v6 も同形式で併記）を選択/ホバー時に表示（OSPFバッジ表示時は重複を避け省略） */
+    if (showIf && !(showOspf && l.area && !l.admin_down)) {
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      stackLabel(parts, mx, my + 7, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`});
     }
-
-    // ============================================================
-    // ビュー切替
-    // ============================================================
-    // NOTE: _selectedNodes / _hiddenNodes は selectView('physical') のトップレベル呼び出し
-    // より前に初期化する必要がある（var 宣言は巻き上げられるが代入は巻き上げられないため、
-    // 後置だと _selectedNodes.size で TypeError になりリスナー登録が全て失われる）。
-    var _selectedNodes = new Set();
-    var _hiddenNodes = new Set();
-    var _currentView = 'physical';
-
-    function selectView(viewId) {
-      _currentView = viewId;
-
-      // SVG ビュー（physical/bgp/ospf 等）
-      // ビュー <g> の表示切替
-      var views = document.querySelectorAll('.view');
-      views.forEach(function(v) {
-        if (v.classList.contains('view-' + viewId)) {
-          v.style.display = '';
-        } else {
-          v.style.display = 'none';
-        }
-      });
-
-      // viewBox を選択ビューの data-bbox にセット（SVG はコンテナ 100% 固定）
-      var activeView = document.querySelector('.view-' + viewId);
-      if (activeView) {
-        var bbox = activeView.getAttribute('data-bbox');
-        if (bbox) {
-          var svg = document.getElementById('topology-svg');
-          svg.setAttribute('viewBox', bbox);
-        }
-      }
-
-      // ビュー切替時に等倍1:1中央（naturalZoom）
-      if (window._naturalZoom) { window._naturalZoom(); }
-
-      // タブのアクティブ状態更新
-      var tabs = document.querySelectorAll('.view-tab');
-      tabs.forEach(function(tab) {
-        if (tab.dataset.view === viewId) {
-          tab.classList.add('active');
-        } else {
-          tab.classList.remove('active');
-        }
-      });
-
-      // 検索状態をリセット
-      var searchInput = document.getElementById('search-input');
-      if (searchInput && searchInput.value) {
-        filterNodes(searchInput.value);
-      }
-
-      // F1: ビュー切替時に複数選択エッジハイライトを現ビューに合わせて再適用
-      if (typeof _updateEdgeHighlightForSelection === 'function') {
-        _updateEdgeHighlightForSelection();
-      }
-
-      // Round D: ビュー切替時にミニマップを更新
-      if (window._updateMinimap) { window._updateMinimap(); }
+    /* OSPF area badge */
+    if (showOspf && l.area && !l.admin_down) {
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      const c = areaColor(l.area);
+      const txt = "area " + l.area, w = txt.length*6.4+12;
+      parts.push(`<g class="area-badge" data-deco="link:${l.id}"><rect x="${mx-w/2}" y="${my-21}" width="${w}" height="15" fill="${c}"/>` +
+        `<text x="${mx}" y="${my-10}" text-anchor="middle" fill="#fff">${esc(txt)}</text>` +
+        `<text class="subnet-tag" x="${mx}" y="${my+14}" text-anchor="middle">${esc(l.subnet)}</text>` +
+        (l.dual?`<text class="subnet-tag" x="${mx}" y="${my+26}" text-anchor="middle">${esc(l.dual)}</text>`:"") + `</g>`);
     }
+  }
 
-    // ズーム関数の役割分担:
-    //   naturalZoom  — 初期表示・ビュー切替・Esc・1:1ボタン → 等倍1:1中央
-    //   zoomFit      — 手動 fit（F キー・⛶ ボタン）→ 図全体がコンテナに収まる最大倍率
-    // 初期ビューを naturalZoom 基準で設定（selectView 内で window._naturalZoom() を呼ぶ）
-    selectView('physical');
-    // A5: DOMContentLoaded でも再実行（IIFE 内の即時 naturalZoom() の保険）
-    // clientWidth が確定した後に再適用されるため冪等で安全。
-    if (typeof window !== 'undefined') {
-      document.addEventListener('DOMContentLoaded', function() {
-        if (window._naturalZoom) { window._naturalZoom(); }
-      });
-    }
-
-    // ============================================================
-    // 検索 / フィルタ
-    // ============================================================
-
-    // ---- CIDR ユーティリティ ----
-    function _parseCidrV4(cidr) {
-      // "10.0.0.0/24" → {netInt, prefix} or null
-      var slash = cidr.indexOf('/');
-      if (slash === -1) return null;
-      var ipPart = cidr.slice(0, slash);
-      var prefixStr = cidr.slice(slash + 1);
-      var prefix = parseInt(prefixStr, 10);
-      if (isNaN(prefix) || prefix < 0 || prefix > 32) return null;
-      var octets = ipPart.split('.');
-      if (octets.length !== 4) return null;
-      var netInt = 0;
-      for (var i = 0; i < 4; i++) {
-        var o = parseInt(octets[i], 10);
-        if (isNaN(o) || o < 0 || o > 255) return null;
-        netInt = (netInt * 256 + o) >>> 0;
-      }
-      return {netInt: netInt, prefix: prefix};
-    }
-
-    function _ipv4ToInt(ip) {
-      var octets = ip.split('.');
-      if (octets.length !== 4) return null;
-      var val = 0;
-      for (var i = 0; i < 4; i++) {
-        var o = parseInt(octets[i], 10);
-        if (isNaN(o) || o < 0 || o > 255) return null;
-        val = (val * 256 + o) >>> 0;
-      }
-      return val;
-    }
-
-    function _inCidrV4(ipCidr, networkCidr) {
-      // ipCidr: "10.0.0.1/30" (address部のみ使用), networkCidr: {netInt, prefix}
-      var slash = ipCidr.indexOf('/');
-      var ip = slash !== -1 ? ipCidr.slice(0, slash) : ipCidr;
-      var ipInt = _ipv4ToInt(ip);
-      if (ipInt === null) return false;
-      if (networkCidr.prefix === 0) return true;
-      var mask = (~((1 << (32 - networkCidr.prefix)) - 1)) >>> 0;
-      return ((ipInt & mask) >>> 0) === ((networkCidr.netInt & mask) >>> 0);
-    }
-
-    function _expandV6(ip) {
-      // IPv6 短縮形を展開して 8グループの数値配列を返す。失敗時 null
-      ip = ip.toLowerCase();
-      // :: を展開
-      var dcolon = ip.indexOf('::');
-      var left, right;
-      if (dcolon !== -1) {
-        left = ip.slice(0, dcolon).split(':').filter(function(s) { return s !== ''; });
-        right = ip.slice(dcolon + 2).split(':').filter(function(s) { return s !== ''; });
-        var fill = 8 - left.length - right.length;
-        if (fill < 0) return null;
-        var mid = [];
-        for (var i = 0; i < fill; i++) mid.push('0');
-        var groups = left.concat(mid).concat(right);
-      } else {
-        var groups = ip.split(':');
-      }
-      if (groups.length !== 8) return null;
-      var nums = [];
-      for (var j = 0; j < 8; j++) {
-        var v = parseInt(groups[j], 16);
-        if (isNaN(v)) return null;
-        nums.push(v);
-      }
-      return nums;
-    }
-
-    function _v6ToBigInt(nums) {
-      var val = BigInt(0);
-      for (var i = 0; i < 8; i++) {
-        val = (val << BigInt(16)) | BigInt(nums[i]);
-      }
-      return val;
-    }
-
-    function _parseCidrV6(cidr) {
-      // "2001:db8::/32" → {netBig, prefix} or null
-      var slash = cidr.indexOf('/');
-      if (slash === -1) return null;
-      var ipPart = cidr.slice(0, slash);
-      var prefix = parseInt(cidr.slice(slash + 1), 10);
-      if (isNaN(prefix) || prefix < 0 || prefix > 128) return null;
-      var nums = _expandV6(ipPart);
-      if (!nums) return null;
-      return {netBig: _v6ToBigInt(nums), prefix: prefix};
-    }
-
-    function _inCidrV6(ipCidr, networkCidr) {
-      // ipCidr: "2001:db8::1/64" のアドレス部
-      var slash = ipCidr.indexOf('/');
-      var ip = slash !== -1 ? ipCidr.slice(0, slash) : ipCidr;
-      var nums = _expandV6(ip);
-      if (!nums) return false;
-      var ipBig = _v6ToBigInt(nums);
-      if (networkCidr.prefix === 0) return true;
-      var shift = BigInt(128 - networkCidr.prefix);
-      var mask = ((BigInt(1) << BigInt(networkCidr.prefix)) - BigInt(1)) << shift;
-      return (ipBig & mask) === (networkCidr.netBig & mask);
-    }
-
-    function _isV4Cidr(s) {
-      return /^(\\d{1,3}\\.){3}\\d{1,3}\\/\\d+$/.test(s);
-    }
-
-    function _isV6Cidr(s) {
-      return s.indexOf('/') !== -1 && (s.indexOf(':') !== -1);
-    }
-
-    // 共通ヘルパー: ips 配列（空白区切り文字列 or 配列）が cidrQuery に内包される IP を持つか
-    // _nodeMatchesCidr から再利用する（v4/v6 ループを DRY 化）。
-    function _ipsMatchCidr(ipsAttr, cidrQuery) {
-      var ipsStr = (ipsAttr || '').trim();
-      if (!ipsStr) return false;
-      var ips = ipsStr.split(/\\s+/);
-      if (_isV4Cidr(cidrQuery)) {
-        var net4 = _parseCidrV4(cidrQuery);
-        if (!net4) return false;
-        for (var i = 0; i < ips.length; i++) {
-          if (ips[i].indexOf(':') === -1 && _inCidrV4(ips[i], net4)) return true;
-        }
-        return false;
-      } else {
-        var net6 = _parseCidrV6(cidrQuery);
-        if (!net6) return false;
-        for (var i = 0; i < ips.length; i++) {
-          if (ips[i].indexOf(':') !== -1 && _inCidrV6(ips[i], net6)) return true;
-        }
-        return false;
+  /* --- segments --- */
+  for (const s of DATA.segments) {
+    /* ビュー関連性: BGP/OSPF ビューでは当該プロトコルに関係しないセグメントを描画しない */
+    if (S.view === "bgp") continue;   /* このサンプルに BGP セッションが乗るセグメントは無い */
+    if (S.view === "ospf" && !s.area) continue;
+    const p = POS[s.id];
+    const segSel = hl.has(s.id);
+    const segHot = netHot(s.subnet);
+    /* 複数選択ノードが同一セグメントのメンバーなら、その経路（spoke）とセグメントもハイライト */
+    const selMembers = s.members.filter(m => hl.has(m.dev));
+    const segBetween = multiSel && selMembers.length >= 2;
+    /* ラベル表示は確定選択（S.sel）のみで判定（hover はライン強調のみ） */
+    const sSegSel = S.sel.has(s.id);
+    const sSegBetween = multiSel && s.members.filter(m => S.sel.has(m.dev)).length >= 2;
+    for (const m of s.members) {
+      const q = POS[m.dev];
+      const between = (segSel || segBetween) && hl.has(m.dev);
+      const edge = !multiSel && (segSel || hl.has(m.dev));
+      const stroke = (showOspf && s.area) ? `stroke="${areaColor(s.area)}"` : "";
+      parts.push(`<line class="lk ${between?"sel-between":edge?"sel-edge":""} ${segHot?"bgp-hot":""} ${hoverLink===s.id?"lk-hover":""}" data-elem="seglink" data-id="${s.id}" data-mem="${m.dev}" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" ${stroke}/>`);
+      parts.push(`<line class="lk-hit" data-elem="seglink" data-id="${s.id}" data-mem="${m.dev}" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"/>`);
+      /* セグメントメンバーの IF 名を選択/ホバー時に表示 */
+      const showIf = (multiSel ? ((sSegSel || sSegBetween) && S.sel.has(m.dev))
+                               : (sSegSel || S.sel.has(m.dev)))
+                     || hoverLink === s.id || segHot;
+      if (showIf) {
+        const t = 0.62;
+        const lx = p.x + (q.x-p.x)*t, ly = p.y + (q.y-p.y)*t - 8;
+        const lines = [m.ifn, m.ip].filter(Boolean);
+        stackLabel(parts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${s.id}:${m.dev}`});
       }
     }
-
-    function _nodeMatchesCidr(node, cidrQuery) {
-      var ipsAttr = node.getAttribute('data-ips') || '';
-      return _ipsMatchCidr(ipsAttr, cidrQuery);
+    const segCls = ["segnode"];
+    if (S.sel.has(s.id) || segBetween) segCls.push("selected");
+    else if (hoverNode === s.id) segCls.push("hovered");
+    if (segHot) segCls.push("bgp-hot");
+    if (S.matches.includes(s.id)) segCls.push("search-hit");
+    parts.push(`<g class="${segCls.join(" ")}" data-elem="seg" data-id="${s.id}">
+      <ellipse cx="${p.x}" cy="${p.y}" rx="62" ry="26"/>
+      <text x="${p.x}" y="${p.y+3}" text-anchor="middle">${esc(s.subnet)}</text></g>`);
+    if (showOspf && s.area) {
+      const c = areaColor(s.area), txt = "area "+s.area, w = txt.length*6.4+12;
+      parts.push(`<g class="area-badge" data-deco="seg:${s.id}"><rect x="${p.x-w/2}" y="${p.y-48}" width="${w}" height="15" fill="${c}"/>` +
+        `<text x="${p.x}" y="${p.y-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
     }
-
-    // 検索ナビゲーション状態（全ビュー横断・タブ自動切替用）
-    var _searchMatches = [];     // マッチした機器ID の決定的リスト（id 昇順）
-    var _searchFocusIndex = -1;  // 現在フォーカス中のインデックス（-1=未選択）
-    var _isNavigating = false;   // navigateSearchNext 実行中フラグ（filterNodes のインデックスリセットをガード）
-
-    function filterNodes(query) {
-      var q = (query || '').toLowerCase().trim();
-
-      // CIDR モード判定: '/' を含み v4/v6 CIDR として解釈できる場合
-      var isCidrMode = q.indexOf('/') !== -1 && (_isV4Cidr(q) || _isV6Cidr(q));
-
-      // 全グラフビュー（physical/bgp/ospf）を横断してノードにマッチ適用
-      var allGraphViews = document.querySelectorAll('.view');
-      // マッチした機器IDを収集（ビュー間重複除去）
-      var matchedDevices = new Set();
-
-      allGraphViews.forEach(function(viewEl) {
-        var nodes = viewEl.querySelectorAll('.device-node');
-        nodes.forEach(function(node) {
-          if (!q) {
-            node.classList.remove('dimmed');
-            node.classList.remove('search-match');
-            node.classList.remove('search-focus');
-          } else {
-            var matched;
-            if (isCidrMode) {
-              matched = _nodeMatchesCidr(node, q);
-            } else {
-              var searchVal = (node.getAttribute('data-search') || '').toLowerCase();
-              matched = searchVal.indexOf(q) !== -1;
-            }
-            if (matched) {
-              node.classList.remove('dimmed');
-              node.classList.add('search-match');
-              var devId = node.getAttribute('data-device');
-              if (devId) matchedDevices.add(devId);
-            } else {
-              node.classList.add('dimmed');
-              node.classList.remove('search-match');
-              node.classList.remove('search-focus');
-            }
-          }
-        });
-
-        // エッジも淡色化（両端が dimmed のとき）
-        var links = viewEl.querySelectorAll('.link-edge');
-        links.forEach(function(link) {
-          if (!q) {
-            link.style.opacity = '';
-            return;
-          }
-          var aNode = viewEl.querySelector('.device-node[data-device="' + CSS.escape(link.dataset.a) + '"]');
-          var bNode = viewEl.querySelector('.device-node[data-device="' + CSS.escape(link.dataset.b) + '"]');
-          var aDimmed = aNode && aNode.classList.contains('dimmed');
-          var bDimmed = bNode && bNode.classList.contains('dimmed');
-          link.style.opacity = (aDimmed && bDimmed) ? '0.15' : '';
-        });
-      });
-
-      // マッチ機器リストを id 昇順の決定的リストに変換（ナビゲーション用）
-      _searchMatches = Array.from(matchedDevices).sort();
-      // _isNavigating 中（navigateSearchNext から selectView 経由で再呼び出しの場合）は
-      // インデックスをリセットしない（クロスタブ「次へ」で i/N 表示が維持される）
-      if (!_isNavigating) {
-        _searchFocusIndex = -1;
-        // フォーカスクラス解除（ユーザー入力起動のときのみリセット）
-        document.querySelectorAll('.device-node.search-focus').forEach(function(n) {
-          n.classList.remove('search-focus');
-        });
-      }
-
-      // 件数表示（未ナビゲーション時は件数のみ）
-      _updateSearchCount();
-    }
-
-    // 件数表示更新ヘルパー
-    function _updateSearchCount() {
-      var countEl = document.getElementById('search-count');
-      if (!countEl) return;
-      var searchInput = document.getElementById('search-input');
-      var q = searchInput ? searchInput.value.trim() : '';
-      if (!q) {
-        countEl.textContent = '';
-        return;
-      }
-      var total = _searchMatches.length;
-      if (total === 0) {
-        countEl.textContent = '0件';
-        return;
-      }
-      if (_searchFocusIndex >= 0) {
-        countEl.textContent = (_searchFocusIndex + 1) + '/' + total + '件';
-      } else {
-        countEl.textContent = total + '件';
-      }
-    }
-
-    // 「次へ」ナビゲーション — マッチ機器を id 昇順で巡回
-    // 各ステップで対象機器をグラフビューに表示（タブ自動切替）し中央寄せ
-    function navigateSearchNext() {
-      if (_searchMatches.length === 0) return;
-
-      // 旧フォーカス解除
-      document.querySelectorAll('.device-node.search-focus').forEach(function(n) {
-        n.classList.remove('search-focus');
-      });
-
-      // 次のインデックスへ進む（巡回）
-      _searchFocusIndex = (_searchFocusIndex + 1) % _searchMatches.length;
-      var targetDevId = _searchMatches[_searchFocusIndex];
-
-      // 対象ノードが現ビューに存在するか確認（なければ Physical タブへ自動切替）
-      var targetInCurrentView = false;
-      var currentViewEl = document.querySelector('.view-' + _currentView);
-      if (currentViewEl) {
-        var nodeInCurrent = currentViewEl.querySelector(
-          '.device-node[data-device="' + CSS.escape(targetDevId) + '"]'
-        );
-        if (nodeInCurrent) targetInCurrentView = true;
-      }
-      // 現ビューにない → Physical タブへ自動切替
-      // _isNavigating フラグで filterNodes 内の _searchFocusIndex リセットを抑止する
-      if (!targetInCurrentView) {
-        _isNavigating = true;
-        selectView('physical');
-        _isNavigating = false;
-      }
-
-      // フォーカスノードに .search-focus クラスを付与（全ビュー）
-      document.querySelectorAll(
-        '.device-node[data-device="' + CSS.escape(targetDevId) + '"]'
-      ).forEach(function(n) {
-        n.classList.add('search-focus');
-      });
-
-      // 中央寄せ: 現ビューのノード座標を使い、viewport の translateX/Y を更新
-      _centerOnDevice(targetDevId);
-
-      // 件数表示を i/N件 に更新
-      _updateSearchCount();
-    }
-
-    // ノード中央寄せヘルパー（ズーム closure の _zoomState 共有オブジェクト経由で更新）
-    // ------------------------------------------------------------
-    // _panToContentPoint(cx, cy)
-    // コンテンツ座標 (cx, cy) が画面中央に来るようにパンする共通ヘルパー。
-    // 中央寄せ算: translateX = cw/2 - cx*scale
-    //   → スクリーン座標 cw/2（中央）= cx*scale + translateX を解くと上式が得られる。
-    // _mmPanTo（ミニマップクリック）と _centerOnDevice（検索ジャンプ）の両方から呼ばれる。
-    // _zoomState / _applyTransform は zoom IIFE が window に露出する（Round D より前に評価される）。
-    // ------------------------------------------------------------
-    function _panToContentPoint(cx, cy) {
-      if (!window._zoomState || !window._applyTransform) return;
-      var c = document.getElementById('svg-container');
-      if (!c) return;
-      var cw = c.clientWidth || 800;
-      var ch = c.clientHeight || 600;
-      var s = window._zoomState.scale;
-      // cw/2 - cx*s: スクリーン原点をコンテンツ座標 cx が中央(cw/2)に来るよう平行移動する
-      window._zoomState.translateX = cw / 2 - cx * s;
-      window._zoomState.translateY = ch / 2 - cy * s;
-      window._applyTransform();
-    }
-
-    function _centerOnDevice(deviceId) {
-      var currentViewEl = document.querySelector('.view-' + _currentView);
-      if (!currentViewEl) return;
-      var node = currentViewEl.querySelector(
-        '.device-node[data-device="' + CSS.escape(deviceId) + '"]'
-      );
-      if (!node) return;
-      // 実座標は子 .node-rect の x/y/width/height 属性から取得する
-      // g の transform="translate(0,0)" は常に原点のため使用しない
-      var rect = node.querySelector('.node-rect');
-      if (!rect) return;  // セグメント等 .node-rect を持たない要素は安全に return
-      var rx = parseFloat(rect.getAttribute('x') || '0');
-      var ry = parseFloat(rect.getAttribute('y') || '0');
-      var rw = parseFloat(rect.getAttribute('width') || '0');
-      var rh = parseFloat(rect.getAttribute('height') || '0');
-      // ノード中心座標（rect の中心）
-      var nx = rx + rw / 2;
-      var ny = ry + rh / 2;
-      // _panToContentPoint で中央寄せ（算法は共通ヘルパーに集約）
-      _panToContentPoint(nx, ny);
-    }
-
-    // search-next ボタン・Enter キーのイベント登録
-    (function() {
-      var nextBtn = document.getElementById('search-next');
-      if (nextBtn) {
-        nextBtn.addEventListener('click', function(e) {
-          e.stopPropagation();
-          navigateSearchNext();
-        });
-      }
-      var searchInput = document.getElementById('search-input');
-      if (searchInput) {
-        searchInput.addEventListener('keydown', function(e) {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            navigateSearchNext();
-          }
-        });
-      }
-    })();
-
-    // ============================================================
-    // ズーム / パン
-    // ============================================================
-    (function() {
-      const container = document.getElementById('svg-container');
-      const svg = document.getElementById('topology-svg');
-      const vp = document.getElementById('viewport');
-
-      // ズーム定数（重複排除: wheel/ボタン/zoomFit のクランプをここで一元管理）
-      var ZOOM_STEP = 1.2;
-      var ZOOM_MIN = 0.2;
-      var ZOOM_MAX = 5.0;
-
-      let scale = 1.0;
-      let translateX = 0;
-      let translateY = 0;
-      let isDragging = false;
-      let dragStart = { x: 0, y: 0 };
-      let translateStart = { x: 0, y: 0 };
-
-      function applyTransform() {
-        vp.setAttribute('transform',
-          'translate(' + translateX + ',' + translateY + ') scale(' + scale + ')');
-        if (window._updateMinimap) { window._updateMinimap(); }
-      }
-
-      // ズーム（マウスホイール）
-      container.addEventListener('wheel', function(e) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? (1 / ZOOM_STEP) : ZOOM_STEP;
-        scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scale * delta));
-        applyTransform();
-      }, { passive: false });
-
-      // パン（マウスドラッグ）
-      container.addEventListener('mousedown', function(e) {
-        // ノード/リンク/ズームボタン上のクリックは pan を発火させない
-        if (e.target.closest('.device-node') || e.target.closest('.link-edge')) return;
-        if (e.target.closest('#zoom-controls')) return;
-        // ミニマップ内のクリックは主SVGのpanと競合させない（ミニマップ側のpointerdownで処理）
-        if (e.target.closest('#minimap')) return;
-        isDragging = true;
-        dragStart = { x: e.clientX, y: e.clientY };
-        translateStart = { x: translateX, y: translateY };
-        e.preventDefault();
-      });
-
-      document.addEventListener('mousemove', function(e) {
-        if (!isDragging) return;
-        translateX = translateStart.x + (e.clientX - dragStart.x);
-        translateY = translateStart.y + (e.clientY - dragStart.y);
-        applyTransform();
-      });
-
-      document.addEventListener('mouseup', function() {
-        isDragging = false;
-      });
-
-      // ズームボタン群のクリックハンドラ
-      var zoomFitBtn = document.getElementById('zoom-fit');
-      var zoomInBtn = document.getElementById('zoom-in');
-      var zoomOutBtn = document.getElementById('zoom-out');
-      var zoomResetBtn = document.getElementById('zoom-reset');
-
-      function zoomFit() {
-        // コンテナ寸法0ガード: レイアウト前やテスト環境では 0 になる場合がある
-        var cw = container.clientWidth;
-        var ch = container.clientHeight;
-        if (cw === 0 || ch === 0) {
-          scale = 1.0; translateX = 0; translateY = 0;
-          applyTransform();
-          return;
-        }
-        // viewBox の全4要素（minX minY W H）を parse して centering を補正
-        var vb = svg.getAttribute('viewBox');
-        if (vb) {
-          var parts = vb.split(' ');
-          if (parts.length === 4) {
-            var vbX = parseFloat(parts[0]);  // min-x（0 以外になりうる）
-            var vbY = parseFloat(parts[1]);  // min-y（0 以外になりうる）
-            var vbW = parseFloat(parts[2]);
-            var vbH = parseFloat(parts[3]);
-            if (vbW > 0 && vbH > 0) {
-              var fitScale = Math.min(cw / vbW, ch / vbH, ZOOM_MAX);
-              scale = Math.max(ZOOM_MIN, fitScale);
-              // vbX/vbY を考慮した centering（min-x/min-y が 0 でも安全）
-              translateX = (cw - vbW * scale) / 2 - vbX * scale;
-              translateY = (ch - vbH * scale) / 2 - vbY * scale;
-              applyTransform();
-              return;
-            }
-          }
-        }
-        // フォールバック: リセット
-        scale = 1.0; translateX = 0; translateY = 0;
-        applyTransform();
-      }
-
-      // naturalZoom: 等倍1:1中央ビュー
-      //   用途: 初期表示・ビュー切替（selectView）・Esc キー・1:1（reset）ボタン
-      //   zoomFit との違い: zoomFit=図全体収まる最大倍率（手動 F/⛶ 専用）
-      //                   naturalZoom=1 viewBox 単位 ≈ 1 CSS px になる等倍
-      function naturalZoom() {
-        // コンテナ寸法0ガード: レイアウト前（IIFE 即時実行時）やテスト環境では 0 になる場合がある
-        var cw = container.clientWidth;
-        var ch = container.clientHeight;
-        if (cw === 0 || ch === 0) {
-          scale = 1.0; translateX = 0; translateY = 0;
-          applyTransform();
-          return;
-        }
-        // viewBox の全4要素（minX minY W H）を parse して centering を補正
-        var vb = svg.getAttribute('viewBox');
-        if (vb) {
-          var parts = vb.split(' ');
-          if (parts.length === 4) {
-            var vbX = parseFloat(parts[0]);  // min-x（0 以外になりうる）
-            var vbY = parseFloat(parts[1]);  // min-y（0 以外になりうる）
-            var vbW = parseFloat(parts[2]);
-            var vbH = parseFloat(parts[3]);
-            if (vbW > 0 && vbH > 0) {
-              // 自然 scale (等倍1:1):
-              //   fitScale = min(cw/vbW, ch/vbH)  → 図全体がコンテナに収まる最大倍率
-              //   naturalScale = 1/fitScale の最大値 = Math.max(vbW/cw, vbH/ch)
-              //   → 画面px/単位 = scale × fitScale ≈ 1 (等倍)
-              //   図がコンテナより小さければ naturalScale < 1 (実寸・余白あり)
-              //   図がコンテナより大きければ naturalScale > 1 (コンテナを超えるが ZOOM_MIN/MAX でクランプ)
-              var naturalScale = Math.max(vbW / cw, vbH / ch);
-              scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, naturalScale));
-              // centering: SVG 中心とコンテナ中心を合わせる（vbX/vbY で min-x/min-y を補正）
-              //   translateX = (コンテナ幅 - 図幅×scale) / 2 - min-x×scale
-              translateX = (cw - vbW * scale) / 2 - vbX * scale;
-              translateY = (ch - vbH * scale) / 2 - vbY * scale;
-              applyTransform();
-              return;
-            }
-          }
-        }
-        // フォールバック: scale=1 リセット
-        scale = 1.0; translateX = 0; translateY = 0;
-        applyTransform();
-      }
-      window._naturalZoom = naturalZoom;
-      // 即時初期化: DOM 構築済みなら cw/ch ガードで安全に実行。
-      // DOMContentLoaded より前に評価されても clientWidth=0 ガードがフォールバックするため冪等。
-      // ミニマップ IIFE の即時 _updateMinimap() と同じパターン。
-      naturalZoom();
-
-      // キーボード
-      document.addEventListener('keydown', function(e) {
-        // 入力中ガード: INPUT/TEXTAREA/SELECT または contentEditable にフォーカス中は
-        // f/数字/'/` キーを横取りしない（Escape は例外で blur を優先）
-        var isEditing = (
-          e.target.tagName === 'INPUT' ||
-          e.target.tagName === 'TEXTAREA' ||
-          e.target.tagName === 'SELECT' ||
-          e.target.contentEditable === 'true'
-        );
-
-        if (e.key === 'Escape') {
-          // Escape は常にハンドル: 入力欄にいれば blur してから clearSelection 等を実行
-          if (isEditing) { e.target.blur(); }
-          clearSelection(); naturalZoom();
-          return;
-        }
-
-        // 入力中はここ以降を処理しない
-        if (isEditing) return;
-
-        if (e.key === 'f' || e.key === 'F') {
-          // F = 全体表示（zoomFit）
-          zoomFit();
-        } else if (e.key === '/') {
-          // '/' = 検索欄フォーカス（'/' が入力されないよう preventDefault）
-          e.preventDefault();
-          var searchInput = document.getElementById('search-input');
-          if (searchInput) searchInput.focus();
-        } else if (e.key >= '1' && e.key <= '9') {
-          // 数字キー 1〜9 でビュー切替（タブの N 番目、0-indexed = 数字-1）
-          var tabs = document.querySelectorAll('.view-tab');
-          var idx = parseInt(e.key, 10) - 1;
-          if (idx >= 0 && idx < tabs.length) {
-            selectView(tabs[idx].dataset.view);
-          }
-        }
-      });
-
-      applyTransform();
-
-      if (zoomFitBtn) zoomFitBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        zoomFit();
-      });
-      if (zoomInBtn) zoomInBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        scale = Math.min(ZOOM_MAX, scale * ZOOM_STEP);
-        applyTransform();
-      });
-      if (zoomOutBtn) zoomOutBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        scale = Math.max(ZOOM_MIN, scale / ZOOM_STEP);
-        applyTransform();
-      });
-      if (zoomResetBtn) zoomResetBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        naturalZoom();
-      });
-
-      // ズーム状態を共有オブジェクトとして window に露出（_centerOnDevice から利用）
-      // _zoomState 経由で scale/translateX/translateY を読み書きし applyTransform を呼ぶ。
-      window._zoomState = {
-        get scale() { return scale; },
-        set scale(v) { scale = v; },
-        get translateX() { return translateX; },
-        set translateX(v) { translateX = v; },
-        get translateY() { return translateY; },
-        set translateY(v) { translateY = v; },
-      };
-      window._applyTransform = applyTransform;
-      window._zoomFit = zoomFit;
-      window._zoomReset = function() { naturalZoom(); };
-
-      // ============================================================
-      // ResizeObserver: コンテナリサイズ時に倍率・中心を保持する
-      //
-      // 倍率保持の根拠:
-      //   SVG は viewBox + preserveAspectRatio="xMidYMid meet" で
-      //   基底スケール base = min(cw/vbW, ch/vbH) を適用する。
-      //   #viewport の transform scale s が乗り、見た目の倍率 = base × s。
-      //   コンテナ寸法変化後に同じ見た目を保つには:
-      //     base_old × s_old = base_new × s_new
-      //     → s_new = s_old × (base_old / base_new)
-      //   中心点保持: 旧コンテナ中心に写っていた content 座標を
-      //     centerX = (prevCW/2 - translateX_old) / scale_old
-      //     centerY = (prevCH/2 - translateY_old) / scale_old  で求め、
-      //   新寸法で同じ content 点がコンテナ中心になるよう translate を再設定:
-      //     translateX_new = cw/2 - centerX × scale_new
-      //     translateY_new = ch/2 - centerY × scale_new
-      // ============================================================
-      if (typeof ResizeObserver !== 'undefined') {
-        // 前回コンテナ寸法（初期は 0：初回コールバックで prevCW/prevCH を確定し補正しない）
-        var prevCW = 0;
-        var prevCH = 0;
-
-        var _ro = new ResizeObserver(function() {
-          if (!container || !window._zoomState || !window._applyTransform) return;
-
-          var cw = container.clientWidth;
-          var ch = container.clientHeight;
-
-          // 初回 or サイズ変化なし: prev を更新して補正しない
-          if (prevCW === 0 || prevCH === 0 || (cw === prevCW && ch === prevCH)) {
-            prevCW = cw;
-            prevCH = ch;
-            return;
-          }
-
-          // viewBox parse（naturalZoom と同じ方式）
-          var vb = svg.getAttribute('viewBox');
-          if (!vb) {
-            prevCW = cw;
-            prevCH = ch;
-            return;
-          }
-          var parts = vb.split(' ');
-          if (parts.length !== 4) {
-            prevCW = cw;
-            prevCH = ch;
-            return;
-          }
-          var vbW = parseFloat(parts[2]);
-          var vbH = parseFloat(parts[3]);
-          if (!(vbW > 0 && vbH > 0)) {
-            prevCW = cw;
-            prevCH = ch;
-            return;
-          }
-
-          // 基底スケール（min による meet ロジック）
-          var baseOld = Math.min(prevCW / vbW, prevCH / vbH);
-          var baseNew = Math.min(cw / vbW, ch / vbH);
-          if (!(baseNew > 0)) {
-            prevCW = cw;
-            prevCH = ch;
-            return;
-          }
-
-          var z = window._zoomState;
-
-          // 旧コンテナ中心に写っていた content 座標を算出
-          var centerX = (prevCW / 2 - z.translateX) / z.scale;
-          var centerY = (prevCH / 2 - z.translateY) / z.scale;
-
-          // 見た目の倍率保持: s_new = s_old × (baseOld / baseNew)
-          var scaleNew = z.scale * (baseOld / baseNew);
-          z.scale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, scaleNew));
-
-          // 新寸法で同じ content 点がコンテナ中心になるよう translate 再設定
-          z.translateX = cw / 2 - centerX * z.scale;
-          z.translateY = ch / 2 - centerY * z.scale;
-
-          window._applyTransform();
-
-          prevCW = cw;
-          prevCH = ch;
-
-          if (window._updateMinimap) { window._updateMinimap(); }
-        });
-
-        _ro.observe(container);
-      }
-    })();
-
-    // ============================================================
-    // 上下スプリットディバイダ ドラッグリサイズ
-    // ============================================================
-    (function() {
-      var divider = document.getElementById('split-divider');
-      var svgContainer = document.getElementById('svg-container');
-      if (!divider || !svgContainer) return;
-
-      var isDraggingDivider = false;
-      var dragStartY = 0;
-      var startHeight = 0;
-
-      divider.addEventListener('mousedown', function(e) {
-        isDraggingDivider = true;
-        dragStartY = e.clientY;
-        startHeight = svgContainer.offsetHeight;
-        e.preventDefault();
-        e.stopPropagation();
-      });
-
-      document.addEventListener('mousemove', function(e) {
-        if (!isDraggingDivider) return;
-        var delta = e.clientY - dragStartY;
-        var newHeight = startHeight + delta;
-        // minH: 図ペインの最小高（SVG が潰れないよう 120px を確保）
-        var minH = 120;
-        // maxH: ヘッダ(~50px) + タブ(~38px) + サーチ(~40px) + フィルタ(~36px) ≈ 200px を
-        //        下ペインに残し、上ペインが window 全高を超えないよう制限。
-        //        さらに maxH >= minH+1 を保証し、上ペインが 0 になるのを防ぐ。
-        var maxH = Math.max(minH + 1, window.innerHeight - 200);
-        newHeight = Math.max(minH, Math.min(maxH, newHeight));
-        svgContainer.style.flex = 'none';
-        svgContainer.style.height = newHeight + 'px';
-      });
-
-      document.addEventListener('mouseup', function() {
-        if (!isDraggingDivider) return;
-        isDraggingDivider = false;
-        // F5: ペイン高さ確定後、レイアウト reflow 完了後（rAF）にミニマップを最終同期する。
-        // ResizeObserver はドラッグ中に発火するが、確定時の最終寸法（clientWidth/Height）で
-        // ビューポート矩形を確実に再計算し、リサイズ後のミニマップ精度ズレを防ぐ。
-        if (window.requestAnimationFrame) {
-          window.requestAnimationFrame(function() {
-            if (window._updateMinimap) { window._updateMinimap(); }
-          });
-        } else if (window._updateMinimap) {
-          window._updateMinimap();
-        }
-      });
-    })();
-
-    // ============================================================
-    // ホバー & 選択ハイライト
-    // ============================================================
-    (function() {
-      const allNodes = document.querySelectorAll('.device-node');
-      const allLinks = document.querySelectorAll('.link-edge');
-      const allBgpSessions = document.querySelectorAll('.bgp-session');
-      const allSegEdges = document.querySelectorAll('.seg-edge');
-      const allSegmentNodes = document.querySelectorAll('.segment-node');
-      // ⑮(perf): ホバーで一時点灯した IF チップを追跡する配列。
-      // clearHighlight でこの配列だけを走査して解除する（毎 mouseleave の
-      // document.querySelectorAll('.if-chip.hover-chip-hl') 全 DOM スキャンを回避。
-      // 大規模 topology でチップが数千あってもホバー解除コストが O(点灯数) に収まる）。
-      var _hoverChipHl = [];
-
-      function highlight(deviceId) {
-        // G2: ホバー中ノードに接続する IF チップを一時点灯する共通ヘルパー。
-        // すでに点灯済み（クリック固定 or 選択ピン）のチップには hover-chip-hl を付けず触らない
-        // ＝clearHighlight でホバー由来のみ安全に消える（固定/ピンを保護）。
-        // IIFE スコープの _hoverChipHl をクロージャ参照するため highlight 内に定義している
-        // （highlight の外に出すと _hoverChipHl を参照できない）。
-        function _hoverLitChip(ifaceId) {
-          if (!ifaceId) return;
-          document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(ifaceId) + '"]').forEach(function(chip) {
-            if (!chip.classList.contains('highlighted')) {
-              chip.classList.add('highlighted');
-              chip.classList.add('hover-chip-hl');
-              _hoverChipHl.push(chip);  // perf: clearHighlight でこの配列のみ走査
-            }
-          });
-        }
-        allNodes.forEach(function(n) {
-          if (n.dataset.device === deviceId) {
-            n.classList.add('highlighted');
-          }
-        });
-        allLinks.forEach(function(l) {
-          var aMatch = l.dataset.a === deviceId;
-          var bMatch = l.dataset.b === deviceId;
-          if (aMatch || bMatch) {
-            l.classList.add('highlighted');
-            // G2: link-edge 端点 IF チップもホバー点灯する（Physical/OSPF p2p 統一）
-            if (aMatch) { _hoverLitChip(l.getAttribute('data-a-iface')); }
-            if (bMatch) { _hoverLitChip(l.getAttribute('data-b-iface')); }
-          }
-        });
-        // BGP セッション: 両端ノードいずれかが deviceId に一致するセッションを点灯
-        allBgpSessions.forEach(function(s) {
-          var aMatch = s.dataset.a === deviceId;
-          var bMatch = s.dataset.b === deviceId;
-          if (aMatch || bMatch) {
-            s.classList.add('highlighted');
-            // G2: bgp-session 端点 IF チップもホバー点灯する（BGP ビュー統一）
-            if (aMatch) { _hoverLitChip(s.getAttribute('data-a-iface')); }
-            if (bMatch) { _hoverLitChip(s.getAttribute('data-b-iface')); }
-          }
-        });
-        // 共有 NW (seg-edge / segment-node): deviceId が接続する seg-edge を点灯し、
-        // そのセグメントノードも一緒に点灯する
-        var litSegIds = [];
-        allSegEdges.forEach(function(s) {
-          if (s.dataset.device === deviceId) {
-            s.classList.add('highlighted');
-            if (s.dataset.segId) { litSegIds.push(s.dataset.segId); }
-            // ⑮: ホバー時、seg-edge のメンバー IF チップも一時点灯する（G2: ヘルパー統一）。
-            _hoverLitChip(s.getAttribute('data-member-iface'));
-          }
-        });
-        allSegmentNodes.forEach(function(sn) {
-          if (litSegIds.indexOf(sn.dataset.segId) !== -1) {
-            sn.classList.add('highlighted');
-          }
-        });
-        _syncEdgeLabels();
-      }
-
-      function clearHighlight() {
-        allNodes.forEach(function(n) { n.classList.remove('highlighted'); });
-        // リンクの highlighted 除去:
-        // _selectedLinks（IF行クリック固定）と _selectedStaticEdges（static経路固定）は保持
-        // selection-edge-hl: ノードクリック選択由来の highlighted も保持（BGP/seg と対称化）
-        allLinks.forEach(function(l) {
-          var lid = l.getAttribute('data-link-id');
-          if (!_selectedLinks.has(lid) && !_selectedStaticEdges.has(lid) && !l.classList.contains('selection-edge-hl')) {
-            l.classList.remove('highlighted');
-          }
-        });
-        // BGP セッション: クリック選択由来の selection-edge-hl を持つ要素は解除しない
-        allBgpSessions.forEach(function(s) {
-          if (!s.classList.contains('selection-edge-hl')) {
-            s.classList.remove('highlighted');
-          }
-        });
-        // 共有 NW の seg-edge / segment-node: 同様に selection-edge-hl 保護
-        allSegEdges.forEach(function(s) {
-          if (!s.classList.contains('selection-edge-hl')) {
-            s.classList.remove('highlighted');
-          }
-        });
-        allSegmentNodes.forEach(function(sn) {
-          if (!sn.classList.contains('selection-edge-hl')) {
-            sn.classList.remove('highlighted');
-          }
-        });
-        // ⑮: ホバーで一時点灯した IF チップ（hover-chip-hl）のみ解除。
-        // hover-chip-hl はホバー時に「未点灯だったチップ」にだけ付くため、
-        // クリック固定チップ・選択ピン（selection-edge-hl）チップは保護される。
-        // perf: 追跡配列 _hoverChipHl のみ走査（全 .if-chip の DOM スキャンを回避）。
-        if (_hoverChipHl.length) {
-          _hoverChipHl.forEach(function(chip) {
-            // G1: クリック選択でピン留め（selection-edge-hl）されたチップは highlighted を保護。
-            // hover-chip-hl マーカーのみ除去する（ホバー解除で選択ピンが誤って消える off-by-one を防止）。
-            if (!chip.classList.contains('selection-edge-hl')) {
-              chip.classList.remove('highlighted');
-            }
-            chip.classList.remove('hover-chip-hl');
-          });
-          _hoverChipHl = [];
-        }
-        _syncEdgeLabels();
-      }
-
-      // ノードホバー
-      allNodes.forEach(function(node) {
-        node.addEventListener('mouseover', function(e) {
-          e.stopPropagation();
-          clearHighlight();
-          highlight(node.dataset.device);
-        });
-        node.addEventListener('mouseenter', function() {
-          highlight(node.dataset.device);
-        });
-        node.addEventListener('mouseleave', function() {
-          clearHighlight();
-        });
-      });
-
-      // リンクホバー
-      allLinks.forEach(function(link) {
-        link.addEventListener('mouseover', function(e) {
-          e.stopPropagation();
-          clearHighlight();
-          link.classList.add('highlighted');
-          if (link.dataset.a) highlight(link.dataset.a);
-          if (link.dataset.b) highlight(link.dataset.b);
-        });
-        link.addEventListener('mouseleave', function() {
-          clearHighlight();
-        });
-      });
-
-      // ノードクリックで選択強調（累積トグル対応・即時実行）
-      allNodes.forEach(function(node) {
-        node.addEventListener('click', function(e) {
-          e.stopPropagation();
-          var deviceId = node.dataset.device;
-          var wasSelected = node.classList.contains('selected');
-          if (wasSelected) {
-            // トグル: 解除
-            node.classList.remove('selected');
-            var card = document.querySelector('.device-card[data-device="' + CSS.escape(deviceId) + '"]');
-            if (card) card.classList.remove('selected');
-            _selectedNodes.delete(deviceId);
-          } else {
-            // 累積選択
-            node.classList.add('selected');
-            var card = document.querySelector('.device-card[data-device="' + CSS.escape(deviceId) + '"]');
-            if (card) {
-              card.classList.add('selected');
-              // F3: ノード選択でカードへ scrollIntoView しない（ページ/ペインのスクロールが
-              // ResizeObserver 経由で図をパンさせ「選択すると図が動く」原因になっていた）。
-              // 選択カードは _updateCardFilter() の絞り込みで表示されるため scroll は不要。
-            }
-            _selectedNodes.add(deviceId);
-          }
-          _updateCardFilter();
-          // P2 #5: 複数ノード選択時にノード間エッジをハイライト
-          _updateEdgeHighlightForSelection();
-        });
-      });
-
-      // F6: 図の余白の選択解除はダブルクリックで行う。単クリック/ドラッグは
-      // パン（container mousedown ドラッグ）に専有させ、誤解除を防ぐ。
-      // ノード/エッジ/チップ等の上の dblclick はバブリングで到達しても解除しない
-      // （ノードの click は stopPropagation 済みだが dblclick は伝播するため明示ガード）。
-      document.getElementById('topology-svg').addEventListener('dblclick', function(e) {
-        if (e.target.closest('.device-node, .if-chip, .bgp-session, .link-edge, .seg-edge, .segment-node')) return;
-        clearSelection();
-      });
-
-      // _syncEdgeLabels: エッジラベル(bgp-badge/link-label)を、対応エッジが highlighted の
-      // 時だけ label-shown で表示する（既定は CSS で非表示）。highlight/clear/選択 変化の末尾で呼ぶ。
-      function _syncEdgeLabels() {
-        document.querySelectorAll('.bgp-badge-group.label-shown, .link-label-group.label-shown')
-          .forEach(function(g){ g.classList.remove('label-shown'); });
-        document.querySelectorAll('.bgp-session.highlighted').forEach(function(e){
-          var id = e.getAttribute('data-bgp-id');
-          if (!id) return;
-          var sel = '.bgp-badge-group[data-bgp-id=' + CSS.escape(id) + ']';
-          document.querySelectorAll(sel)
-            .forEach(function(g){ g.classList.add('label-shown'); });
-        });
-        document.querySelectorAll('.link-edge.highlighted').forEach(function(e){
-          var lid = e.getAttribute('data-link-id');
-          if (lid) {
-            var sel = '.link-label-group[data-link-id=' + CSS.escape(lid) + ']';
-            document.querySelectorAll(sel)
-              .forEach(function(g){ g.classList.add('label-shown'); });
-          } else {
-            // data-link-id 無いエッジは data-a+data-b でフォールバック照合
-            var a = e.getAttribute('data-a'); var b = e.getAttribute('data-b');
-            if (a && b) {
-              var sel2 = '.link-label-group[data-a=' + CSS.escape(a) + '][data-b=' + CSS.escape(b) + ']';
-              document.querySelectorAll(sel2)
-                .forEach(function(g){ g.classList.add('label-shown'); });
-            }
-          }
-        });
-      }
-      // window に公開（_updateEdgeHighlightForSelection 等 IIFE 外からも呼べるように）
-      window._syncEdgeLabels = _syncEdgeLabels;
-    })();
-
-    // ============================================================
-    // レイヤートグル
-    // ============================================================
-    function handleLayerToggle(checkbox) {
-      const layer = checkbox.dataset.layer;
-      if (checkbox.checked) {
-        document.body.classList.remove('hide-' + layer);
-      } else {
-        document.body.classList.add('hide-' + layer);
-      }
-    }
-
-    // ============================================================
-    // カード↔ノード双方向選択・複数累積トグル / IF行↔リンク連動
-    // ============================================================
-    // （_selectedNodes は先頭で初期化済み）
-    var _selectedLinks = new Set();
-    var _selectedStaticRows = new Set();    // #2: static 行 data-route-id 集合（行ごと独立累積）
-    var _selectedStaticEdges = new Set();   // HC1: static 経路で固定中のエッジ link-id / seg-id 集合
-    var _selectedStaticNodes = new Set();   // HC2: static 経路 next-hop 機器（手動選択と独立）
-    var _selectedSegs = new Set();          // #7: seg-id set
-    var _selectedBgp = new Set();           // #5: bgp-id set
-    var _selectedOspf = new Set();          // #1B: ospf-id set
-
-    // clearSelection: ノード選択(.selected)解除 + clearLinkHighlight() + _updateCardFilter()
-    function clearSelection() {
-      document.querySelectorAll('.device-node.selected').forEach(function(n) {
-        n.classList.remove('selected');
-      });
-      document.querySelectorAll('.device-card.selected').forEach(function(c) {
-        c.classList.remove('selected');
-      });
-      _selectedNodes.clear();
-      // リンク・IF 行・static・セグメント・BGP ハイライトも同時解除
-      clearLinkHighlight();
-      // 多ノードC: カード絞り込みを同期
-      _updateCardFilter();
-      // MED-1: selection-edge-hl を確実クリア（_selectedNodes 空なので冒頭の全解除→early return）
-      _updateEdgeHighlightForSelection();
-    }
-
-    // clearLinkHighlight: リンク/IF行/static経路/セグメント/BGP ハイライトを解除する。
-    function clearLinkHighlight() {
-      document.querySelectorAll('.link-edge.highlighted').forEach(function(l) {
-        l.classList.remove('highlighted');
-      });
-      document.querySelectorAll('tr.highlighted').forEach(function(r) {
-        r.classList.remove('highlighted');
-      });
-      _selectedLinks.clear();
-      // #6: static ルート経路ハイライト解除
-      document.querySelectorAll('[data-route-edge].highlighted').forEach(function(el) {
-        el.classList.remove('highlighted');
-      });
-      // #2/#3: static 行マーキング解除（_selectedStaticRows + route-row-selected）
-      document.querySelectorAll('tr.route-row-selected').forEach(function(r) {
-        r.classList.remove('route-row-selected');
-      });
-      _selectedStaticRows.clear();
-      _selectedStaticEdges.clear();
-      // HC2: static 経路 next-hop ノードも解除
-      document.querySelectorAll('.device-node.route-target').forEach(function(n) {
-        n.classList.remove('route-target');
-      });
-      document.querySelectorAll('.device-card.route-target').forEach(function(c) {
-        c.classList.remove('route-target');
-      });
-      _selectedStaticNodes.clear();
-      // #7: セグメントハイライト解除
-      document.querySelectorAll('[data-seg-id].highlighted').forEach(function(el) {
-        el.classList.remove('highlighted');
-      });
-      _selectedSegs.clear();
-      // #5: BGP ハイライト解除
-      document.querySelectorAll('[data-bgp-id].highlighted').forEach(function(el) {
-        el.classList.remove('highlighted');
-      });
-      _selectedBgp.clear();
-      // #1B: OSPF ハイライト解除
-      document.querySelectorAll('[data-ospf-id].highlighted').forEach(function(el) {
-        el.classList.remove('highlighted');
-      });
-      _selectedOspf.clear();
-      // P2#1-fix: BGP 行クリック由来の IF チップ（.if-chip.highlighted）を解除する。
-      // hover-chip-hl（ホバー由来）は clearHighlight/_hoverChipHl 経路が管理するため除外しない。
-      // selection-edge-hl（ノード選択由来）は冒頭の _updateEdgeHighlightForSelection クリアで
-      // 解除されるが、clearLinkHighlight 単独呼び出し経路でも漏れなく解除する。
-      document.querySelectorAll('.if-chip.highlighted').forEach(function(chip) {
-        chip.classList.remove('highlighted');
-      });
-    }
-
-    // ============================================================
-    // P2 #5: 複数ノード選択 → ノード間エッジ + BGP/OSPF 表行ハイライト（ビュー対応）
-    // ============================================================
-    // _updateEdgeHighlightForSelection: _selectedNodes に基づいて
-    // 現ビュー（_currentView）に応じたエッジと関連表行を highlighted にする。
-    // 選択ノードが1以下の場合はエッジハイライトを解除する。
-    function _updateEdgeHighlightForSelection() {
-      // まず既存の「選択由来」エッジハイライトをクリア（全ビュー共通）
-      // （_selectedLinks・_selectedBgp の保持分は除外して選択由来分だけ解除）
-      document.querySelectorAll('.bgp-session.selection-edge-hl').forEach(function(el) {
-        el.classList.remove('highlighted');
-        el.classList.remove('selection-edge-hl');
-      });
-      document.querySelectorAll('.link-edge.selection-edge-hl').forEach(function(el) {
-        el.classList.remove('highlighted');
-        el.classList.remove('selection-edge-hl');
-      });
-      document.querySelectorAll('tr.selection-edge-hl').forEach(function(row) {
-        row.classList.remove('highlighted');
-        row.classList.remove('selection-edge-hl');
-      });
-      // (2a) seg-edge / segment-node の選択由来ハイライトもクリア
-      document.querySelectorAll('.seg-edge.selection-edge-hl, .segment-node.selection-edge-hl').forEach(function(el) {
-        el.classList.remove('highlighted');
-        el.classList.remove('selection-edge-hl');
-      });
-      // (2a-2) IF チップ（if-chip）の選択由来ハイライトをクリア
-      document.querySelectorAll('.if-chip.selection-edge-hl').forEach(function(el) {
-        el.classList.remove('highlighted');
-        el.classList.remove('selection-edge-hl');
-      });
-
-      if (_selectedNodes.size <= 1) {
-        if (typeof window._syncEdgeLabels === 'function') { window._syncEdgeLabels(); }
-        return;
-      }
-
-      // (2b) 共有ネットワーク（multi-access セグメント）: 選択ノードが2つ以上属する
-      // セグメントの seg-edge / segment-node / 関連表行を点灯する。
-      // filterConnected の seg グルーピングと同型（data-seg-id でグルーピング）。
-      function _highlightSharedSegments(scope) {
-        var segToDevs = {};
-        document.querySelectorAll(scope + ' .seg-edge[data-seg-id][data-device]').forEach(function(edge) {
-          var segId = edge.getAttribute('data-seg-id');
-          var dev = edge.getAttribute('data-device');
-          if (!segToDevs[segId]) segToDevs[segId] = [];
-          segToDevs[segId].push(dev);
-        });
-        Object.keys(segToDevs).forEach(function(segId) {
-          var uniqueDevs = Array.from(new Set(segToDevs[segId]));
-          var selCount = uniqueDevs.filter(function(d) { return _selectedNodes.has(d); }).length;
-          if (selCount < 2) return;
-          var esc = CSS.escape(segId);
-          // セグメント配下の seg-edge / segment-node をまとめて取得し点灯
-          var matched = document.querySelectorAll(scope + ' .seg-edge[data-seg-id="' + esc + '"], ' + scope + ' .segment-node[data-seg-id="' + esc + '"]');
-          matched.forEach(function(el) {
-            el.classList.add('highlighted');
-            el.classList.add('selection-edge-hl');
-            // ⑮/F2: seg-edge のメンバー IF チップ点灯は「選択ノードのメンバー」のみに限定する。
-            // セグメント線/ノードは共有NW構造として全メンバー点灯のままだが、チップは
-            // 選択した機器(data-device ∈ _selectedNodes)の IF だけ点灯する（非選択メンバーの
-            // チップが点く誤動作の解消）。segment-node は data-member-iface を持たない。
-            var memberIface = el.getAttribute('data-member-iface');
-            var memberDev = el.getAttribute('data-device');
-            if (memberIface && memberDev && _selectedNodes.has(memberDev)) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(memberIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-          });
-          // OSPF Networks 表行: matched から segment-node をフィルタして再利用（再クエリ不要）
-          matched.forEach(function(sn) {
-            if (!sn.classList.contains('segment-node')) return;
-            var ospfId = sn.getAttribute('data-ospf-id');
-            if (!ospfId) return;
-            ospfId.split(' ').forEach(function(token) {
-              if (!token) return;
-              document.querySelectorAll('tr[data-ospf-id~="' + CSS.escape(token) + '"]').forEach(function(row) {
-                row.classList.add('highlighted');
-                row.classList.add('selection-edge-hl');
-              });
-            });
-          });
-          // Interfaces 表行: tr[data-seg-id=segId]（セグメントメンバーIF行）
-          document.querySelectorAll('tr[data-seg-id="' + esc + '"]').forEach(function(row) {
-            row.classList.add('highlighted');
-            row.classList.add('selection-edge-hl');
-          });
-        });
-      }
-
-      if (_currentView === 'physical') {
-        // physical ビュー: .view-physical スコープの .link-edge のみハイライト
-        // BGP 表・OSPF 表には触らない。Interfaces 表行（data-link-id）も連動。
-        document.querySelectorAll('.view-physical .link-edge[data-a][data-b]').forEach(function(el) {
-          var a = el.getAttribute('data-a');
-          var b = el.getAttribute('data-b');
-          if (_selectedNodes.has(a) && _selectedNodes.has(b)) {
-            el.classList.add('highlighted');
-            el.classList.add('selection-edge-hl');
-            // 対応する Interfaces 表行もハイライト（data-link-id）
-            var linkId = el.getAttribute('data-link-id');
-            if (linkId) {
-              document.querySelectorAll('tr[data-link-id="' + CSS.escape(linkId) + '"]').forEach(function(row) {
-                row.classList.add('highlighted');
-                row.classList.add('selection-edge-hl');
-              });
-            }
-            // 選択由来チップは selection-edge-hl を付与し _hoverChipHl には積まない（ホバー経路 _hoverLitChip とは
-            // 付与クラス・解除機構が異なるため分離）。ホバー側のみ _hoverLitChip に集約済み。
-            // 端点 IF チップ（if-chip）を点灯（data-a-iface / data-b-iface）
-            var aIface = el.getAttribute('data-a-iface');
-            var bIface = el.getAttribute('data-b-iface');
-            if (aIface) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(aIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-            if (bIface) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(bIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-          }
-        });
-        // (2c) 共有セグメント点灯（physical）
-        _highlightSharedSegments('.view-physical');
-
-      } else if (_currentView === 'bgp') {
-        // bgp ビュー: .view-bgp スコープの .bgp-session をハイライト + BGP 表行連動
-        document.querySelectorAll('.view-bgp .bgp-session[data-a][data-b]').forEach(function(el) {
-          var a = el.getAttribute('data-a');
-          var b = el.getAttribute('data-b');
-          if (_selectedNodes.has(a) && _selectedNodes.has(b)) {
-            el.classList.add('highlighted');
-            el.classList.add('selection-edge-hl');
-            // 対応する BGP 表行もハイライト（data-bgp-id）
-            var bgpId = el.getAttribute('data-bgp-id');
-            if (bgpId) {
-              var bgpAttr = 'data-bgp-id';
-              document.querySelectorAll('tr[' + bgpAttr + '="' + CSS.escape(bgpId) + '"]').forEach(function(row) {
-                row.classList.add('highlighted');
-                row.classList.add('selection-edge-hl');
-              });
-            }
-            // F1: セッション線端点の IF チップ（if-chip）を点灯（data-a-iface / data-b-iface）。
-            // physical/ospf 分岐と同型。クリアは冒頭の .if-chip.selection-edge-hl 解除で対応。
-            var aIface = el.getAttribute('data-a-iface');
-            var bIface = el.getAttribute('data-b-iface');
-            if (aIface) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(aIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-            if (bIface) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(bIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-          }
-        });
-
-      } else if (_currentView === 'ospf') {
-        // ospf ビュー: .view-ospf スコープの .link-edge をハイライト + OSPF 表行連動
-        // Interfaces 表行（data-link-id）も連動。
-        document.querySelectorAll('.view-ospf .link-edge[data-a][data-b]').forEach(function(el) {
-          var a = el.getAttribute('data-a');
-          var b = el.getAttribute('data-b');
-          if (_selectedNodes.has(a) && _selectedNodes.has(b)) {
-            el.classList.add('highlighted');
-            el.classList.add('selection-edge-hl');
-            // 対応する OSPF 表行もハイライト（data-ospf-id トークンマッチ）
-            var ospfId = el.getAttribute('data-ospf-id');
-            if (ospfId) {
-              ospfId.split(' ').forEach(function(token) {
-                if (!token) return;
-                document.querySelectorAll('tr[data-ospf-id~="' + CSS.escape(token) + '"]').forEach(function(row) {
-                  row.classList.add('highlighted');
-                  row.classList.add('selection-edge-hl');
-                });
-              });
-            }
-            // 対応する Interfaces 表行もハイライト（data-link-id）
-            var linkId = el.getAttribute('data-link-id');
-            if (linkId) {
-              document.querySelectorAll('tr[data-link-id="' + CSS.escape(linkId) + '"]').forEach(function(row) {
-                row.classList.add('highlighted');
-                row.classList.add('selection-edge-hl');
-              });
-            }
-            // ⑬: 端点 IF チップ（if-chip）を点灯（data-a-iface / data-b-iface）。
-            // physical 分岐と同型。クリアは冒頭の .if-chip.selection-edge-hl 解除で対応。
-            var aIface = el.getAttribute('data-a-iface');
-            var bIface = el.getAttribute('data-b-iface');
-            if (aIface) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(aIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-            if (bIface) {
-              document.querySelectorAll('.if-chip[data-iface-id="' + CSS.escape(bIface) + '"]').forEach(function(chip) {
-                chip.classList.add('highlighted');
-                chip.classList.add('selection-edge-hl');
-              });
-            }
-          }
-        });
-        // (2d) 共有セグメント点灯（ospf）
-        _highlightSharedSegments('.view-ospf');
-      }
-      // エッジラベル表示を highlighted 状態に同期する
-      if (typeof window._syncEdgeLabels === 'function') { window._syncEdgeLabels(); }
-    }
-
-    // カード→ノード選択（カードクリックで対応ノードを selected 強調・累積トグル）
-    (function() {
-      document.querySelectorAll('.device-card').forEach(function(card) {
-        card.addEventListener('click', function(e) {
-          // IF 行クリックは別ハンドラが処理するので tr 上のクリックは除外
-          if (e.target.closest('tr')) return;
-          var deviceId = card.dataset.device;
-          var wasCardSelected = card.classList.contains('selected');
-          if (wasCardSelected) {
-            // トグル: 選択解除
-            card.classList.remove('selected');
-            _selectedNodes.delete(deviceId);
-            document.querySelectorAll('.device-node[data-device="' + CSS.escape(deviceId) + '"]')
-              .forEach(function(n) { n.classList.remove('selected'); });
-          } else {
-            // 累積選択
-            card.classList.add('selected');
-            _selectedNodes.add(deviceId);
-            document.querySelectorAll('.device-node[data-device="' + CSS.escape(deviceId) + '"]')
-              .forEach(function(n) { n.classList.add('selected'); });
-          }
-          // 多ノードC: 選択変化をカード絞り込みに反映
-          _updateCardFilter();
-          // P2 #5: カードクリック時も複数選択エッジハイライトを更新
-          _updateEdgeHighlightForSelection();
-        });
-      });
-    })();
-
-    // ============================================================
-    // 修正8: toggle*Highlight の共通ヘルパー
-    // ============================================================
-    // _toggleSelection(id, selectedSet, dataAttr): CSS.escape 込みで data-{attr} 要素を
-    // highlighted クラスでトグルし、selectedSet を更新する（挙動・クラス(.highlighted)不変）
-    function _toggleSelection(id, selectedSet, dataAttr) {
-      if (!id) return;
-      var isHighlighted = selectedSet.has(id);
-      var selector = '[' + dataAttr + '="' + CSS.escape(id) + '"]';
-      if (isHighlighted) {
-        selectedSet.delete(id);
-        document.querySelectorAll(selector).forEach(function(el) {
-          el.classList.remove('highlighted');
-        });
-      } else {
-        selectedSet.add(id);
-        document.querySelectorAll(selector).forEach(function(el) {
-          el.classList.add('highlighted');
-        });
-      }
-      // エッジラベル（bgp-badge / link-label）の表示を highlighted 状態と同期
-      if (typeof window._syncEdgeLabels === 'function') { window._syncEdgeLabels(); }
-    }
-
-    // IF行↔リンク双方向ハイライト（トグル: 2回目クリックで解除）
-    function toggleIfRowHighlight(linkId) {
-      _toggleSelection(linkId, _selectedLinks, 'data-link-id');
-    }
-
-    // IF 行・リンクエッジ クリックイベントの登録
-    (function() {
-      document.querySelectorAll('tr[data-link-id]').forEach(function(row) {
-        var linkId = row.getAttribute('data-link-id');
-        if (!linkId) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleIfRowHighlight(linkId);
-        });
-      });
-
-      // リンクエッジクリックで対応 IF 行ハイライト
-      document.querySelectorAll('.link-edge[data-link-id]').forEach(function(edge) {
-        var linkId = edge.getAttribute('data-link-id');
-        if (!linkId) return;
-        edge.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleIfRowHighlight(linkId);
-        });
-      });
-    })();
-
-    // ============================================================
-    // ノード表示フィルタ
-    // ============================================================
-    // （_hiddenNodes は先頭で初期化済み）
-
-    // ④⑤ asToDevs / segToDevs2: DOM 構造は不変（クラスのみトグル）のため
-    // setNodeVisibility 最初の呼び出し時に一度だけ構築してキャッシュする。
-    // N 機器の selectAllNodes/clearAllNodes で O(N²) querySelectorAll を O(N) に削減。
-    var _asToDevsCache = null;    // { asStr -> Set<deviceId> }
-    var _segToDevs2Cache = null;  // { segId  -> Set<deviceId> }
-
-    function _buildAsSegCaches() {
-      _asToDevsCache = {};
-      document.querySelectorAll('.device-node[data-as]').forEach(function(n) {
-        var as = n.dataset.as; var dev = n.dataset.device;
-        if (!as || !dev) return;
-        if (!_asToDevsCache[as]) _asToDevsCache[as] = new Set();
-        _asToDevsCache[as].add(dev);
-      });
-      _segToDevs2Cache = {};
-      document.querySelectorAll('.seg-edge[data-seg-id][data-device]').forEach(function(e) {
-        var seg = e.dataset.segId; var dev = e.dataset.device;
-        if (!seg || !dev) return;
-        if (!_segToDevs2Cache[seg]) _segToDevs2Cache[seg] = new Set();
-        _segToDevs2Cache[seg].add(dev);
-      });
-    }
-
-    function setNodeVisibility(deviceId, visible) {
-      // 非表示デバイス集合を更新
-      if (visible) {
-        _hiddenNodes.delete(deviceId);
-      } else {
-        _hiddenNodes.add(deviceId);
-      }
-
-      // 全ビューのノードを制御（CSS.escape でセレクタインジェクション防御）
-      document.querySelectorAll('.device-node[data-device="' + CSS.escape(deviceId) + '"]')
-        .forEach(function(node) {
-          node.classList.toggle('node-filtered', !visible);
-        });
-
-      // エッジの制御（全種別: link-edge / bgp-session / seg-edge）
-      // link-edge: data-a / data-b 両端判定
-      document.querySelectorAll('.link-edge').forEach(function(edge) {
-        var a = edge.dataset.a;
-        var b = edge.dataset.b;
-        if (a === deviceId || b === deviceId) {
-          var aHidden = _hiddenNodes.has(a);
-          var bHidden = _hiddenNodes.has(b);
-          // いずれかの端点が非表示なら隠す。両端が表示のときのみ表示に戻す
-          edge.classList.toggle('node-filtered', aHidden || bHidden);
-        }
-      });
-
-      // bgp-session: data-a / data-b 両端判定（svg.py で付与）
-      document.querySelectorAll('.bgp-session').forEach(function(edge) {
-        var a = edge.dataset.a;
-        var b = edge.dataset.b;
-        if (!a || !b) return;
-        if (a === deviceId || b === deviceId) {
-          var aHidden = _hiddenNodes.has(a);
-          var bHidden = _hiddenNodes.has(b);
-          edge.classList.toggle('node-filtered', aHidden || bHidden);
-        }
-      });
-
-      // seg-edge: data-device で単端点デバイスに対応
-      document.querySelectorAll('.seg-edge').forEach(function(edge) {
-        var dev = edge.dataset.device;
-        if (dev === deviceId) {
-          edge.classList.toggle('node-filtered', !visible);
-        }
-      });
-
-      // 分離ラベル群（z-order修正で別レイヤー化）: link-label-group / bgp-badge-group
-      // 両端いずれかが非表示なら隠す（link-edge / bgp-session と同じロジック）
-      document.querySelectorAll('.link-label-group[data-a][data-b], .bgp-badge-group[data-a][data-b]')
-        .forEach(function(g) {
-          var a = g.dataset.a;
-          var b = g.dataset.b;
-          if (a === deviceId || b === deviceId) {
-            var aHidden = _hiddenNodes.has(a);
-            var bHidden = _hiddenNodes.has(b);
-            g.classList.toggle('node-filtered', aHidden || bHidden);
-          }
-        });
-
-      // カードの制御
-      var card = document.querySelector('.device-card[data-device="' + CSS.escape(deviceId) + '"]');
-      if (card) {
-        card.classList.toggle('node-filtered', !visible);
-      }
-
-      // ④ AS枠: AS の全メンバー device が非表示なら as-group-container と AS番号ラベルを隠す
-      // キャッシュ未構築なら初回のみ構築（DOM 構造は不変）
-      if (_asToDevsCache === null) { _buildAsSegCaches(); }
-      Object.keys(_asToDevsCache).forEach(function(as) {
-        var allHidden = Array.from(_asToDevsCache[as]).every(function(d) { return _hiddenNodes.has(d); });
-        var esc = CSS.escape(as);
-        document.querySelectorAll('.as-group-container[data-as="' + esc + '"], .as-group-label-group[data-as="' + esc + '"]').forEach(function(g) {
-          g.classList.toggle('node-filtered', allHidden);
-        });
-      });
-
-      // ⑤ Shared Network: セグメントの全メンバー device が非表示なら segment-node を隠す
-      Object.keys(_segToDevs2Cache).forEach(function(seg) {
-        var allHidden = Array.from(_segToDevs2Cache[seg]).every(function(d) { return _hiddenNodes.has(d); });
-        var esc = CSS.escape(seg);
-        document.querySelectorAll('.segment-node[data-seg-id="' + esc + '"]').forEach(function(sn) {
-          sn.classList.toggle('node-filtered', allHidden);
-        });
-      });
-
-    }
-
-    function selectAllNodes() {
-      document.querySelectorAll('.node-filter-cb').forEach(function(cb) {
-        cb.checked = true;
-        setNodeVisibility(cb.dataset.nodeFilter, true);
-      });
-    }
-
-    function clearAllNodes() {
-      document.querySelectorAll('.node-filter-cb').forEach(function(cb) {
-        cb.checked = false;
-        setNodeVisibility(cb.dataset.nodeFilter, false);
-      });
-    }
-
-    // ノードフィルタ checkbox のイベントリスナー登録（DC5: onchange インライン不使用）
-    (function() {
-      document.querySelectorAll('.node-filter-cb').forEach(function(cb) {
-        cb.addEventListener('change', function() {
-          setNodeVisibility(cb.dataset.nodeFilter, cb.checked);
-        });
-      });
-    })();
-
-    // ============================================================
-    // #2: Static Route 行クリック -> 行ごと独立・複数累積マーク
-    // ============================================================
-    // 設計:
-    //   - _selectedStaticRows: data-route-id の集合（行ごと独立）
-    //   - 行クリックで data-route-id をトグル（1行のみ route-row-selected を付け外し）
-    //   - エッジ/next-hop ハイライトは _selectedStaticRows の和から再計算
-    //   - 旧: data-route-edge 全行巻き込みは廃止
-
-    // _applyStaticRowHighlights: _selectedStaticRows の現状から
-    // エッジ highlighted + next-hop route-target を一括再計算する。
-    function _applyStaticRowHighlights() {
-      // まず全ての経路エッジ/next-hop ハイライトをクリア
-      document.querySelectorAll('[data-link-id].highlighted').forEach(function(el) {
-        if (_selectedStaticEdges.has(el.getAttribute('data-link-id'))) {
-          el.classList.remove('highlighted');
-        }
-      });
-      document.querySelectorAll('[data-seg-id].highlighted').forEach(function(el) {
-        if (_selectedStaticEdges.has(el.getAttribute('data-seg-id'))) {
-          el.classList.remove('highlighted');
-        }
-      });
-      _selectedStaticEdges.clear();
-      document.querySelectorAll('.device-node.route-target').forEach(function(n) {
-        n.classList.remove('route-target');
-      });
-      document.querySelectorAll('.device-card.route-target').forEach(function(c) {
-        c.classList.remove('route-target');
-      });
-      _selectedStaticNodes.clear();
-
-      // 選択中の全行から route-edge / nexthop-device を収集して再点灯
-      _selectedStaticRows.forEach(function(rowId) {
-        var row = document.querySelector('tr[data-route-id="' + CSS.escape(rowId) + '"]');
-        if (!row) return;
-        var routeEdgeId = row.getAttribute('data-route-edge') || '';
-        var nexthopDeviceId = row.getAttribute('data-route-nexthop-device') || '';
-        if (routeEdgeId) {
-          _selectedStaticEdges.add(routeEdgeId);
-          document.querySelectorAll('[data-link-id="' + CSS.escape(routeEdgeId) + '"]').forEach(function(el) {
-            el.classList.add('highlighted');
-          });
-          document.querySelectorAll('[data-seg-id="' + CSS.escape(routeEdgeId) + '"]').forEach(function(el) {
-            el.classList.add('highlighted');
-          });
-        }
-        if (nexthopDeviceId) {
-          _selectedStaticNodes.add(nexthopDeviceId);
-          document.querySelectorAll('.device-node[data-device="' + CSS.escape(nexthopDeviceId) + '"]').forEach(function(n) {
-            n.classList.add('route-target');
-          });
-          var card = document.querySelector('.device-card[data-device="' + CSS.escape(nexthopDeviceId) + '"]');
-          if (card) card.classList.add('route-target');
-        }
-      });
-    }
-
-    function toggleStaticRouteHighlight(routeId) {
-      // routeId = data-route-id（例 "r1::0.0.0.0/0"）
-      if (!routeId) return;
-      var row = document.querySelector('tr[data-route-id="' + CSS.escape(routeId) + '"]');
-      if (!row) return;
-      var isSelected = _selectedStaticRows.has(routeId);
-      if (isSelected) {
-        _selectedStaticRows.delete(routeId);
-        row.classList.remove('route-row-selected');
-      } else {
-        _selectedStaticRows.add(routeId);
-        row.classList.add('route-row-selected');
-        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-      // エッジ/next-hop ハイライトを _selectedStaticRows の和から再計算
-      _applyStaticRowHighlights();
-    }
-
-    // Static route 行クリックイベント登録（#2: data-route-id で1行特定）
-    (function() {
-      document.querySelectorAll('tr[data-route-id]').forEach(function(row) {
-        var routeId = row.getAttribute('data-route-id');
-        if (!routeId) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleStaticRouteHighlight(routeId);
-        });
-      });
-    })();
-
-    // ============================================================
-    // #7: セグメントノード / IF 行双方向ハイライト
-    // ============================================================
-    function toggleSegHighlight(segId) {
-      if (!segId) return;
-      var isHighlighted = _selectedSegs.has(segId);
-      if (isHighlighted) {
-        _selectedSegs.delete(segId);
-        document.querySelectorAll('[data-seg-id="' + CSS.escape(segId) + '"]').forEach(function(el) {
-          el.classList.remove('highlighted');
-        });
-      } else {
-        _selectedSegs.add(segId);
-        document.querySelectorAll('[data-seg-id="' + CSS.escape(segId) + '"]').forEach(function(el) {
-          el.classList.add('highlighted');
-        });
-      }
-      if (typeof window._syncEdgeLabels === 'function') { window._syncEdgeLabels(); }
-    }
-
-    // セグメントノード / seg-edge クリックイベント登録
-    (function() {
-      // segment-node <g> クリック
-      document.querySelectorAll('.segment-node[data-seg-id]').forEach(function(node) {
-        var segId = node.getAttribute('data-seg-id');
-        if (!segId) return;
-        node.style.cursor = 'pointer';
-        node.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleSegHighlight(segId);
-        });
-      });
-
-      // seg-edge <line> クリック
-      document.querySelectorAll('.seg-edge[data-seg-id]').forEach(function(edge) {
-        var segId = edge.getAttribute('data-seg-id');
-        if (!segId) return;
-        edge.style.cursor = 'pointer';
-        edge.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleSegHighlight(segId);
-        });
-      });
-
-      // IF 行クリック（data-seg-id を持つ行）
-      document.querySelectorAll('tr[data-seg-id]').forEach(function(row) {
-        var segId = row.getAttribute('data-seg-id');
-        if (!segId) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleSegHighlight(segId);
-        });
-      });
-    })();
-
-    // ============================================================
-    // #5: BGP Session ↔ 表の双方向ハイライト
-    // ============================================================
-    function toggleBgpHighlight(bgpId) {
-      _toggleSelection(bgpId, _selectedBgp, 'data-bgp-id');
-    }
-
-    // BGP セッション <g> クリック + BGP 行 <tr> クリックイベント登録
-    (function() {
-      // bgp-session SVG 要素クリック
-      document.querySelectorAll('.bgp-session[data-bgp-id]').forEach(function(el) {
-        var bgpId = el.getAttribute('data-bgp-id');
-        if (!bgpId) return;
-        el.style.cursor = 'pointer';
-        el.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleBgpHighlight(bgpId);
-        });
-      });
-
-      // BGP 行 <tr> クリック（row→session線+chips 双方向連動）
-      document.querySelectorAll('tr[data-bgp-id]').forEach(function(row) {
-        var bgpId = row.getAttribute('data-bgp-id');
-        if (!bgpId) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleBgpHighlight(bgpId);
-          // data-iface-id を持つ BGP 行: source IF チップも連動して点灯
-          var ifaceId = row.getAttribute('data-iface-id');
-          if (ifaceId) {
-            toggleIfChipHighlight(ifaceId);
-          }
-        });
-      });
-    })();
-
-    // ============================================================
-    // #1B: OSPF リンク/セグメント ↔ OSPF Networks 表の双方向ハイライト
-    // ============================================================
-    // Phase 3H: dual-stack 対応 token セレクタ版
-    // - 統合エッジ data-ospf-id は空白区切り複数 token（例: "10.0.0.0/30 2001:db8:1::/127"）
-    // - OSPF Networks 行は単一 token（例: "10.0.0.0/30" または "2001:db8:1::/127"）
-    //
-    // 双方向連動ルール:
-    // - 行（単一 id）クリック → [data-ospf-id~="id"] で token 照合し統合エッジをハイライト
-    // - 統合エッジ（複数 token）クリック → token を split して各行/要素を全ハイライト
-    // - single-stack（単一 token）は ~= でも完全一致と同等に動作するため非回帰
-
-    // _ospfHighlightToken: 単一 token id に対して [data-ospf-id~="id"] セレクタで
-    // ハイライト/解除を実行し、_selectedOspf Set を更新する。
-    // BGP/seg の _toggleSelection と独立した OSPF 専用実装。
-    function _ospfHighlightToken(id, on) {
-      if (!id) return;
-      var selector = '[data-ospf-id~="' + CSS.escape(id) + '"]';
-      document.querySelectorAll(selector).forEach(function(el) {
-        if (on) {
-          el.classList.add('highlighted');
-        } else {
-          el.classList.remove('highlighted');
-        }
-      });
-    }
-
-    // toggleOspfHighlight: ospfIdStr（空白区切り 1 or 複数 token）をトグルする。
-    // - 行クリック時は単一 token（ospfId = "10.0.0.0/30"）
-    // - エッジクリック時は複数 token（ospfId = "10.0.0.0/30 2001:db8:1::/127"）
-    // どちらの場合も token 単位で _selectedOspf を更新し ~= で双方向連動する。
-    function toggleOspfHighlight(ospfIdStr) {
-      if (!ospfIdStr) return;
-      var tokens = ospfIdStr.split(' ').filter(function(t) { return t.length > 0; });
-      if (tokens.length === 0) return;
-
-      // 全 token がハイライト済みかどうかを確認
-      var allHighlighted = tokens.every(function(t) { return _selectedOspf.has(t); });
-
-      if (allHighlighted) {
-        // トグル: 全 token を解除
-        tokens.forEach(function(t) {
-          _selectedOspf.delete(t);
-          _ospfHighlightToken(t, false);
-        });
-      } else {
-        // ハイライト: 全 token を追加
-        tokens.forEach(function(t) {
-          _selectedOspf.add(t);
-          _ospfHighlightToken(t, true);
-        });
-      }
-      if (typeof window._syncEdgeLabels === 'function') { window._syncEdgeLabels(); }
-    }
-
-    // OSPF リンク・セグメント・OSPF Networks 行 クリックイベント登録
-    (function() {
-      // OSPF ビューの link-edge[data-ospf-id] クリック
-      // Phase 3H: data-ospf-id は複数 token になりうる（統合エッジ）
-      document.querySelectorAll('.link-edge[data-ospf-id]').forEach(function(el) {
-        var ospfIdStr = el.getAttribute('data-ospf-id');
-        if (!ospfIdStr) return;
-        el.style.cursor = 'pointer';
-        el.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleOspfHighlight(ospfIdStr);
-        });
-      });
-
-      // OSPF セグメントノード クリック（セグメントは単一 token）
-      document.querySelectorAll('.segment-node[data-ospf-id]').forEach(function(el) {
-        var ospfIdStr = el.getAttribute('data-ospf-id');
-        if (!ospfIdStr) return;
-        el.style.cursor = 'pointer';
-        el.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleOspfHighlight(ospfIdStr);
-        });
-      });
-
-      // OSPF セグメントエッジ クリック（セグメントは単一 token）
-      document.querySelectorAll('.seg-edge[data-ospf-id]').forEach(function(el) {
-        var ospfIdStr = el.getAttribute('data-ospf-id');
-        if (!ospfIdStr) return;
-        el.style.cursor = 'pointer';
-        el.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleOspfHighlight(ospfIdStr);
-        });
-      });
-
-      // OSPF Networks 行 <tr>[data-ospf-id] クリック（行は単一 token）
-      document.querySelectorAll('tr[data-ospf-id]').forEach(function(row) {
-        var ospfIdStr = row.getAttribute('data-ospf-id');
-        if (!ospfIdStr) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleOspfHighlight(ospfIdStr);
-        });
-      });
-    })();
-
-    // ============================================================
-    // 多ノードC: カード選択連動絞り込みトグル
-    // ============================================================
-    // _updateCardFilter: card-filter-toggle ON 時に _selectedNodes に基づいてカードを絞り込む。
-    // _selectedNodes 変更・clearSelection 等の選択変化から呼び出す。
-    function _updateCardFilter() {
-      var cb = document.getElementById('card-filter-toggle');
-      if (!cb || !cb.checked) {
-        // OFF: 全カードを表示（card-unselected を除去）
-        document.querySelectorAll('.device-card.card-unselected').forEach(function(c) {
-          c.classList.remove('card-unselected');
-        });
-        return;
-      }
-      // ON: _selectedNodes の機器のカードのみ表示
-      var visibleDevices = new Set(_selectedNodes);
-
-      document.querySelectorAll('.device-card').forEach(function(card) {
-        var dev = card.dataset.device || card.getAttribute('data-device');
-        if (!dev) return;
-        if (visibleDevices.size === 0 || visibleDevices.has(dev)) {
-          card.classList.remove('card-unselected');
-        } else {
-          card.classList.add('card-unselected');
-        }
-      });
-    }
-
-    (function() {
-      var cb = document.getElementById('card-filter-toggle');
-      if (cb) {
-        cb.addEventListener('change', _updateCardFilter);
-        _updateCardFilter();
-      }
-    })();
-
-
-    // ============================================================
-    // P2 #1: IF チップ強調（toggleIfChipHighlight）
-    // ============================================================
-    // toggleIfChipHighlight(ifaceId): 全ビューの if-chip[data-iface-id] を
-    // .highlighted でトグルする。BGP 行は data-iface-id を持ち本関数で連動する。
-    // static 行のみ data-loopback-iface-id を持ち、別ハンドラから本関数を呼ぶ。
-    function toggleIfChipHighlight(ifaceId) {
-      if (!ifaceId) return;
-      var escaped = CSS.escape(ifaceId);
-      var chips = document.querySelectorAll('[data-iface-id="' + escaped + '"]');
-      // A4: 非表示要素が先頭でも正しくトグルできるよう some() ベースに変更
-      var isHighlighted = Array.from(chips).some(function(el) {
-        return el.classList.contains('highlighted');
-      });
-      chips.forEach(function(el) {
-        if (isHighlighted) {
-          el.classList.remove('highlighted');
-        } else {
-          el.classList.add('highlighted');
-        }
-      });
-    }
-
-    // IF チップ（SVG <g class="if-chip">）クリック登録
-    (function() {
-      document.querySelectorAll('.if-chip[data-iface-id]').forEach(function(chip) {
-        var ifaceId = chip.getAttribute('data-iface-id');
-        if (!ifaceId) return;
-        chip.style.cursor = 'pointer';
-        chip.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleIfChipHighlight(ifaceId);
-        });
-      });
-
-      // static 行（data-loopback-iface-id を持ち data-iface-id を持たない行）のクリック登録。
-      // BGP 行は data-iface-id を持つため :not([data-iface-id]) で除外される。
-      document.querySelectorAll('tr[data-loopback-iface-id]:not([data-iface-id])').forEach(function(row) {
-        var loopbackIfaceId = row.getAttribute('data-loopback-iface-id');
-        if (!loopbackIfaceId) return;
-        row.style.cursor = 'pointer';
-        row.addEventListener('click', function(e) {
-          e.stopPropagation();
-          toggleIfChipHighlight(loopbackIfaceId);
-        });
-      });
-    })();
-
-    // ============================================================
-    // Round D: ミニマップ
-    // ============================================================
-    (function() {
-      var minimap = document.getElementById('minimap');
-      var minimapUse = document.getElementById('minimap-use');
-      var minimapVp = document.getElementById('minimap-viewport');
-      var minimapToggle = document.getElementById('minimap-toggle');
-
-      // トグル非表示状態フラグ。true のとき #minimap-toggle で隠した状態を維持する。
-      // _updateMinimap 内で参照し、applyTransform/selectView からの再呼び出しでも尊重する。
-      var _mmHidden = false;
-
-      // _updateMinimap: ミニマップの viewBox / <use> href / ビューポート矩形を最新状態に更新する。
-      // 呼出タイミング: applyTransform()（ズーム/パン時）, selectView()（ビュー切替時）,
-      //                 ページロード直後（window._updateMinimap = ... の直後）。
-      // ミニマップ IIFE は zoom IIFE より後に評価されるため、applyTransform/selectView から
-      // window._updateMinimap を存在チェックして呼ぶ（if (window._updateMinimap)）。
-      function _updateMinimap() {
-        try {
-          if (!minimap || !minimapUse || !minimapVp) return;
-
-          var viewEl = document.querySelector('.view-' + _currentView);
-          if (!viewEl) {
-            minimap.style.display = 'none';
-            return;
-          }
-
-          // _mmHidden フラグを尊重: トグルで非表示にしていれば再表示しない
-          minimap.style.display = _mmHidden ? 'none' : '';
-
-          // ミニマップの viewBox を active ビューの data-bbox にセット
-          var bbox = viewEl.getAttribute('data-bbox');
-          if (bbox) {
-            minimap.setAttribute('viewBox', bbox);
-          }
-
-          // <use> で active ビューグループを参照
-          minimapUse.setAttribute('href', '#view-' + _currentView);
-          minimapUse.setAttribute('xlink:href', '#view-' + _currentView);
-
-          // ビューポート矩形: コンテンツ座標での可視領域を計算
-          // 逆変換の根拠: スクリーン原点(0,0)はコンテンツ座標 -translateX/scale に対応する。
-          // コンテンツ座標 x = (スクリーン座標 - translateX) / scale → x_origin = -translateX/scale
-          // 可視幅 visW = コンテナ幅 cw / scale（スクリーン幅をコンテンツ座標スケールで割る）
-          if (window._zoomState) {
-            var z = window._zoomState;
-            var c = document.getElementById('svg-container');
-            if (!c) return;
-            var cw = c.clientWidth || 800;
-            var ch = c.clientHeight || 600;
-            var visX = -z.translateX / z.scale;
-            var visY = -z.translateY / z.scale;
-            var visW = cw / z.scale;
-            var visH = ch / z.scale;
-            minimapVp.setAttribute('x', visX);
-            minimapVp.setAttribute('y', visY);
-            minimapVp.setAttribute('width', visW);
-            minimapVp.setAttribute('height', visH);
-          }
-        } catch (err) {
-          // ミニマップ更新エラーは無視（本体の動作を妨げない）
+  }
+
+  /* --- BGP edges --- */
+  if (showBgp) {
+    for (const e of DATA.bgpEdges) {
+      let a, b, eA, eB;
+      if (e.kind === "over-link") { const l = DATA.links.find(x=>x.id===e.link); if (!l) continue; a = POS[l.a]; b = POS[l.b]; eA = l.a; eB = l.b; }
+      else if (e.kind === "loopback") { a = POS[e.a]; b = POS[e.b]; eA = e.a; eB = e.b; }
+      else { a = POS[e.a]; b = POS[e.ext]; eA = e.a; eB = e.ext; }
+      const c = BGP_COLOR[e.type] || "var(--ink-dim)";
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2 - (e.kind==="loopback" ? 70 : 0);
+      const ecls = ["bgp-edge", e.type];
+      if (hoverBgp === e.id) ecls.push("lk-hover");   /* ライン hover 強調 */
+      /* ノード選択による強調は物理リンクと同一規則（eBGP/iBGP で差をつけない） */
+      const eselA = hl.has(eA), eselB = hl.has(eB);
+      if (eselA && eselB) ecls.push("sel-between");
+      else if ((eselA || eselB) && !multiSel) ecls.push("sel-edge");
+      /* セッション選択時だけでなく、下敷きリンクのライン選択（hotNet・v4/v6 とも）でも曲線を太らせる */
+      const overNet = e.kind === "over-link" ? (DATA.links.find(x=>x.id===e.link) || {}).subnet : null;
+      if (hotBgp === e.id || (overNet && netHot(overNet))) ecls.push("bgp-hot");
+      parts.push(`<path class="${ecls.join(" ")}" data-elem="bgpedge" data-id="${e.id}" stroke="${c}" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" style="cursor:pointer"/>`);
+      if (e.kind === "loopback")
+        parts.push(`<text class="subnet-tag" data-deco="bgpedge:${e.id}" x="${mx}" y="${my+12}" text-anchor="middle">${esc(e.label)}</text>`);
+      /* BGP ビュー: 端点ノードの選択時またはセッション連動時のみアドレス・ソース IF を表示 */
+      if (S.view === "bgp") {
+        /* IP からその機器の IF 名を逆引き（loopback セッションにも IF 名を出すため） */
+        const ifOf = (dev, ip) => {
+          const d0 = DATA.devices[dev];
+          const f = d0 && d0.ifs.find(i => i.ip && i.ip.split("/")[0] === ip);
+          return f ? f.n : null;
+        };
+        let aIp = null, bIp = null, aIp6 = null, bIp6 = null, aIf = null, bIf = null, endA = e.a, endB = e.b, net = null;
+        if (e.kind === "over-link") {
+          const l = DATA.links.find(x=>x.id===e.link);
+          if (l) { aIp = l.aip; bIp = l.bip; aIp6 = l.aip6; bIp6 = l.bip6; aIf = l.ai; bIf = l.bi; endA = l.a; endB = l.b; net = l.subnet; }
+        } else if (e.kind === "external") { aIp = e.aip; bIp = e.bip; aIf = e.srcIf || null; endB = e.ext; }
+        else { aIp = e.aip; bIp = e.bip; aIf = ifOf(e.a, e.aip); bIf = ifOf(e.b, e.bip); }
+        /* アドレス・IF ラベルの表示条件:
+           - ライン自体の hover（曲線 or 下敷きリンク）→ 常に表示
+           - ライン選択中 → 選択中のセッション/サブネット（v4/v6 の対を含む）に一致するものだけ
+             （端点を共有するだけの無関係セッションを光らせない。両 hot 共存時は両方）
+           - それ以外 → 端点ノードの「確定選択」のみ（hover では出さない＝hover はライン強調のみ）。
+             複数選択時は両端が選択されたセッションのみ（物理リンクの IF ラベル規則と同じ） */
+        const lineHover = hoverBgp === e.id || (e.kind === "over-link" && hoverLink === e.link);
+        const showAddr = lineHover || ((hotBgp || hotNet)
+          ? (hotBgp === e.id || (net && netHot(net)))
+          : (multiSel ? (S.sel.has(endA) && S.sel.has(endB)) : (S.sel.has(endA) || S.sel.has(endB))));
+        if (showAddr) for (const [pt,qt,ip,ip6,ifn] of [[a,b,aIp,aIp6,aIf],[b,a,bIp,bIp6,bIf]]) {
+          if (!ip) continue;
+          const t = 0.2;
+          const lx = pt.x + (qt.x-pt.x)*t, ly = pt.y + (qt.y-pt.y)*t + 18;
+          /* IF名 / IPv4 / IPv6 を改行で縦積み（他ビューのリンク端ラベルと同形式） */
+          stackLabel(parts, lx, ly - 10, [ifn, ip, ip6].filter(Boolean), {show: true, deco:`bgpedge:${e.id}`});
         }
       }
+    }
+  }
 
-      // ミニマップ クリック/ドラッグで主ビューをパン
-      if (minimap) {
-        var _mmDragging = false;
+  /* --- external peers (BGP)。機器と同じノード描画（vbar は AS 色） --- */
+  if (showBgp) {
+    for (const e of DATA.extPeers) {
+      const p = POS[e.id];
+      const ecls = ["node", "ext"];
+      if (S.sel.has(e.id)) ecls.push("selected");
+      else if (hoverNode === e.id) ecls.push("hovered");
+      if (S.matches.includes(e.id)) ecls.push("search-hit");
+      parts.push(`<g class="${ecls.join(" ")}" data-elem="ext" data-id="${e.id}">
+        <rect class="body" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}" rx="9"/>
+        <rect class="vbar" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="5" height="${NODE_H}" rx="2.5" fill="${asColor(e.as)}"/>
+        <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(e.label)}</text>
+        <text class="sub" x="${p.x-NODE_W/2+16}" y="${p.y+15}">${esc(e.sub)}</text>
+      </g>`);
+    }
+  }
 
-        function _mmPanTo(e) {
-          try {
-            // getScreenCTM().inverse() でスクリーン座標→SVG内部コンテンツ座標へ変換する。
-            // getScreenCTM(): SVG 要素のスクリーン CTM（カレント変換行列）を返す。
-            // inverse() の逆行列を作り、createSVGPoint().matrixTransform() でスクリーン座標を
-            // コンテンツ座標（ミニマップの viewBox 空間）に変換する。
-            if (!minimap.getScreenCTM) return;
-            var ctm = minimap.getScreenCTM();
-            if (!ctm) return;
-            var pt = minimap.createSVGPoint();
-            pt.x = e.clientX;
-            pt.y = e.clientY;
-            var cpt = pt.matrixTransform(ctm.inverse());
-            // クリック点(cpt)が画面中央に来るよう _panToContentPoint に委譲（中央寄せ算は共通ヘルパーに集約）
-            _panToContentPoint(cpt.x, cpt.y);
-          } catch (err) {
-            // ガード: getScreenCTM 等が無い環境でもクラッシュしない
-          }
-        }
+  /* --- device nodes --- */
+  for (const [id,d] of Object.entries(DATA.devices)) {
+    const p = POS[id];
+    const cls = ["node"];
+    if (S.sel.has(id)) cls.push("selected");
+    else if (hoverNode === id) cls.push("hovered");
+    if (S.matches.includes(id)) cls.push("search-hit");
+    const vbarColor = S.view === "bgp" ? asColor(d.as) : (d.vendor === "cisco_ios" ? "#5b8def" : "#43b97f");
+    const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
+      : S.view === "bgp" ? `AS ${d.as}${d.bgp_rid ? ` · rid ${d.bgp_rid}` : ""}` : d.vendor;
+    parts.push(`<g class="${cls.join(" ")}" data-elem="dev" data-id="${id}">
+      <rect class="body" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}" rx="9"/>
+      <rect class="vbar" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="5" height="${NODE_H}" rx="2.5" fill="${vbarColor}"/>
+      <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(d.hostname)}</text>
+      <text class="sub" x="${p.x-NODE_W/2+16}" y="${p.y+15}">${esc(sub)}</text>
+    </g>`);
+  }
 
-        minimap.addEventListener('pointerdown', function(e) {
-          _mmDragging = true;
-          _mmPanTo(e);
-          e.preventDefault();
-        });
+  world.innerHTML = parts.join("");
+  world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
+  applyVisibility();
+  renderMinimap();
+}
 
-        minimap.addEventListener('pointermove', function(e) {
-          if (_mmDragging) { _mmPanTo(e); }
-        });
+let _rafId = 0, _rafFn = null;
+function schedule(fn) {
+  _rafFn = fn;
+  if (_rafId) return;
+  _rafId = requestAnimationFrame(() => { _rafId = 0; const f = _rafFn; _rafFn = null; f(); });
+}
 
-        document.addEventListener('pointerup', function() {
-          _mmDragging = false;
-        });
+function applyTransform() {
+  world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
+  if (!S.minimap) return;
+  const mv = $("#minisvg .mview");
+  if (!mv) { renderMinimap(); return; }
+  const r = $("#canvas").getBoundingClientRect();
+  mv.setAttribute("x", -S.tx/S.k); mv.setAttribute("y", -S.ty/S.k);
+  mv.setAttribute("width", r.width/S.k); mv.setAttribute("height", r.height/S.k);
+}
+
+/* visibility: filters / connected-only / search dim / legend-click 強調 */
+function applyVisibility() {
+  const adj = adjacency();
+  /* 凡例クリックフィルタ: 該当ラインとその端点ノード以外を dim */
+  let lgNodes = null, lgLine = null;
+  if (S.legendHot) {
+    const lg = S.legendHot;
+    const areaHit = a => a != null && String(a).split("/").includes(lg.slice(5));
+    lgNodes = new Set();
+    lgLine = el => {
+      if (el.dataset.elem === "link") {
+        const l = DATA.links.find(x=>x.id===el.dataset.id); if (!l) return false;
+        if (lg === "admin-down") return !!l.admin_down;
+        if (lg.startsWith("area:")) return !l.admin_down && areaHit(l.area);
+        /* eBGP/iBGP 強調時は over-link セッションの下敷きリンクも許容（半分だけ dim になるのを防ぐ） */
+        return DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id && e.type === lg);
       }
-
-      // ミニマップ 表示/非表示トグル
-      // _mmHidden フラグを更新して _updateMinimap を呼ぶことで状態を一元管理する
-      if (minimapToggle) {
-        minimapToggle.addEventListener('click', function(e) {
-          e.stopPropagation();
-          if (!minimap) return;
-          _mmHidden = !_mmHidden;
-          _updateMinimap();
-        });
+      if (el.dataset.elem === "seglink") {
+        const s = DATA.segments.find(x=>x.id===el.dataset.id);
+        return !!s && lg.startsWith("area:") && areaHit(s.area);
       }
+      const e = DATA.bgpEdges.find(x=>x.id===el.dataset.id);
+      return !!e && e.type === lg;
+    };
+    if (lg === "admin-down") {
+      for (const l of DATA.links) if (l.admin_down) { lgNodes.add(l.a); lgNodes.add(l.b); }
+    } else if (lg.startsWith("area:")) {
+      for (const l of DATA.links) if (!l.admin_down && areaHit(l.area)) { lgNodes.add(l.a); lgNodes.add(l.b); }
+      for (const s of DATA.segments) if (areaHit(s.area)) { lgNodes.add(s.id); for (const m of s.members) lgNodes.add(m.dev); }
+    } else {
+      for (const e of DATA.bgpEdges) if (e.type === lg) for (const n of bgpNodes(e.id)) lgNodes.add(n);
+    }
+  }
+  const visible = id => {
+    if (S.hiddenNodes.has(id)) return false;   /* 表示ノードパネルで個別に非表示指定されたノード */
+    if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
+    if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
+    if (S.connectedOnly && S.sel.size) {
+      if (S.sel.has(id)) return true;
+      return [...S.sel].some(s => adj[s] && adj[s].has(id));
+    }
+    return true;
+  };
+  /* ラベル・バッジ（data-deco="<elem>:<id>[:<mem>]"）へ親要素と同じ可視性を伝播するための記録 */
+  const decoState = {};
+  world.querySelectorAll("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']").forEach(el => {
+    const id = el.dataset.id;
+    const hidden = !visible(id);
+    const dim = (S.matches.length > 0 && !S.matches.includes(id)) || (lgNodes && !lgNodes.has(id));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+    decoState[`${el.dataset.elem}:${id}`] = { hidden, dim };
+  });
+  world.querySelectorAll("[data-elem='link'],[data-elem='seglink'],[data-elem='bgpedge']").forEach(el => {
+    let ends = [];
+    if (el.dataset.elem === "link") { const l = DATA.links.find(x=>x.id===el.dataset.id); ends = l ? [l.a,l.b] : []; }
+    else if (el.dataset.elem === "seglink") ends = [el.dataset.id, el.dataset.mem];
+    else { const e = DATA.bgpEdges.find(x=>x.id===el.dataset.id);
+           ends = e.kind==="loopback" ? [e.a,e.b] : e.kind==="external" ? [e.a,e.ext]
+                : (l => l ? [l.a,l.b] : [])(DATA.links.find(x=>x.id===e.link)); }
+    const hidden = ends.length === 0 || !ends.every(visible);
+    const dim = (S.matches.length > 0 && !ends.some(id=>S.matches.includes(id))) || (lgLine && !lgLine(el));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+    const key = el.dataset.elem === "seglink"
+      ? `seglink:${el.dataset.id}:${el.dataset.mem}` : `${el.dataset.elem}:${el.dataset.id}`;
+    decoState[key] = { hidden, dim };
+  });
+  world.querySelectorAll("[data-deco]").forEach(el => {
+    const st = decoState[el.dataset.deco];
+    if (!st) return;
+    el.classList.toggle("hidden", st.hidden);
+    el.classList.toggle("dim", st.dim);
+  });
+}
 
-      // window に公開（applyTransform / selectView IIFE から呼べるように）
-      // ミニマップ IIFE は zoom IIFE より後に評価されるため、zoom IIFE 内の呼び出し元は
-      // if (window._updateMinimap) で存在チェックしている（IIFE 評価順の依存を回避）。
-      window._updateMinimap = _updateMinimap;
+/* その subnet が現在のビューで線として描画されるか
+   （描画されない subnet の表行は連動クリック対象にしない＝押しても図に何も起きない行を作らない） */
+function netDrawn(net) {
+  const onLink = l => l.subnet === net || l.dual === net;   /* v6=dual も同一ライン扱い */
+  if (S.view === "physical") return true;
+  if (S.view === "bgp")
+    return DATA.links.some(l => onLink(l) && DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id));
+  return DATA.links.some(l => onLink(l) && l.area && !l.admin_down)
+      || DATA.segments.some(s => s.subnet === net && s.area);
+}
 
-      // 即時初期化: DOM 構築済みなら DOMContentLoaded を待たずに初回更新を実行する。
-      // 内部 try/catch により DOM 未準備でも安全（エラーは無視される）。
-      _updateMinimap();
+/* ================= details panel ================= */
+function renderDetails() {
+  const sel = [...S.sel];
+  $("#selcount").textContent = sel.length ? `${sel.length} selected` : "";
+  const db = $("#dbody");
+  if (!sel.length) {
+    db.innerHTML = `<div class="placeholder">
+      ノードを<b>クリック</b>すると詳細を表示します。<br>
+      クリックで<b>選択/解除をトグル</b>（複数可）<br>
+      <b>カーソルを乗せる</b>だけでも選択と同じ<br>ハイライトでプレビューできます<br><br>
+      ライン（リンク/セグメント/BGP）を<br>クリックすると<b>端点ノードも自動選択</b>され、<br>
+      表の該当行と連動ハイライトします<br>
+      空白を<b>ダブルクリック</b> / <b>Esc</b> で全解除<br><br>
+      ノードは<b>ドラッグで移動</b>できます<br>（リロードで決定的初期配置に戻ります）<br><br>
+      <b>凡例の項目クリック</b>で該当要素を強調、<br>
+      <b>表示ノード</b>ボタンでノード単位の表示指定、<br>
+      <b>SVG / PNG</b> ボタンで現在の表示を保存。<br><br>
+      検索パターン（全種）:<br>
+      <b>/ または Ctrl+F</b> — 検索欄へフォーカス<br>
+      <b>ドロップダウン</b> — 対象フィールドを選択<br>
+      　（host: 等を書かずに絞り込み）<br>
+      <b>文字列</b> — hostname / IP(v4・v6) / description /<br>
+      　AS番号 / vendor / IF名 を横断検索<br>
+      <b>host:r1</b> — hostname のみ<br>
+      <b>ip:10.0.0.</b> — IPアドレスのみ<br>
+      <b>desc:uplink</b> — description のみ<br>
+      <b>as:65001</b> — AS番号のみ<br>
+      <b>vendor:junos</b> — ベンダーのみ<br>
+      <b>net:10.0.0</b> — サブネットのみ<br>
+      <b>Enter</b> — 次のヒットへ移動<br>
+      ヒット 0 件のときは検索欄が赤くなります。</div>`;
+    return;
+  }
+  const html = [];
+  /* 複数選択: 選択ノード間リンクの IF 情報 */
+  if (sel.length >= 2) {
+    const pairs = [];
+    for (const l of DATA.links)
+      if (S.sel.has(l.a) && S.sel.has(l.b)) pairs.push(
+        `<div class="linkpair${netDrawn(l.subnet)&&netHot(l.subnet)?" hot":""}"${netDrawn(l.subnet)?` data-net="${esc(l.subnet)}"`:""}><span class="subnet">${esc(l.subnet)}${l.dual?` · ${esc(l.dual)}`:""}</span>${l.admin_down?' <span class="st-down">admin_down</span>':""}<br>` +
+        `<span class="ifn">${esc(DATA.devices[l.a].hostname)} ${esc(l.ai)}</span> <span class="ipd">${esc(l.aip)}${l.aip6?` · ${esc(l.aip6)}`:""}</span><br>` +
+        `<span class="ifn">${esc(DATA.devices[l.b].hostname)} ${esc(l.bi)}</span> <span class="ipd">${esc(l.bip)}${l.bip6?` · ${esc(l.bip6)}`:""}</span></div>`);
+    for (const s of DATA.segments) {
+      const ms = s.members.filter(m => S.sel.has(m.dev));
+      if (S.sel.has(s.id) ? ms.length >= 1 : ms.length >= 2) pairs.push(
+        `<div class="linkpair${netDrawn(s.subnet)&&netHot(s.subnet)?" hot":""}"${netDrawn(s.subnet)?` data-net="${esc(s.subnet)}"`:""}><span class="subnet">${esc(s.subnet)}</span> <span class="ipd">segment</span><br>` +
+        ms.map(m=>`<span class="ifn">${esc(DATA.devices[m.dev].hostname)} ${esc(m.ifn)}</span> <span class="ipd">${esc(m.ip)}</span>`).join("<br>") + `</div>`);
+    }
+    html.push(`<div class="csec"><h4>SELECTED LINKS (${pairs.length})</h4>${pairs.join("") || '<div class="placeholder">選択ノード間に直接リンクはありません</div>'}</div>`);
+  }
+  for (const id of sel) {
+    const d = DATA.devices[id];
+    if (!d) { /* segment / ext peer */
+      const s = DATA.segments.find(x=>x.id===id);
+      if (s) html.push(`<div class="card"><div class="chead"><b>${esc(s.subnet)}</b><span class="badge">segment</span></div>
+        <div class="csec"><h4>MEMBERS</h4><table class="dt">${s.members.map(m=>`<tr><td>${esc(DATA.devices[m.dev].hostname)}</td><td>${esc(m.ifn)}</td><td class="dim-t">${esc(m.ip)}</td></tr>`).join("")}</table></div></div>`);
+      const e = DATA.extPeers.find(x=>x.id===id);
+      if (e) html.push(`<div class="card"><div class="chead"><b>${esc(e.label)}</b><span class="badge">external peer</span></div>
+        <div class="csec"><div class="placeholder">config 非提供の対向（片側オーバーレイ）<br>${esc(e.sub)}</div></div></div>`);
+      continue;
+    }
+    html.push(`<div class="card"><div class="chead">
+        <b>${esc(d.hostname)}</b>
+        <span class="badge">${esc(d.vendor)}</span>
+        <span class="badge as">AS ${d.as}</span>
+        ${d.ospf_rid||d.bgp_rid?`<span class="badge rid">rid ${esc(d.ospf_rid||d.bgp_rid)}</span>`:""}
+      </div>
+      <div class="csec"><h4>INTERFACES (${d.ifs.length})</h4>
+        <table class="dt"><tr><th>Name</th><th>IP</th><th>Desc</th><th>St</th></tr>
+        ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=n0&&netDrawn(n0)?n0:null;return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}${i.ip6?`<br>${esc(i.ip6)}`:""}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
+      ${d.bgp.length?`<div class="csec"><h4>BGP SESSIONS</h4>
+        <table class="dt"><tr><th>neighbor</th><th>peer AS</th><th>type</th><th>af</th></tr>
+        ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td></tr>`).join("")}</table></div>`:""}
+      ${d.ospf.length?`<div class="csec"><h4>OSPF NETWORKS</h4>
+        <table class="dt"><tr><th>network</th><th>area</th></tr>
+        ${d.ospf.map(o=>{const on=netDrawn(o.net);return `<tr class="ospfrow${on&&netHot(o.net)?" hot":""}"${on?` data-net="${esc(o.net)}"`:""}><td>${esc(o.net)}</td><td class="dim-t">${esc(o.area)}</td></tr>`;}).join("")}</table></div>`:""}
+      ${d.static.length?`<div class="csec"><h4>STATIC ROUTES</h4>
+        <table class="dt"><tr><th>prefix</th><th>next hop</th></tr>
+        ${d.static.map(s=>`<tr><td>${esc(s.p)}</td><td class="dim-t">${esc(s.nh)}</td></tr>`).join("")}</table></div>`:""}
+    </div>`);
+  }
+  db.innerHTML = html.join("");
+}
 
-      // DOMContentLoaded 後にも再更新（二重呼び出しは冪等なため問題なし）
-      document.addEventListener('DOMContentLoaded', function() {
-        if (window._updateMinimap) { window._updateMinimap(); }
+/* ================= 表ビュー（ADDRESSES / INTERFACES） ================= */
+const SPEED_NORM = { "1g":"1000", "10g":"10000" };   /* ベンダー間の速度表記ゆれ正規化（比較用） */
+let lastTsv = "";   /* 直近に描画した表の TSV（コピー用。表示中のフィルタ・ソート適用後） */
+
+function searchIncomplete() {
+  const m = S.search.match(OP_RE);
+  return !!(m && !m[2]);
+}
+/* 検索クエリの解釈: テキストの演算子（host: 等）が最優先、無ければドロップダウン（S.sfield）のフィールド */
+function searchQuery() {
+  const m = S.search.match(OP_RE);
+  if (m) return { field: m[1], value: m[2] };
+  return { field: S.sfield === "all" ? null : S.sfield, value: S.search };
+}
+/* 表の行に検索（自由文字列 / フィールド演算子 / ドロップダウン）を適用 */
+function rowSearchHit(texts) {
+  if (!S.search) return true;
+  const q = searchQuery();
+  if (q.field) return !q.value || (texts[q.field] || "").includes(q.value);
+  return Object.values(texts).some(t => t && t.includes(S.search));
+}
+function cmpVal(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+function sortRows(rows, sort, keyFns) {
+  if (!sort) return rows;
+  const f = (keyFns && keyFns[sort.key]) || (r => r[sort.key] == null ? "" : String(r[sort.key]).toLowerCase());
+  const dir = sort.dir === "desc" ? -1 : 1;
+  const arr = rows.map((r, i) => [r, i]);
+  arr.sort((x, y) => {
+    const ka = f(x[0]), kb = f(y[0]);
+    let c = 0;
+    if (Array.isArray(ka)) {
+      /* タプルキーの先頭要素はバンド（null=末尾固定 等）: 昇順/降順に関わらず順序固定 */
+      if (ka[0] !== kb[0]) return cmpVal(ka[0], kb[0]);
+      for (let i = 1; i < ka.length && !c; i++) c = cmpVal(ka[i], kb[i]);
+    } else c = cmpVal(ka, kb);
+    /* 降順でもタイブレーク（元データ順）は反転させない＝安定ソート */
+    return c ? c * dir : (x[1] - y[1]);
+  });
+  return arr.map(x => x[0]);
+}
+/* ソート可能な th（▲/▼ 付き） */
+function thSort(view, key, label) {
+  const so = S.sort[view];
+  const mark = so && so.key === key ? (so.dir === "asc" ? " ▲" : " ▼") : "";
+  return `<th class="sortable" data-key="${key}">${label}${mark}</th>`;
+}
+/* 検索欄の件数/0件警告を「表示中の行数」基準に上書き */
+function tableSearchFeedback(n) {
+  const inc = searchIncomplete();
+  $("#searchcount").textContent = S.search && !inc ? `${n}` : "";
+  $("#search").classList.toggle("nohit", !!S.search && !inc && n === 0);
+}
+/* グラフビューの件数/0件警告（ノードヒット基準）。表ビューから戻ったときの固着防止に render からも呼ぶ */
+function graphSearchFeedback() {
+  const inc = searchIncomplete();
+  $("#searchcount").textContent = S.search && !inc ? `${S.matches.length}` : "";
+  $("#search").classList.toggle("nohit", !!S.search && !inc && S.matches.length === 0);
+}
+
+function renderTableView() {
+  $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
+}
+
+/* v4 subnet "a.b.c.d/p" → 範囲情報（IPAM 計算用）。パース不能なら null */
+function v4SubnetRange(net) {
+  const m = String(net).match(/^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)\\/(\\d+)$/);
+  if (!m) return null;
+  const base = ((+m[1]<<24) | (+m[2]<<16) | (+m[3]<<8) | (+m[4])) >>> 0, p = +m[5];
+  return { base, p, usable: p === 32 ? 1 : (p === 31 ? 2 : 2 ** (32 - p) - 2) };
+}
+const NO_NET = "__none__";   /* サブネット推論外（loopback 等）グループのキー */
+
+function renderAddrTable() {
+  /* 1行 = 1IF（IPv4/IPv6 を併記して1行で管理） */
+  const rows = [];
+  for (const [id,d] of Object.entries(DATA.devices)) {
+    for (const i of d.ifs) {
+      /* primary アドレス行（i.ip / i.ip6）*/
+      if (i.ip || i.ip6) rows.push({
+        devId:id, dev:d.hostname, ifn:i.n, ip:i.ip, ip6:i.ip6, desc:i.d, st:i.st,
+        vendor:d.vendor, as:String(d.as),
+        netV4: i.ip ? netOfV4(i.ip) : null,
+        netV6: i.ip6 ? (IP2NET[i.ip6.split("/")[0]] || null) : null,
       });
-    })();\
+      /* secondary / 追加 GUA: addrs[] から primary と重複しない行を追加 */
+      for (const a of (i.addrs||[])) {
+        const cidr = a.ip && a.prefix != null ? `${a.ip}/${a.prefix}` : a.ip || null;
+        if (!cidr) continue;
+        if (a.af === 4 && cidr === i.ip) continue;   /* primary と重複 */
+        if (a.af === 6 && cidr === i.ip6) continue;
+        const isV4 = a.af === 4;
+        rows.push({
+          devId:id, dev:d.hostname, ifn:i.n,
+          ip: isV4 ? cidr : null, ip6: isV4 ? null : cidr,
+          desc:i.d, st:i.st, vendor:d.vendor, as:String(d.as),
+          netV4: isV4 ? netOfV4(cidr) : null,
+          netV6: !isV4 ? (IP2NET[a.ip] || null) : null,
+          _secondary: true,
+        });
+      }
+    }
+  }
+  /* 整合性チェック: 同一アドレスが複数機器に存在 → 重複 IP（v4/v6 別・ホスト単位） */
+  const byHost = {};
+  for (const r of rows) {
+    if (r.ip) (byHost[`v4:${r.ip.split("/")[0]}`] ||= new Set()).add(r.devId);
+    if (r.ip6) (byHost[`v6:${r.ip6.split("/")[0]}`] ||= new Set()).add(r.devId);
+  }
+  /* addrs[] の全アドレスも重複検出に含める */
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs)
+      for (const a of (i.addrs||[])) {
+        if (a.ip) (byHost[`${a.af===6?"v6":"v4"}:${a.ip}`] ||= new Set()).add(id);
+      }
+  const dupOf = (r, addr, af) => {
+    if (!addr) return null;
+    const devs = byHost[`${af}:${addr.split("/")[0]}`];
+    return devs && devs.size >= 2
+      ? [...devs].filter(x => x !== r.devId).map(x => DATA.devices[x].hostname).join(", ")
+      : null;
+  };
+  /* グループキー = netV4 ?? netV6 ?? 推論外（dual-stack の v6 は v4 側グループへ統合） */
+  const groupKey = r => r.netV4 || r.netV6 || NO_NET;
+  /* 使用率は検索フィルタに依存しない全行から計算 */
+  const groupsAll = new Map();
+  for (const r of rows) {
+    const k = groupKey(r);
+    if (!groupsAll.has(k)) groupsAll.set(k, []);
+    groupsAll.get(k).push(r);
+  }
+  /* 検索フィルタ（グループの subnet も対象） */
+  const flt = rows.filter(r => rowSearchHit({
+    host:r.dev.toLowerCase(),
+    ip:[r.ip, r.ip6].filter(Boolean).join(" ").toLowerCase(),
+    desc:(r.desc||"").toLowerCase(), as:r.as, vendor:r.vendor.toLowerCase(),
+    ifn:r.ifn.toLowerCase(),
+    net:[r.netV4, r.netV6].filter(Boolean).join(" ").toLowerCase(),
+  }));
+  const groupsFlt = new Map();
+  for (const r of flt) {
+    const k = groupKey(r);
+    if (!groupsFlt.has(k)) groupsFlt.set(k, []);
+    groupsFlt.get(k).push(r);
+  }
+  /* グループ順: v4 サブネット数値昇順 → v6-only 文字列順 → 推論外（決定的） */
+  const keys = [...groupsFlt.keys()].sort((a, b) => {
+    const ra = a !== NO_NET && v4SubnetRange(a), rb = b !== NO_NET && v4SubnetRange(b);
+    const ka = a === NO_NET ? [2, 0, ""] : ra ? [0, ra.base, ""] : [1, 0, a];
+    const kb = b === NO_NET ? [2, 0, ""] : rb ? [0, rb.base, ""] : [1, 0, b];
+    for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+    return 0;
+  });
+  tableSearchFeedback(flt.length);
+  /* メンバー行のソートキー（ip は v4 数値順・null 末尾） */
+  const keyFns = {
+    ip:  r => r.ip  ? [0, ipToU32(r.ip.split("/")[0]), ""] : [1, 0, ""],
+    ip6: r => r.ip6 ? [0, 0, r.ip6] : [1, 0, ""],
+  };
+  const tsvLines = ["Network(v4)\\tNetwork(v6)\\tDevice\\tInterface\\tIPv4\\tIPv6\\tDescription\\tStatus"];
+  const allCollapsed = keys.length > 0 && keys.every(k => S.collapsedNets.has(k));
+  let html = `<div class="thead"><h3>ADDRESSES</h3><span class="cnt">${flt.length} 行 / ${keys.length} サブネット</span>
+      <button class="tbtn" data-foldall="${allCollapsed?"open":"close"}">${allCollapsed?"全展開":"全折りたたみ"}</button>
+      <span class="sp"></span>
+      <button class="tbtn" data-copy="1" title="フィルタ通過した全行をTSVでコピー（折りたたみ中の行も含む）">コピー</button></div>
+    <table class="dt"><tr>${thSort("addr","dev","Device")}${thSort("addr","ifn","Interface")}${thSort("addr","ip","IPv4")}${thSort("addr","ip6","IPv6")}${thSort("addr","desc","Description")}${thSort("addr","st","St")}</tr>`;
+  for (const key of keys) {
+    const members = sortRows(groupsFlt.get(key), S.sort.addr, keyFns);
+    /* グループ見出し: subnet（dual は v4 · v6 を1行に統合）＋使用率 */
+    let label, usage;
+    if (key === NO_NET) {
+      label = "—（サブネット推論外: loopback 等）";
+      usage = `${groupsAll.get(key).length} IF`;
+    } else {
+      label = key + (NET_PAIR[key] ? ` · ${NET_PAIR[key]}` : "");
+      const rng = v4SubnetRange(key);
+      const all = groupsAll.get(key);
+      if (rng) {
+        const used = new Set(all.filter(r => r.ip).map(r => ipToU32(r.ip.split("/")[0])));
+        usage = `${used.size}/${rng.usable}`;
+      } else usage = `${all.length} IF`;
+    }
+    const closed = S.collapsedNets.has(key);
+    html += `<tr class="grph" data-grp="${esc(key)}"><td colspan="6">${closed?"▸":"▾"} ${esc(label)}` +
+      `<span class="usage">${esc(usage)}</span></td></tr>`;
+    for (const r of members) {
+      tsvLines.push([r.netV4||"", r.netV6||"", r.dev, r.ifn, r.ip||"", r.ip6||"", r.desc||"", r.st].join("\\t"));
+      if (closed) continue;
+      const dup4 = dupOf(r, r.ip, "v4"), dup6 = dupOf(r, r.ip6, "v6");
+      html += `<tr class="trow">
+        <td>${esc(r.dev)}</td>
+        <td class="dim-t">${esc(r.ifn)}</td>
+        <td class="${dup4?"chk-bad":"dim-t"}"${dup4?` title="重複IP: ${esc(dup4)} にも同一アドレス"`:""}>${r.ip?esc(r.ip):"—"}${dup4?" ⚠":""}</td>
+        <td class="${dup6?"chk-bad":"dim-t"}"${dup6?` title="重複IP: ${esc(dup6)} にも同一アドレス"`:""}>${r.ip6?esc(r.ip6):"—"}${dup6?" ⚠":""}</td>
+        <td class="${r.desc?"dim-t":"no-desc"}"${r.desc?"":' title="description 未設定"'}>${r.desc?esc(r.desc):"—"}</td>
+        <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}</td></tr>`;
+    }
+  }
+  lastTsv = tsvLines.join("\\n");
+  html += `</table>
+    <div class="tnote">見出しクリックで折りたたみ（▾/▸） / 使用率 = 使用アドレス数/収容数（v4） /
+    ⚠ 赤 = 重複IP（複数機器に同一アドレス） / オレンジの "—" = description 未設定 /
+    列ヘッダクリックでグループ内をソート（昇順⇄降順⇄解除） / コピーは折りたたみ中の行も含む</div>`;
+  return html;
+}
+
+/* ---- INTERFACES 用ヘルパー ---- */
+/* 対向情報: link は {label, sub, peerDev, peerIf}（行ジャンプ可）/ segment・external はラベルのみ / 無ければ null */
+function connectedTo(devId, ifn) {
+  for (const l of DATA.links) {
+    if (l.a === devId && l.ai === ifn) return { label:`${DATA.devices[l.b].hostname} ${l.bi}`, sub:l.subnet, peerDev:l.b, peerIf:l.bi };
+    if (l.b === devId && l.bi === ifn) return { label:`${DATA.devices[l.a].hostname} ${l.ai}`, sub:l.subnet, peerDev:l.a, peerIf:l.ai };
+  }
+  for (const s of DATA.segments) {
+    if (s.members.some(m => m.dev === devId && m.ifn === ifn)) {
+      const others = s.members.filter(m => m.dev !== devId).map(m => DATA.devices[m.dev].hostname).join(", ");
+      return { label:`seg ${s.subnet} → ${others}`, sub:s.subnet };
+    }
+  }
+  for (const e of DATA.bgpEdges) {
+    if (e.kind === "external" && e.a === devId && e.srcIf === ifn) {
+      const ext = DATA.extPeers.find(x => x.id === e.ext);
+      return { label: ext ? `${ext.label} (${ext.sub})` : "external", sub:null };
+    }
+  }
+  return null;
+}
+/* IF 種別: unused（ip/ip6/desc すべて無し）/ loopback / connected / stub */
+function ifKind(devId, i) {
+  if (!i.ip && !i.ip6 && !i.d) return "unused";
+  if (/^lo(opback)?\\d*$/i.test(i.n)) return "loopback";
+  if (connectedTo(devId, i.n)) return "connected";
+  return "stub";
+}
+const IFK_LABEL = { connected:"接続", stub:"スタブ", unused:"未使用", loopback:"loopback" };
+const isPhysical = n => n.includes("/");                                  /* スロット番号を持つ物理ポート */
+const lineCard = n => n.includes("/") ? n.slice(0, n.lastIndexOf("/")) : "(virtual)";
+/* 自然順ソートキー: 数字部をゼロ埋めして文字列比較（Gi0/2 < Gi0/10） */
+const naturalKey = s => String(s).toLowerCase().replace(/\\d+/g, m => m.padStart(8, "0"));
+
+/* ---- ポートの運用状態（予約 / 使用不可）の手動指定。ブラウザ localStorage に永続化 ----
+   実装版ではこれは config ではなく「運用アノテーション」として config と分離して保持する想定 */
+const PORTSTATE_KEY = "ct-portstate";
+let portRole = {};
+(function initPortRole() {
+  /* サンプルの role フィールドを初期値として投入（デモ用） */
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs) if (i.role) portRole[`${id}:${i.n}`] = i.role;
+  /* localStorage の手動指定で上書き（"auto" = 初期 role を打ち消す明示クリア） */
+  try { Object.assign(portRole, JSON.parse(localStorage.getItem(PORTSTATE_KEY) || "{}")); }
+  catch (e) { /* file:// で localStorage 不可な環境はセッション内のみ動作 */ }
+})();
+const effRole = (devId, ifn) => {                       /* 有効な運用状態（reserved/disabled or null） */
+  const v = portRole[`${devId}:${ifn}`];
+  return v === "reserved" || v === "disabled" ? v : null;
+};
+function cyclePortRole(devId, ifn) {                     /* − → 予約 → 使用不可 → −（auto で明示クリア） */
+  const e = effRole(devId, ifn);
+  portRole[`${devId}:${ifn}`] = e === "reserved" ? "disabled" : e === "disabled" ? "auto" : "reserved";
+  try { localStorage.setItem(PORTSTATE_KEY, JSON.stringify(portRole)); } catch (e2) { /* 永続化不可は無視 */ }
+}
+/* 物理ポートの運用カテゴリ: disabled / reserved / free（未使用）/ used（接続・スタブ） */
+function portCat(devId, i) {
+  const e = effRole(devId, i.n);
+  if (e) return e;
+  return ifKind(devId, i) === "unused" ? "free" : "used";
+}
+const CAT_LABEL = { used:"使用", reserved:"予約", disabled:"不可", free:"空き" };
+
+/* ---- ポート備考（予約理由などのメモ）。運用状態と同様にブラウザ localStorage へ永続化 ---- */
+const PORTNOTE_KEY = "ct-portnote";
+let portNote = {};
+(function initPortNote() {
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs) if (i.note) portNote[`${id}:${i.n}`] = i.note;
+  try { Object.assign(portNote, JSON.parse(localStorage.getItem(PORTNOTE_KEY) || "{}")); }
+  catch (e) { /* localStorage 不可な環境はセッション内のみ */ }
+})();
+const noteOf = (devId, ifn) => portNote[`${devId}:${ifn}`] || "";
+function setPortNote(devId, ifn, text) {
+  portNote[`${devId}:${ifn}`] = text;   /* 空文字も保存（初期 note を打ち消す明示クリア） */
+  try { localStorage.setItem(PORTNOTE_KEY, JSON.stringify(portNote)); } catch (e) { /* 永続化不可は無視 */ }
+}
+
+function renderIfsTable() {
+  /* 整合性チェック: リンク両端の MTU / 速度不一致（速度は表記ゆれ正規化後に比較） */
+  const norm = s => SPEED_NORM[s] || s;
+  const ifByName = (dev, n) => DATA.devices[dev].ifs.find(i => i.n === n);
+  const bad = {};
+  for (const l of DATA.links) {
+    const ia = ifByName(l.a, l.ai), ib = ifByName(l.b, l.bi);
+    if (!ia || !ib) continue;
+    const mark = (key, dev, ifn, peerDev, peerIf, val) =>
+      ((bad[`${dev}:${ifn}`] ||= {})[key] = `対向 ${DATA.devices[peerDev].hostname} ${peerIf} (${val}) と不一致`);
+    if (ia.mtu != null && ib.mtu != null && ia.mtu !== ib.mtu) {
+      mark("mtu", l.a, l.ai, l.b, l.bi, ib.mtu); mark("mtu", l.b, l.bi, l.a, l.ai, ia.mtu);
+    }
+    if (ia.sp && ib.sp && norm(ia.sp) !== norm(ib.sp)) {
+      mark("sp", l.a, l.ai, l.b, l.bi, ib.sp); mark("sp", l.b, l.bi, l.a, l.ai, ia.sp);
+    }
+  }
+  /* 全 IF 行（種別・対向込み） */
+  const allRows = [];
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs)
+      allRows.push({ dev:d.hostname, devId:id, ifn:i.n, ip:i.ip, ip6:i.ip6, desc:i.d, st:i.st,
+                     mtu:i.mtu, sp:i.sp, vendor:d.vendor, as:String(d.as), chk: bad[`${id}:${i.n}`] || null,
+                     kind: ifKind(id, i), conn: connectedTo(id, i.n),
+                     addrs: i.addrs||[] });
+  /* 検索フィルタ + 種別チップフィルタ（down は st 基準 / 予約・不可 は運用状態基準 / 他は kind 基準） */
+  const kf = S.ifKindFilter;
+  const rows = allRows.filter(r => rowSearchHit({
+      host:r.dev.toLowerCase(), ip:[r.ip,r.ip6,...r.addrs.map(a=>a.ip)].filter(Boolean).join(" ").toLowerCase(),
+      desc:(r.desc||"").toLowerCase(), as:r.as, vendor:r.vendor.toLowerCase(), ifn:r.ifn.toLowerCase(),
+      net:[r.ip && netOfV4(r.ip), r.ip6 && IP2NET[r.ip6.split("/")[0]]].filter(Boolean).join(" ").toLowerCase() })
+    && (kf === "all" ? true
+        : kf === "down" ? r.st === "down"
+        : kf === "reserved" || kf === "disabled" ? effRole(r.devId, r.ifn) === kf
+        : r.kind === kf));
+  tableSearchFeedback(rows.length);
+
+  const keyFns = {
+    ifn: r => naturalKey(r.ifn),
+    ip:  r => r.ip  ? [0, ipToU32(r.ip.split("/")[0]), ""] : [1, 0, ""],
+    ip6: r => r.ip6 ? [0, 0, r.ip6] : [1, 0, ""],
+    mtu: r => r.mtu == null ? [1, 0] : [0, r.mtu],
+    sp:  r => r.sp == null ? [1, 0] : [0, +(SPEED_NORM[r.sp] || r.sp) || 0],
+  };
+  /* 機器ごとにグループ化（ADDRESSES の grph/折りたたみ基盤を流用。キーは "dev:<id>"） */
+  const tsvLines = ["Device\\tInterface\\tConnected to\\tType\\tPortState\\tIPv4\\tIPv6\\tDescription\\tStatus\\tMTU\\tSpeed\\t備考"];
+  const connLabel = r => r.conn ? r.conn.label : (r.kind === "stub" ? "(stub)" : "—");
+  /* カテゴリ別カウント（使用/予約/不可/空き）を非ゼロのみ色付きで連結 */
+  const catSpans = c => ["used","reserved","disabled","free"].filter(k => c[k])
+    .map(k => `<span class="c-${k==="reserved"?"rsv":k==="disabled"?"dis":k}">${CAT_LABEL[k]}${c[k]}</span>`).join(" ");
+  let body = "";
+  const renderedKeys = [];   /* フィルタ後に実描画したグループキー（全展開判定用） */
+  for (const [id,d] of Object.entries(DATA.devices)) {
+    const grpRows = rows.filter(r => r.devId === id);
+    if (!grpRows.length) continue;
+    renderedKeys.push("dev:"+id);
+    /* ポート集計は検索/フィルタに依存しない全物理 IF から（容量は絶対値） */
+    const phys = d.ifs.filter(i => isPhysical(i.n));
+    const tally = list => { const c = {used:0,reserved:0,disabled:0,free:0}; for (const i of list) c[portCat(id, i)]++; return c; };
+    const devCat = tally(phys);
+    const cardMap = new Map();
+    for (const i of phys) { const c = lineCard(i.n); if (!cardMap.has(c)) cardMap.set(c, []); cardMap.get(c).push(i); }
+    const cardEntries = [...cardMap];
+    const closed = S.collapsedNets.has("dev:"+id);
+    /* 見出し: 1行目=機器名、2行目=機器サマリ、以降=カードごとの状態別カウント */
+    const cardLines = cardEntries.map(([c, list], idx) => {
+      const tree = idx === cardEntries.length - 1 ? "└" : "├";
+      return `${tree} ${esc(c.padEnd(22))} ${catSpans(tally(list))}  <span class="dim-t">(${list.length})</span>`;
+    }).join("\\n");
+    body += `<tr class="grph" data-grp="dev:${esc(id)}"><td colspan="10"><span class="ghtop">${closed?"▸":"▾"} ${esc(d.hostname)} <span class="dim-t">[${esc(d.vendor)}]</span>` +
+      `<span class="usage">物理${phys.length}ポート ${catSpans(devCat)}</span></span>` +
+      (!closed && cardLines ? `<div class="cards2">${cardLines}</div>` : "") + `</td></tr>`;
+    const members = S.sort.ifs ? sortRows(grpRows, S.sort.ifs, keyFns)
+                               : [...grpRows].sort((a,b) => cmpVal(naturalKey(a.ifn), naturalKey(b.ifn)));
+    for (const r of members) {
+      const cl = connLabel(r);
+      const eff = effRole(r.devId, r.ifn);
+      const physical = isPhysical(r.ifn);
+      tsvLines.push([r.dev, r.ifn, cl, IFK_LABEL[r.kind], physical?CAT_LABEL[portCat(r.devId, DATA.devices[r.devId].ifs.find(x=>x.n===r.ifn))]:"", r.ip||"", r.ip6||"", r.desc||"", r.st, r.mtu==null?"":r.mtu, r.sp||"", noteOf(r.devId, r.ifn).replace(/\\t/g," ")].join("\\t"));
+      if (closed) continue;
+      const jump = r.conn && r.conn.peerDev;
+      const connCell = jump
+        ? `<td class="peer-jump" data-peer="${esc(r.conn.peerDev)}:${esc(r.conn.peerIf)}" title="${esc(r.conn.sub||"")}">${esc(cl)}</td>`
+        : `<td class="dim-t"${r.conn&&r.conn.sub?` title="${esc(r.conn.sub)}"`:""}>${esc(cl)}</td>`;
+      const ovBadge = eff ? `<span class="ifk ifk-${eff==="reserved"?"rsv":"dis"}">${eff==="reserved"?"予約":"使用不可"}</span>` : "";
+      const setCell = physical
+        ? `<td><button class="portset ${eff?"set-"+eff:""}" data-portset="${esc(r.devId)}:${esc(r.ifn)}" title="クリックで − → 予約 → 使用不可 を循環（ブラウザに保存）">${eff==="reserved"?"予約":eff==="disabled"?"不可":"−"}</button></td>`
+        : `<td class="dim-t">—</td>`;
+      body += `<tr class="trow" data-row="${esc(r.devId)}:${esc(r.ifn)}">
+        <td>${esc(r.ifn)}</td>
+        ${connCell}
+        <td class="dim-t">${r.ip?esc(r.ip):"—"}</td>
+        <td class="dim-t">${r.ip6?esc(r.ip6):"—"}</td>
+        <td class="${r.desc?"dim-t":"no-desc"}"${r.desc?"":' title="description 未設定"'}>${r.desc?esc(r.desc):"—"}</td>
+        <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}<span class="ifk ifk-${r.kind==="connected"?"conn":r.kind==="loopback"?"loop":r.kind}">${IFK_LABEL[r.kind]}</span>${ovBadge}</td>
+        <td class="${r.chk&&r.chk.mtu?"chk-bad":"dim-t"}"${r.chk&&r.chk.mtu?` title="${esc(r.chk.mtu)}"`:""}>${r.mtu==null?"—":r.mtu}${r.chk&&r.chk.mtu?" ⚠":""}</td>
+        <td class="${r.chk&&r.chk.sp?"chk-bad":"dim-t"}"${r.chk&&r.chk.sp?` title="${esc(r.chk.sp)}"`:""}>${r.sp?esc(r.sp):"—"}${r.chk&&r.chk.sp?" ⚠":""}</td>
+        ${setCell}
+        <td><input class="noteinput" data-note="${esc(r.devId)}:${esc(r.ifn)}" value="${esc(noteOf(r.devId, r.ifn))}" placeholder="メモ…" autocomplete="off"></td></tr>`;
+    }
+  }
+  lastTsv = tsvLines.join("\\n");
+  const chip = (v, label) => `<button class="tbtn ${kf===v?"on":""}" data-ifk="${v}">${label}</button>`;
+  /* 全展開/全折りたたみ判定は実描画したグループ（フィルタ後）で算出 */
+  const allCollapsed = renderedKeys.length > 0 && renderedKeys.every(k => S.collapsedNets.has(k));
+  return `<div class="thead"><h3>INTERFACES</h3><span class="cnt">${rows.length} 行</span>
+      ${chip("all","ALL")}${chip("connected","接続")}${chip("stub","スタブ")}${chip("unused","未使用")}${chip("reserved","予約")}${chip("disabled","不可")}${chip("down","down")}
+      <button class="tbtn" data-foldall="${allCollapsed?"open":"close"}">${allCollapsed?"全展開":"全折りたたみ"}</button>
+      <span class="sp"></span>
+      <button class="tbtn" data-copy="1" title="フィルタ通過した全行をTSVでコピー（折りたたみ中の行も含む）">コピー</button></div>
+    <table class="dt"><tr>${thSort("ifs","ifn","Interface")}<th>Connected to</th>${thSort("ifs","ip","IPv4")}${thSort("ifs","ip6","IPv6")}${thSort("ifs","desc","Description")}${thSort("ifs","st","Status")}${thSort("ifs","mtu","MTU")}${thSort("ifs","sp","Speed")}<th>指定</th><th>備考</th></tr>
+    ${body}</table>
+    <div class="tnote">見出し = 機器ごとの物理ポート状態（<span class="c-used">使用</span>/<span class="c-rsv">予約</span>/<span class="c-dis">不可</span>/<span class="c-free">空き</span>・ラインカード別内訳）。見出しクリックで折りたたみ /
+    種別: <span class="ifk ifk-conn">接続</span>・<span class="ifk ifk-stub">スタブ</span>（IPありだが対向なし）・<span class="ifk ifk-unused">未使用</span>（IP/description とも無し）・<span class="ifk ifk-loop">loopback</span> /
+    <b>指定</b>列のボタンで <span class="ifk ifk-rsv">予約</span> / <span class="ifk ifk-dis">使用不可</span> を循環指定・<b>備考</b>列に予約理由などのメモを記入（いずれもブラウザに永続保存。実装版では config と分離した運用アノテーション） /
+    Connected to の青字はクリックで対向IF行へジャンプ / ⚠ 赤 = MTU/速度不一致 / 列ヘッダクリックでソート（既定はIF名自然順）</div>`;
+}
+
+/* 表ビューの操作（ソート / 折りたたみ / 種別フィルタ / 対向ジャンプ / コピー）はイベント委譲で */
+$("#tableview").addEventListener("click", ev => {
+  const th = ev.target.closest("th.sortable");
+  if (th) {
+    const view = S.view === "addr" ? "addr" : "ifs";
+    const cur = S.sort[view], key = th.dataset.key;
+    S.sort[view] = !cur || cur.key !== key ? {key, dir:"asc"}
+                 : cur.dir === "asc" ? {key, dir:"desc"} : null;
+    renderTableView(); return;
+  }
+  /* INTERFACES 種別フィルタチップ */
+  const ifk = ev.target.closest("[data-ifk]");
+  if (ifk) { S.ifKindFilter = ifk.dataset.ifk; renderTableView(); return; }
+  /* ポート状態指定ボタン（− → 予約 → 使用不可 を循環・永続保存） */
+  const ps = ev.target.closest("[data-portset]");
+  if (ps) { const [pd, ...rest] = ps.dataset.portset.split(":"); cyclePortRole(pd, rest.join(":")); renderTableView(); return; }
+  /* Connected to（リンク対向）クリック → 対向IF行へジャンプ */
+  const pj = ev.target.closest("[data-peer]");
+  if (pj) {
+    const peer = pj.dataset.peer, pdev = peer.split(":")[0];
+    S.collapsedNets.delete("dev:"+pdev);   /* 折りたたみ中なら開く */
+    renderTableView();
+    const target = $(`#tableview [data-row="${peer}"]`);
+    if (target) { target.scrollIntoView({block:"center", behavior:"smooth"}); target.classList.add("row-flash"); }
+    return;
+  }
+  const gr = ev.target.closest("tr.grph");
+  if (gr) {
+    const k = gr.dataset.grp;
+    if (S.collapsedNets.has(k)) S.collapsedNets.delete(k); else S.collapsedNets.add(k);
+    renderTableView(); return;
+  }
+  const fa = ev.target.closest("[data-foldall]");
+  if (fa) {
+    if (fa.dataset.foldall === "open") S.collapsedNets.clear();
+    else document.querySelectorAll("#tableview tr.grph").forEach(t => S.collapsedNets.add(t.dataset.grp));
+    renderTableView(); return;
+  }
+  const cp = ev.target.closest("[data-copy]");
+  if (cp) copyTsv(cp);
+});
+/* 備考メモの編集確定（blur / Enter で change が発火）→ 永続保存。再描画は不要（値は DOM 反映済み） */
+$("#tableview").addEventListener("change", ev => {
+  const ni = ev.target.closest("input.noteinput");
+  if (!ni) return;
+  const [d, ...rest] = ni.dataset.note.split(":");
+  setPortNote(d, rest.join(":"), ni.value.trim());
+});
+function copyTsv(btn) {
+  const done = () => { btn.textContent = "✓"; setTimeout(() => { btn.textContent = "コピー"; }, 900); };
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = lastTsv; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* clipboard 不可環境では無視 */ }
+    ta.remove(); done();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(lastTsv).then(done, fallback);
+  else fallback();
+}
+
+/* ================= legend / minimap / status ================= */
+function renderLegend() {
+  const L = $("#legend");
+  L.style.display = (S.legend && !isTableView()) ? "" : "none";
+  /* clk 付きの項目はクリックで該当要素を強調（再クリックで解除） */
+  const clk = (lg, sw, label) => `<div class="li clk${S.legendHot===lg?" on":""}" data-lg="${lg}">${sw}${label}</div>`;
+  /* 現在のビューに描画される要素だけ凡例に載せる */
+  let rows = `<h4>LEGEND — ${S.view.toUpperCase()}</h4>
+    <div class="li"><span class="sw box"></span>機器</div>
+    ${S.view !== "bgp" ? '<div class="li"><span class="sw seg"></span>セグメント</div>' : ""}
+    <div class="li"><span class="sw"></span>リンク</div>
+    ${S.view === "physical" ? clk("admin-down",'<span class="sw dash"></span>',"admin_down") : ""}`;
+  /* 表示条件は render の showBgp/showOspf と同一式（凡例と描画の不一致防止） */
+  if (S.view === "bgp") rows += clk("ebgp",`<span class="sw" style="border-color:${BGP_COLOR.ebgp}"></span>`,"eBGP")
+    + clk("ibgp",`<span class="sw dash" style="border-color:${BGP_COLOR.ibgp}"></span>`,"iBGP (loopback)")
+    + `<div class="li"><span class="sw box" style="border-style:dashed"></span>外部AS (config未提供)</div>`;
+  if (S.view === "ospf") rows += clk("area:0",`<span class="sw" style="border-color:${areaColor("0")}"></span>`,"area 0")
+    + clk("area:1",`<span class="sw" style="border-color:${areaColor("1")}"></span>`,"area 1");
+  rows += `<div class="note">点線・色付き線の項目はクリックで<br>該当要素を強調（再クリックで解除）</div>`;
+  L.innerHTML = rows;
+}
+$("#legend").addEventListener("click", ev => {
+  const li = ev.target.closest(".li.clk"); if (!li) return;
+  S.legendHot = S.legendHot === li.dataset.lg ? null : li.dataset.lg;
+  renderLegend(); render();
+});
+function renderMinimap() {
+  const mm = $("#minimap");
+  mm.style.display = S.minimap ? "" : "none";
+  if (!S.minimap) return;
+  const dots = Object.entries(POS).map(([id,p]) =>
+    `<circle class="mdot" cx="${p.x}" cy="${p.y}" r="${id in DATA.devices || DATA.extPeers.some(e=>e.id===id) ? 14 : 9}"/>`).join("");
+  const r = $("#canvas").getBoundingClientRect();
+  const vx = -S.tx/S.k, vy = -S.ty/S.k, vw = r.width/S.k, vh = r.height/S.k;
+  $("#minisvg").innerHTML = dots + `<rect class="mview" x="${vx}" y="${vy}" width="${vw}" height="${vh}"/>`;
+}
+function renderStatus() {
+  $("#st-dev").textContent = Object.keys(DATA.devices).length;
+  $("#st-lk").textContent = DATA.links.length;
+  $("#st-seg").textContent = DATA.segments.length;
+  $("#st-bgp").textContent = Object.values(DATA.devices).reduce((n,d)=>n+d.bgp.length,0);
+}
+
+/* ================= interactions ================= */
+const canvas = $("#canvas");
+
+/* pan + node drag + click/dblclick */
+let drag = null, didDrag = false;
+canvas.addEventListener("mousedown", ev => {
+  const g = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  drag = {
+    sx: ev.clientX, sy: ev.clientY, moved: false,
+    node: g ? g.dataset.id : null,
+    ox: g ? POS[g.dataset.id].x : S.tx,
+    oy: g ? POS[g.dataset.id].y : S.ty,
+  };
+  canvas.classList.add("dragging");
+});
+window.addEventListener("mousemove", ev => {
+  if (drag) {
+    const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    if (drag.node) { POS[drag.node].x = drag.ox + dx / S.k; POS[drag.node].y = drag.oy + dy / S.k; schedule(render); }
+    else { S.tx = drag.ox + dx; S.ty = drag.oy + dy; schedule(applyTransform); }
+    return;
+  }
+  if (rs) { hideTip(); return; }   /* パネルリサイズ中は hover 処理をスキップ */
+  /* ノード hover = 選択と同じハイライトでプレビュー */
+  const ng = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  const nid = ng ? ng.dataset.id : null;
+  let need = nid !== hoverNode;
+  hoverNode = nid;
+  /* ライン/セグメント hover はハイライト＋IF/IP ラベルのみ（説明ツールチップは出さない） */
+  const lk = ev.target.closest("[data-elem='link'],[data-elem='seglink'],[data-elem='bgpedge']");
+  const seg = ev.target.closest("[data-elem='seg']");
+  if (lk && lk.dataset.elem === "link") {
+    const l = DATA.links.find(x=>x.id===lk.dataset.id);
+    if (hoverLink !== l.id) { hoverLink = l.id; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  } else if ((lk && lk.dataset.elem === "seglink") || seg) {
+    const sid = seg ? seg.dataset.id : lk.dataset.id;
+    const s = DATA.segments.find(x=>x.id===sid);
+    /* IF/IP ラベルはライン（spoke）hover のみ。楕円（ノード）hover はライン強調だけ */
+    const want = (lk && lk.dataset.elem === "seglink") ? s.id : null;
+    if (hoverLink !== want) { hoverLink = want; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  } else if (lk && lk.dataset.elem === "bgpedge") {
+    if (hoverLink) { hoverLink = null; need = true; }   /* 直前の物理リンクの IF ラベルが固着しないように */
+    if (hoverBgp !== lk.dataset.id) { hoverBgp = lk.dataset.id; need = true; }   /* hover でアドレス表示 */
+  } else {
+    if (hoverLink) { hoverLink = null; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  }
+  if (need) schedule(render);
+});
+window.addEventListener("mouseup", () => { canvas.classList.remove("dragging");
+  didDrag = !!(drag && drag.moved);   /* mouseup後に発火する click をドラッグ由来か判定するため退避 */
+  if (didDrag) setTimeout(() => { didDrag = false; }, 0);   /* click 不発時（ウィンドウ外で離す等）の固着防止 */
+  drag = null; });
+
+/* click = 選択トグル（複数可・修飾キー不要。もう一度クリックで解除） */
+canvas.addEventListener("click", ev => {
+  if (didDrag) { didDrag = false; return; }   /* ドラッグ終端の click では選択しない */
+  const g = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  if (g) {
+    const id = g.dataset.id;
+    /* セグメントは subnet そのもの → 楕円クリックも線クリックと同じ「ライン選択」に統一 */
+    if (g.dataset.elem === "seg") {
+      const s = DATA.segments.find(x=>x.id===id);
+      if (s) setHotNet(netHot(s.subnet) ? null : s.subnet);
+      return;
+    }
+    if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id);
+    /* 手動で触ったノードは自動選択の追跡から外す（ライン解除での巻き込み防止） */
+    autoNetSel.delete(id); autoBgpSel.delete(id);
+    update(); return;
+  }
+  const be = ev.target.closest("[data-elem='bgpedge']");
+  if (be) { setHotBgp(be.dataset.id === hotBgp ? null : be.dataset.id); return; }
+  /* 全ビュー共通: リンク/セグメント線のクリックで「ライン選択」（図⇄表ハイライト連動） */
+  const le = ev.target.closest("[data-elem='link'],[data-elem='seglink']");
+  if (le) {
+    /* BGP ビューの物理リンクは over-link セッションそのもの → セッション選択に流し
+       BGP SESSIONS 行と連動させる（曲線・下敷き直線のどちらを押しても同じ挙動） */
+    if (le.dataset.elem === "link" && S.view === "bgp") {
+      const e = DATA.bgpEdges.find(x => x.kind === "over-link" && x.link === le.dataset.id);
+      if (e) { setHotBgp(e.id === hotBgp ? null : e.id); return; }
+    }
+    const net = le.dataset.elem === "link"
+      ? (DATA.links.find(x=>x.id===le.dataset.id) || {}).subnet
+      : (DATA.segments.find(x=>x.id===le.dataset.id) || {}).subnet;
+    if (net) setHotNet(netHot(net) ? null : net);
+  }
+});
+/* dblclick: 空白のみ=全解除（選択・ライン選択・BGP連動・凡例強調をすべてクリア。ノード上の個別解除は廃止） */
+canvas.addEventListener("dblclick", ev => {
+  if (ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext'],[data-elem='bgpedge'],[data-elem='link'],[data-elem='seglink']")) return;
+  S.sel.clear();
+  hotBgp = null; hotNet = null; S.legendHot = null;
+  autoNetSel = new Set(); autoBgpSel = new Set();
+  update();
+});
+
+/* 表⇄図 ハイライト連動（BGP セッション行 / OSPF 行 / IF 行 / 選択リンクカード） */
+document.addEventListener("click", ev => {
+  if (isTableView()) return;   /* 表ビュー中は図が見えないため連動クリックを無効化 */
+  const row = ev.target.closest("tr.bgprow");
+  if (row) { setHotBgp(row.dataset.bgplink === hotBgp ? null : row.dataset.bgplink); return; }
+  const nrow = ev.target.closest("tr.ospfrow[data-net], tr.ifrow[data-net], .linkpair[data-net]");
+  if (nrow) setHotNet(netHot(nrow.dataset.net) ? null : nrow.dataset.net);   /* v4/v6 の対の行でも同一ラインとして解除 */
+});
+/* subnet に接続するノード集合（ライン選択時の端点自動選択用。v6=dual も同一ライン扱い） */
+function netNodes(net) {
+  const ids = new Set();
+  for (const l of DATA.links) if (l.subnet === net || l.dual === net) { ids.add(l.a); ids.add(l.b); }
+  for (const s of DATA.segments) if (s.subnet === net) {
+    if (S.view !== "bgp") ids.add(s.id);   /* BGP ビューではセグメントノードを描画しないため除外 */
+    for (const m of s.members) ids.add(m.dev);
+  }
+  return ids;
+}
+/* BGP セッションの端点ノード集合 */
+function bgpNodes(id) {
+  const ids = new Set();
+  const e = DATA.bgpEdges.find(x=>x.id===id);
+  if (!e) return ids;
+  if (e.kind === "over-link") { const l = DATA.links.find(x=>x.id===e.link); if (l) { ids.add(l.a); ids.add(l.b); } }
+  else if (e.kind === "loopback") { ids.add(e.a); ids.add(e.b); }
+  else { ids.add(e.a); ids.add(e.ext); }
+  return ids;
+}
+/* ライン選択での「自動選択分」を手動選択と区別して追跡する
+   （解除・切替時に自動選択分だけを外し、手動選択を巻き込まないため） */
+let autoNetSel = new Set(), autoBgpSel = new Set();
+/* 自動選択の対象にしてよいノードか（非表示ノードを選択に混ぜると図とパネルが乖離する） */
+function selectable(id) {
+  if (S.hiddenNodes.has(id)) return false;
+  if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
+  if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
+  return true;
+}
+/* ライン選択（subnet 単位）。端点ノードも自動選択し、図と表を同時に再描画 */
+function setHotNet(net) {
+  /* 解除するノードを、アクティブな BGP セッション選択がまだ必要としているなら追跡を付け替えて選択維持 */
+  const keep = hotBgp ? bgpNodes(hotBgp) : null;
+  for (const id of autoNetSel) {
+    if (keep && keep.has(id)) autoBgpSel.add(id);
+    else S.sel.delete(id);
+  }
+  autoNetSel = new Set();
+  hotNet = net;
+  if (net) for (const id of netNodes(net))
+    if (selectable(id) && !S.sel.has(id)) { S.sel.add(id); autoNetSel.add(id); }
+  update();
+}
+/* BGP セッション選択。端点ノードも自動選択し、図と表（bgprow の hot）を同時に再描画 */
+function setHotBgp(id) {
+  const keep = hotNet ? netNodes(hotNet) : null;
+  for (const n of autoBgpSel) {
+    if (keep && keep.has(n)) autoNetSel.add(n);
+    else S.sel.delete(n);
+  }
+  autoBgpSel = new Set();
+  hotBgp = id;
+  if (id) for (const n of bgpNodes(id))
+    if (selectable(n) && !S.sel.has(n)) { S.sel.add(n); autoBgpSel.add(n); }
+  update();
+}
+
+/* tooltip（ライン/セグメント hover の説明表示は廃止。#tooltip はリサイズガードの hideTip でのみ参照） */
+function hideTip() { tooltip.style.display = "none"; }
+
+/* zoom */
+canvas.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const f = ev.deltaY < 0 ? 1.12 : 1/1.12;
+  const k2 = Math.min(4, Math.max(.25, S.k * f));
+  S.tx = mx - (mx - S.tx) * (k2/S.k); S.ty = my - (my - S.ty) * (k2/S.k); S.k = k2;
+  schedule(applyTransform);
+}, {passive:false});
+function zoomFit() {
+  const xs = Object.values(POS).map(p=>p.x), ys = Object.values(POS).map(p=>p.y);
+  const pad = 140;
+  const bx = Math.min(...xs)-pad, by = Math.min(...ys)-pad;
+  const bw = Math.max(...xs)-bx+pad, bh = Math.max(...ys)-by+pad;
+  const r = canvas.getBoundingClientRect();
+  S.k = Math.min(r.width/bw, r.height/bh, 2);
+  S.tx = (r.width - bw*S.k)/2 - bx*S.k; S.ty = (r.height - bh*S.k)/2 - by*S.k;
+  applyTransform();
+}
+function zoomReset() { S.k = 1; S.tx = 0; S.ty = 0; applyTransform(); }
+$("#zin").onclick = () => { S.k = Math.min(4, S.k*1.25); applyTransform(); };
+$("#zout").onclick = () => { S.k = Math.max(.25, S.k/1.25); applyTransform(); };
+$("#zfit").onclick = zoomFit;
+$("#zreset").onclick = zoomReset;
+
+/* tabs */
+$("#tabs").addEventListener("click", ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  setView(b.dataset.view);
+});
+function setView(v) {
+  if (v === S.view) return;   /* 同一ビューの再指定でライン選択等をリセットしない */
+  S.view = v;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === v));
+  /* ライン選択はタブ固有の文脈なので解除（自動選択した端点ノードも一緒に外す） */
+  for (const id of autoNetSel) S.sel.delete(id);
+  for (const id of autoBgpSel) S.sel.delete(id);
+  autoNetSel = new Set(); autoBgpSel = new Set();
+  hotNet = null;
+  hotBgp = null;
+  S.legendHot = null;   /* 凡例強調はビュー固有の項目を含むためリセット */
+  /* ビューに描画されないノードが選択に残ると図とパネルが乖離するため除外 */
+  if (v === "bgp") for (const s of DATA.segments) S.sel.delete(s.id);
+  if (v === "ospf") for (const s of DATA.segments) if (!s.area) S.sel.delete(s.id);
+  /* 表ビューは何も描画しないビューなので選択は据え置く（BGP→表→BGP の往復で消えないように） */
+  if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
+  update();   /* 配置(POS)は共通 → タブ切替で座標は変わらない */
+}
+
+/* search（テキスト入力とフィールドドロップダウンの両方から呼ぶ） */
+function applySearch() {
+  const q = searchQuery();
+  S.matches = !S.search ? []
+    : q.field ? (q.value ? Object.keys(fcorpus).filter(id => (fcorpus[id][q.field] || "").includes(q.value)) : [])
+    : Object.keys(corpus).filter(id => corpus[id].includes(S.search));
+  S.mi = -1;
+  graphSearchFeedback();   /* 表ビュー中は直後の render → renderTableView が行数基準で上書きする */
+  render();
+}
+$("#search").addEventListener("input", ev => {
+  S.search = ev.target.value.trim().toLowerCase();
+  applySearch();
+});
+$("#sfield").addEventListener("change", ev => {
+  S.sfield = ev.target.value;
+  applySearch();
+});
+$("#search").addEventListener("keydown", ev => {
+  /* 検索欄フォーカス中の Ctrl+F も全選択に（末尾の stopPropagation で window 側へ届かないためここで処理） */
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F")) {
+    ev.preventDefault(); ev.target.select(); ev.stopPropagation(); return;
+  }
+  if (ev.key === "Enter" && S.matches.length) {
+    if (isTableView()) return;   /* 表ビューでは Enter 巡回（図のパン）は行わない */
+    /* 非表示ノードは巡回スキップ（件数には含める＝隠したノードの存在は検索で分かる） */
+    const cyc = S.matches.filter(id => !S.hiddenNodes.has(id));
+    if (!cyc.length) return;
+    S.mi = (S.mi + 1) % cyc.length;
+    const id = cyc[S.mi];
+    const r = canvas.getBoundingClientRect();
+    S.tx = r.width/2 - POS[id].x * S.k; S.ty = r.height/2 - POS[id].y * S.k;
+    render();
+  }
+  if (ev.key === "Escape") { ev.target.value = ""; ev.target.dispatchEvent(new Event("input")); ev.target.blur(); }
+  ev.stopPropagation();
+});
+
+/* filters / actions */
+$("#f-seg").onchange = e => { S.filters.seg = e.target.checked; render(); };
+$("#f-ext").onchange = e => { S.filters.ext = e.target.checked; render(); };
+$("#btn-connected").onclick = function() { S.connectedOnly = !S.connectedOnly; this.classList.toggle("on", S.connectedOnly); render(); };
+
+/* 表示ノード指定パネル: ノード単位で表示/非表示を指定 */
+function renderNodePanel() {
+  const np = $("#nodepanel");
+  np.style.display = S.nodePanel ? "block" : "none";
+  if (!S.nodePanel) return;
+  const row = (id, label, type) =>
+    `<label><input type="checkbox" data-nid="${id}" ${S.hiddenNodes.has(id)?"":"checked"}> ${esc(label)}<span class="ntype">${type}</span></label>`;
+  np.innerHTML = `<h4>表示するノード</h4>`
+    + Object.entries(DATA.devices).map(([id,d]) => row(id, d.hostname, "機器")).join("")
+    + DATA.segments.map(s => row(s.id, s.subnet, "seg")).join("")
+    + DATA.extPeers.map(e => row(e.id, e.label, "ext")).join("");
+}
+$("#nodepanel").addEventListener("change", ev => {
+  const id = ev.target.dataset.nid; if (!id) return;
+  if (ev.target.checked) S.hiddenNodes.delete(id);
+  else { S.hiddenNodes.add(id); S.sel.delete(id); }   /* 非表示にしたノードは選択からも外す（図とパネルの乖離防止） */
+  update();
+});
+$("#btn-nodes").onclick = function() {
+  S.nodePanel = !S.nodePanel;
+  this.classList.toggle("on", S.nodePanel);
+  renderNodePanel();
+};
+$("#btn-minimap").onclick = function() { S.minimap = !S.minimap; this.classList.toggle("on", S.minimap); renderMinimap(); };
+$("#btn-legend").onclick = function() { S.legend = !S.legend; this.classList.toggle("on", S.legend); renderLegend(); };
+$("#btn-theme").onclick = () => {
+  const h = document.documentElement;
+  h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark";
+};
+
+/* エクスポート: 現在の表示状態（配置・ハイライト込み）を SVG / PNG で保存 */
+const SVG_VARS = ["--bg","--bg-dot","--panel","--panel-edge","--panel-glow","--ink","--ink-dim","--ink-faint",
+  "--accent","--search","--danger","--node-fill","--node-edge","--node-ink","--link","--link-dim","--seg-fill"];
+function svgSnapshot() {
+  const r = canvas.getBoundingClientRect();
+  const clone = canvas.cloneNode(true);
+  clone.setAttribute("xmlns", _SVG_NS);
+  clone.setAttribute("width", r.width); clone.setAttribute("height", r.height);
+  /* スタンドアロン SVG では html 側の CSS 変数が届かないため、現テーマの値をルートにインライン展開する */
+  const cs = getComputedStyle(document.documentElement);
+  /* 末尾の width/height は埋め込み CSS の #canvas{width:100%...} に属性が負けないための上書き */
+  clone.setAttribute("style", SVG_VARS.map(v => `${v}:${cs.getPropertyValue(v).trim()}`).join(";")
+    + `;width:${r.width}px;height:${r.height}px`);
+  const ns = _SVG_NS;
+  const st = document.createElementNS(ns, "style");
+  st.textContent = document.querySelector("style").textContent;
+  clone.insertBefore(st, clone.firstChild);
+  const bg = document.createElementNS(ns, "rect");
+  bg.setAttribute("width", "100%"); bg.setAttribute("height", "100%");
+  bg.setAttribute("fill", cs.getPropertyValue("--bg").trim());
+  clone.insertBefore(bg, st.nextSibling);
+  return { src: new XMLSerializer().serializeToString(clone), w: r.width, h: r.height };
+}
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+$("#exp-svg").onclick = () => {
+  const s = svgSnapshot();
+  downloadBlob(new Blob([s.src], {type:"image/svg+xml"}), "topology.svg");
+};
+$("#exp-png").onclick = () => {
+  const s = svgSnapshot();
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = s.w * 2; c.height = s.h * 2;   /* 2x で書き出し（報告書貼付向け） */
+    const x = c.getContext("2d");
+    x.scale(2, 2); x.drawImage(img, 0, 0, s.w, s.h);
+    c.toBlob(b => { if (b) downloadBlob(b, "topology.png"); }, "image/png");
+  };
+  img.onerror = () => { downloadBlob(new Blob([s.src], {type:"image/svg+xml"}), "topology.svg"); };  /* PNG 不可なら SVG で代替 */
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s.src);
+};
+
+/* 詳細パネル: リサイズ & 最小化 */
+const detailsEl = $("#details");
+let rs = null;
+$("#resizer").addEventListener("mousedown", ev => {
+  rs = { x: ev.clientX, w: detailsEl.getBoundingClientRect().width };
+  ev.preventDefault();
+});
+window.addEventListener("mousemove", ev => {
+  if (!rs) return;
+  detailsEl.classList.remove("min");
+  $("#btn-panelmin").textContent = "—";
+  detailsEl.style.width = Math.min(560, Math.max(220, rs.w + (rs.x - ev.clientX))) + "px";
+});
+window.addEventListener("mouseup", () => { rs = null; });
+$("#btn-panelmin").onclick = function() {
+  const min = detailsEl.classList.toggle("min");
+  this.textContent = min ? "❮" : "—";
+};
+
+/* keyboard */
+window.addEventListener("keydown", ev => {
+  /* Ctrl+F / ⌘F はどこにフォーカスがあっても検索欄へ（ブラウザのページ内検索を抑止） */
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F")) {
+    ev.preventDefault();
+    const si = $("#search"); si.focus(); si.select();
+    return;
+  }
+  if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
+  if (ev.key === "f" || ev.key === "F") zoomFit();
+  else if (ev.key === "Escape") { S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
+  else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }
+  else if (/^\\d$/.test(ev.key)) {
+    const _vi = +ev.key - 1;
+    if (_vi >= 0 && _vi < VIEWS.length) setView(VIEWS[_vi]);
+  }
+});
+
+/* ================= boot ================= */
+function update() {
+  /* 凡例強調はビュー変更で項目が消えたら無効化（全画面 dim の固着防止） */
+  if (S.legendHot) {
+    const lg = S.legendHot;
+    if (((lg === "ebgp" || lg === "ibgp") && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf")) S.legendHot = null;
+  }
+  render(); renderDetails(); renderLegend();
+}
+$("#btn-minimap").classList.add("on");
+$("#btn-legend").classList.add("on");
+renderStatus();
+update();
+zoomFit();
+window.addEventListener("resize", () => schedule(render));
+
 """
