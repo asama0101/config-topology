@@ -60,7 +60,11 @@ def test_node_check_syntax():
     if not node:
         pytest.skip("node 不在のため構文チェックをスキップ")
     stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
-            "meta:{generated_from:[]}};const POS={};const VIEWS=['physical','addr','ifs'];\n")
+            "meta:{generated_from:[]},"
+            "stats:{devices:0,interfaces:0,links:0,segments:0,"
+            "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
+            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0}};"
+            "const POS={};const VIEWS=['physical','stats','addr','ifs'];\n")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(stub + assets._JS)
         path = f.name

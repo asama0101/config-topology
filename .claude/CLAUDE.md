@@ -40,7 +40,8 @@ workspace/*.{cfg,conf,txt}
 - **dual-stack**: `interfaces[].addresses`（`[{af,ip,prefix,secondary?,scope?}]`）が IP の正本。
   `interfaces[].ip` は最初の非 secondary v4 から派生する後方互換フィールド（§4.1）。
 - **render の実体は `lib/rendering/`**（`render_topology.py` は薄い CLI）。CSS/JS 定数 `_CSS`/`_BODY`/`_JS`
-  は `assets.py`、データ変換は `data_transform.py`、決定的レイアウトは `layout.py`、ビューロジックは `tabs.py`、
+  は `assets.py`（stats ビュー描画 `renderStatsView` 含む）、データ変換と構成統計集計（`build_stats`→`DATA.stats`）は
+  `data_transform.py`、決定的レイアウトは `layout.py`、ビューロジックは `tabs.py`、
   テンプレート組立は `template.py` にそれぞれ分離。CSS/JS や色を直すときは `assets.py` を見る。
 
 ## 不変条件（変更時に壊さないこと）

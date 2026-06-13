@@ -83,3 +83,44 @@ def test_no_if_chip_or_select_marker():
 
 def test_deterministic_same_input():
     assert _html() == _html()
+
+
+# ---------------------------------------------------------------------------
+# D1 統計ダッシュボード — HTML 組み込み確認
+# ---------------------------------------------------------------------------
+
+def test_stats_tab_in_html():
+    """生成 HTML に stats タブが含まれること。"""
+    html = _html()
+    assert 'data-view="stats"' in html
+
+
+def test_stats_view_in_views_array():
+    """埋め込み VIEWS 配列に 'stats' が含まれること。"""
+    html = _html()
+    views = json.loads(_embedded(html, "VIEWS"))
+    assert "stats" in views
+
+
+def test_data_stats_embedded_in_html():
+    """埋め込み DATA に 'stats' キーが含まれ、dict であること。"""
+    html = _html()
+    data = json.loads(_embedded(html, "DATA"))
+    assert "stats" in data
+    assert isinstance(data["stats"], dict)
+    # 必須カウントキーの存在確認
+    for k in ("devices", "interfaces", "links", "segments",
+              "bgp_sessions", "ospf_networks", "static_routes", "dualstack_ifs"):
+        assert k in data["stats"], f"data['stats'] に '{k}' が無い"
+
+
+def test_render_stats_view_js_function():
+    """JS に renderStatsView 関数が含まれること。"""
+    from lib.rendering.assets import _JS
+    assert "renderStatsView" in _JS
+
+
+def test_is_table_view_includes_stats():
+    """isTableView() が stats を table view として扱うこと（JS コード確認）。"""
+    from lib.rendering.assets import _JS
+    assert 'S.view === "stats"' in _JS

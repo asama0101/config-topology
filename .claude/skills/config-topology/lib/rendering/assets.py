@@ -420,6 +420,19 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
 #nodepanel input { accent-color: var(--accent); }
 #nodepanel .ntype { color: var(--ink-faint); font-size: 9px; margin-left: auto; }
 
+/* ---------- stats ダッシュボード (D1) ---------- */
+.stats-cards {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  padding: 16px 20px 8px;
+}
+.stats-card {
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-radius: 8px; padding: 10px 18px; min-width: 110px; text-align: center;
+}
+.stats-num { font-size: 22px; color: var(--accent); font-weight: bold; }
+.stats-label { font-size: 9px; letter-spacing: .12em; color: var(--ink-faint); margin-top: 2px; }
+.stats-tbl-wrap { padding: 0 20px 14px; }
+
 
 """
 
@@ -535,7 +548,7 @@ const S = {
   sort:{addr:null, ifs:null},
   collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
 };
-const isTableView = () => S.view === "addr" || S.view === "ifs";
+const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats";
 const $ = s => document.querySelector(s);
 const world = $("#world"), tooltip = $("#tooltip");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1145,6 +1158,7 @@ function graphSearchFeedback() {
 }
 
 function renderTableView() {
+  if (S.view === "stats") { $("#tableview").innerHTML = renderStatsView(); return; }
   $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
 }
 
@@ -1368,6 +1382,62 @@ const noteOf = (devId, ifn) => portNote[`${devId}:${ifn}`] || "";
 function setPortNote(devId, ifn, text) {
   portNote[`${devId}:${ifn}`] = text;   /* 空文字も保存（初期 note を打ち消す明示クリア） */
   try { localStorage.setItem(PORTNOTE_KEY, JSON.stringify(portNote)); } catch (e) { /* 永続化不可は無視 */ }
+}
+
+/* ================= STATS view (D1 統計ダッシュボード) ================= */
+function renderStatsView() {
+  const st = DATA.stats;
+  if (!st) return "<p class=tnote>stats データがありません</p>";
+
+  /* サマリーカード */
+  const cards = [
+    ["DEVICES",    st.devices],
+    ["INTERFACES", st.interfaces],
+    ["LINKS",      st.links],
+    ["SEGMENTS",   st.segments],
+    ["BGP SESSIONS",  st.bgp_sessions],
+    ["OSPF NETWORKS", st.ospf_networks],
+    ["STATIC ROUTES", st.static_routes],
+    ["DUAL-STACK IFs",st.dualstack_ifs],
+  ];
+  let html = '<div class="stats-cards">'
+    + cards.map(([label, val]) =>
+        `<div class="stats-card"><div class="stats-num">${esc(val)}</div><div class="stats-label">${esc(label)}</div></div>`
+      ).join("")
+    + "</div>";
+
+  /* 小テーブル生成ヘルパ */
+  const tbl = (title, headers, rows) => {
+    if (!rows.length) return "";
+    const ths = headers.map(h => `<th>${esc(h)}</th>`).join("");
+    const trs = rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join("")}</tr>`).join("");
+    return `<div class="stats-tbl-wrap"><p class="tnote" style="margin-bottom:4px">${esc(title)}</p><table class="addrtbl"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+  };
+
+  /* by_vendor 表 — 決定的順（sorted済み） */
+  const vendorRows = Object.keys(st.by_vendor).sort().map(k => [k, st.by_vendor[k]]);
+  html += tbl("VENDOR", ["Vendor", "Count"], vendorRows);
+
+  /* by_as 表 — 数値昇順→'none' 末尾（sorted済み） */
+  const asRows = Object.keys(st.by_as).sort((a,b) => {
+    if (a === "none") return 1; if (b === "none") return -1;
+    return +a - +b;
+  }).map(k => [k, st.by_as[k]]);
+  html += tbl("AS", ["AS", "Count"], asRows);
+
+  /* by_area 表 — 数値昇順→'none' 末尾（by_as と同方式） */
+  const areaRows = Object.keys(st.by_area).sort((a,b) => {
+    if (a === "none") return 1; if (b === "none") return -1;
+    return +a - +b;
+  }).map(k => [k, st.by_area[k]]);
+  if (areaRows.length) html += tbl("OSPF AREA", ["Area", "Networks"], areaRows);
+
+  /* link_kinds 表 — 固定順 */
+  const lk = st.link_kinds || {};
+  const kindRows = [["link", lk.link ?? 0], ["segment", lk.segment ?? 0], ["stub", lk.stub ?? 0]];
+  html += tbl("LINK KINDS", ["Kind", "Count"], kindRows);
+
+  return html;
 }
 
 function renderIfsTable() {
