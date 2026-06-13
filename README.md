@@ -4,13 +4,37 @@
 
 `Cisco IOS / IOS-XE` ・ `Juniper JunOS (set)` / `Python 3 + PyYAML` / 自己完結 HTML 出力 / 決定的・再現可能
 
-## 特徴
+## 概要 / できること
 
 - **マルチベンダー自動判定** — Cisco IOS/IOS-XE running-config と Juniper JunOS（set 形式）を自動判定し、複数機器を一括処理。
-- **結線の自動推論** — 各インターフェースの IP / サブネット一致でリンクを推論（2 機器=リンク、3 機器以上=共有セグメント、単独=スタブ）。`shutdown` を含むリンクは admin_down として区別。BGP は対向を解決して ebgp/ibgp を判定し、config 内に対向が無い外部ピアも片側オーバーレイで描画。
+- **結線の自動推論** — 各インターフェースの IP / サブネット一致で機器間リンク・共有セグメントを推論（→「結線推論の考え方」）。
 - **IPv4 / IPv6 デュアルスタック** — インターフェースの全アドレス（v4/v6・secondary 含む）を正本として保持し、OSPF / static の v6 ルーティングにも対応。
-- **編集可能なレイヤー別 YAML 正本** — 中間表現は人手で補正・注記できる層別 YAML。読込時に ID 参照整合を検証し、再描画する round-trip が可能。再生成時は旧成果物を `./history/<日時>/` へ自動退避。
-- **自己完結・決定的な HTML 出力** — 外部依存ゼロ・`file://` で開ける単一 HTML。図ビュー（物理 / BGP / OSPF）と表ビュー（ADDRESSES / INTERFACES）の切替、演算子つき検索（`host:` / `ip:` / `as:` / `net:` 等）、ノード選択・ドラッグ、ズーム/パンに対応し、同一入力 → 同一出力。
+- **編集可能なレイヤー別 YAML 正本** — 中間表現は人手で補正・注記できる層別 YAML。読込時に ID 参照整合を検証し、再描画する round-trip が可能。
+- **自己完結・決定的な HTML 出力** — 外部依存ゼロ・`file://` で開ける単一 HTML。同一入力 → 同一出力（→「HTML 構成図の機能」）。
+
+## アーキテクチャ（3層パイプライン）
+
+```
+./workspace/*.{cfg,conf,txt}
+   │  scripts/parse_configs.py     ベンダー自動判定 → 正規化モデル Device（ベンダー中立）
+   ▼
+   │  scripts/build_topology.py    IP/サブネット一致でリンク・セグメント推論、BGP 対向解決
+   ▼
+./topology/  (層別 YAML 正本)        ← 中間表現（正確性が最優先・人手編集可）
+   │  lib/topology_io.py            層別 YAML ⇄ topology dict・参照整合検証
+   │  scripts/render_topology.py
+   ▼
+./topology.html                     SVG + バニラ JS の自己完結 HTML
+```
+
+各層は単一責務で、**層間の唯一の契約は層別 YAML（= topology dict）**。`lib/topology_io.py` が dict ⇄ YAML を相互変換し参照整合を検証する。IP は機器ではなく**インターフェースに帰属**させ（実機と同じ構造）、物理層（機器/IF/リンク/セグメント）と論理層（routing）を分離して、render がレイヤートグルで重ねる。
+
+## 結線推論の考え方
+
+- **IP / サブネット一致のみ**で推論（v1 は CDP/LLDP 不使用）。同一サブネットのインターフェースが **2 機器 = リンク**、**3 機器以上 = 共有セグメント**、**単独 = スタブ**。
+- `shutdown` を含むリンクは **admin_down** として区別。link-local（`fe80::/10`）は結線から除外。
+- **BGP** は対向を解決して ebgp / ibgp を判定。config 内に対向が無い外部ピアも片側オーバーレイで描画。
+- **dual-stack** は `interfaces[].addresses` が IP の正本（`interfaces[].ip` は後方互換の派生フィールド）。
 
 ## 入力 / 出力
 
@@ -19,6 +43,14 @@
 | 入力 | `./workspace/*.{cfg,conf,txt}` | 機器の running-config（複数機器を一括） |
 | 出力① | `./topology/` | レイヤー別 YAML 正本（`_meta.yaml` / `devices.yaml` / `physical.yaml` / `routing.*.yaml`） |
 | 出力② | `./topology.html` | 自己完結のインタラクティブ HTML 構成図 |
+
+## HTML 構成図の機能
+
+- **図ビュー**（タブ）: `PHYSICAL`（機器 + リンク + セグメント）／`BGP`・`OSPF`（`routing` キーから動的生成）。
+- **表ビュー**（タブ）: `ADDRESSES`（インターフェース集約・IP 一覧）／`INTERFACES`（状態・速度・description）。
+- **演算子つき検索**: `host:` / `ip:` / `desc:` / `as:` / `vendor:` / `net:`（自由文字列も可）。`/` または `Ctrl+F` で検索欄へフォーカス。
+- **操作**: クリックで機器・セグメント・ネイバーを選択（右欄に詳細）／ノードドラッグで再配置／ホイールでズーム・ドラッグでパン／ホバー強調／`F` = 全体表示・`Esc` = リセット。
+- **決定的レイアウト**（force-directed・同一入力 → 同一 HTML）。再生成時は旧成果物を `./history/<YYYY-MM-DD_HHMM>/` へ自動退避（非破壊）。
 
 ## 使い方
 
@@ -54,7 +86,7 @@ config-topology/
         ├── references/                 # schema / link-inference / vendor-parsing
         ├── scripts/                    # CLI 3 本（parse_configs / build_topology / render_topology）
         ├── lib/                        # 実装本体
-        │   ├── parsers/                # ベンダー判定・正規化（base / ios / junos）
+        │   ├── parsers/                # ベンダー判定・正規化（registry __init__ / ios / junos / base）
         │   ├── rendering/              # HTML 生成（assets / data_transform / layout / tabs / template）
         │   ├── models.py               # 正規化モデル（Device / Address / 等）
         │   ├── inputs.py , normalize.py , idgen.py
