@@ -42,6 +42,7 @@
 ### D. 業務支援機能
 - [x] D1 構成統計ダッシュボード（機器/IF/AS別/area別/リンク種別/dual-stack率/BGP/OSPF集計の新ビュー）— M ✅反復1完了
 - [x] D2 設計検証警告の集約パネル（重複IP・MTU不一致・未解決BGP local_ip・dangling next_hop）— M ✅反復3完了
+- [x] D2b 設計検証ルール拡張（OSPF/BGP router-id 重複検出）— S ✅反復18完了
 - [x] D3 トポロジー差分レポート（コア: lib/diff.py + scripts/diff_topology.py）— M ✅反復8完了（HTML表示は D3b に分割）
 - [x] D3b 差分の HTML 表示（render --diff-against で DIFF ビュー）— M ✅反復12完了
 - [x] D3c history 自動連携（--diff-against-history で直近 history との差分を自動ビュー化）— S ✅反復16完了
@@ -182,6 +183,12 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: requirements.md §8.3.2・CLAUDE.md 索引を同期。
 - テスト 771→796 passed（+25）。golden byte 不変・render 決定性維持。
 
-### 観点カバレッジ: A=A1,A4,A2,A5 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b,D3c。**A4・B3・C5・D5**（全観点バランス良好）。
-### 次候補: 反復18。観点はほぼ均衡（B が最少3）。C4b BGP timers/community（parser強TDD・pending増殖注意）/ B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化要＝種別/area の即時チップ）/ A3 階層レイアウトモード（L）/ A1b area クラスタリング（multi-area で曖昧・要設計）。強TDD志向なら C4b、観点B 補強なら B2（差別化設計が要）。推奨は C4b（parser 強TDD）。
-推奨順序の残り目安: C4b → B2(差別化要) → A3 → A1b(要設計) → C1b → 残り。
+### 反復18: D2b 設計検証ルール拡張（router-id 重複）— ✅完了（2026-06-14）
+- build_checks に duplicate_ospf_router_id / duplicate_bgp_router_id（error）を追加。同一 router-id を持つ2台以上の機器を検出（OSPF/BGP を壊す深刻な誤設定）。`_collect_rid_duplicates` ヘルパで ospf/bgp 共通化（DRY）。None 無視・機器内 ospf=bgp 共用は非対象。renderChecksView は汎用表示で render 変更不要。
+- レビュー対応: build_checks docstring にルール5/6、DRY ヘルパ集約、BGP 対称テスト、schema.md ## devices 表に ospf/bgp_router_id（既存ギャップ補完）＋ DATA.checks の bgp refs 注記、SKILL.md CHECKS に router-id。correctness 承認。
+- doc: schema.md・requirements.md §8.2・SKILL.md を同期。
+- テスト 796→815 passed（+19）。golden byte 不変（sample router-id 全null→checks 不変）。render 決定性維持。
+
+### 観点カバレッジ: A=A1,A4,A2,A5 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D2b,D3,D3b,D3c。**A4・B3・C5・D6**。
+### 次候補: 反復19。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
+推奨順序の残り目安: D2c or B2 → C4b → A3 → A1b(要設計) → 残り。

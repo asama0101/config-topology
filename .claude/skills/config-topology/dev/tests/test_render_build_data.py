@@ -1954,3 +1954,453 @@ def test_build_devices_degree_hybrid_link_and_segment():
     assert devices["r_seg2"]["degree"] == 2, (
         f"r_seg2.degree は 2 のはずだが {devices['r_seg2']['degree']}"
     )
+
+
+# ===========================================================================
+# D2b: router-id 重複検出（ルール5: duplicate_ospf_router_id / ルール6: duplicate_bgp_router_id）
+# ===========================================================================
+
+def _make_dev_with_rid(dev_id, ospf_router_id=None, bgp_router_id=None,
+                        hostname=None, vendor="cisco_ios", as_=65001):
+    """router-id 付き最小 device dict を生成するヘルパー。"""
+    return {
+        "id": dev_id,
+        "hostname": hostname or dev_id.upper(),
+        "vendor": vendor,
+        "as": as_,
+        "ospf_router_id": ospf_router_id,
+        "bgp_router_id": bgp_router_id,
+        "sections": [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# ルール 5: duplicate_ospf_router_id（error）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ospf_router_id_two_devices():
+    """2 台が同一 ospf_router_id を持つ場合 duplicate_ospf_router_id error が 1 件返ること。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", ospf_router_id="1.1.1.1"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    dup = [c for c in result if c["kind"] == "duplicate_ospf_router_id"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    assert "1.1.1.1" in dup[0]["message"]
+    assert "r1" in dup[0]["refs"]
+    assert "r2" in dup[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ospf_router_id_three_devices():
+    """3 台が同一 ospf_router_id を持つ場合も duplicate_ospf_router_id error が 1 件返ること。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="2.2.2.2"),
+            _make_dev_with_rid("r2", ospf_router_id="2.2.2.2"),
+            _make_dev_with_rid("r3", ospf_router_id="2.2.2.2"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 3 台重複でも同一 router-id につき 1 件
+    dup = [c for c in result if c["kind"] == "duplicate_ospf_router_id"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    # refs に 3 台すべての device id が含まれること
+    for dev_id in ("r1", "r2", "r3"):
+        assert dev_id in dup[0]["refs"], f"{dev_id} が refs に含まれていない"
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ospf_router_id_refs_sorted():
+    """duplicate_ospf_router_id の refs（device id 群）が昇順ソートされること。"""
+    # Arrange: r3, r1, r2 の順で登録（意図的に非昇順）
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r3", ospf_router_id="3.3.3.3"),
+            _make_dev_with_rid("r1", ospf_router_id="3.3.3.3"),
+            _make_dev_with_rid("r2", ospf_router_id="3.3.3.3"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: refs が昇順ソートされていること
+    dup = [c for c in result if c["kind"] == "duplicate_ospf_router_id"]
+    assert len(dup) == 1
+    # refs 内の先頭要素群が device id であり昇順
+    dev_refs = [r for r in dup[0]["refs"] if r in ("r1", "r2", "r3")]
+    assert dev_refs == sorted(dev_refs), f"refs の device id が昇順でない: {dev_refs}"
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_ospf_router_id_when_unique():
+    """全機器の ospf_router_id が相異なる場合 duplicate_ospf_router_id が返らないこと。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", ospf_router_id="2.2.2.2"),
+            _make_dev_with_rid("r3", ospf_router_id="3.3.3.3"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 検出なし
+    assert not any(c["kind"] == "duplicate_ospf_router_id" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_ospf_router_id_when_all_none():
+    """全機器の ospf_router_id が None の場合 duplicate_ospf_router_id が返らないこと。"""
+    # Arrange: ospf_router_id=None（デフォルト）
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id=None),
+            _make_dev_with_rid("r2", ospf_router_id=None),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: None は無視され検出なし
+    assert not any(c["kind"] == "duplicate_ospf_router_id" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_ospf_router_id_when_single_device():
+    """ospf_router_id が重複するのが 1 台だけ（他は None）の場合は検出しないこと。"""
+    # Arrange: r1 のみが router-id を持つ（1 台のみ = 重複なし）
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", ospf_router_id=None),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 1 台のみは検出しない
+    assert not any(c["kind"] == "duplicate_ospf_router_id" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ospf_router_id_multiple_groups():
+    """複数の重複グループ（router-id A を 2 台・B を 2 台）が決定的順序で両方出ること。"""
+    # Arrange: router-id "1.1.1.1" が r1/r2 に、"2.2.2.2" が r3/r4 に重複
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", ospf_router_id="1.1.1.1"),
+            _make_dev_with_rid("r3", ospf_router_id="2.2.2.2"),
+            _make_dev_with_rid("r4", ospf_router_id="2.2.2.2"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 2 グループ分の 2 件が検出されること
+    dup = [c for c in result if c["kind"] == "duplicate_ospf_router_id"]
+    assert len(dup) == 2
+
+    # 決定的順序（router-id 値の昇順で並ぶ）: "1.1.1.1" → "2.2.2.2"
+    rid_msgs = [c["message"] for c in dup]
+    assert "1.1.1.1" in rid_msgs[0]
+    assert "2.2.2.2" in rid_msgs[1]
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_same_device_ospf_bgp_not_flagged():
+    """同一機器が ospf_router_id と bgp_router_id で同じ値を持つ場合は機器内重複として検出しないこと。
+
+    機器内での ospf/bgp 共用 router-id は正常な設定。
+    """
+    # Arrange: r1 が ospf/bgp ともに "1.1.1.1"、r2 は別の値
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1", bgp_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", ospf_router_id="2.2.2.2", bgp_router_id="2.2.2.2"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 機器内共用は検出しない（ospf でも bgp でも重複なし）
+    assert not any(c["kind"] in ("duplicate_ospf_router_id", "duplicate_bgp_router_id")
+                   for c in result)
+
+
+# ---------------------------------------------------------------------------
+# ルール 6: duplicate_bgp_router_id（error）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_duplicate_bgp_router_id_two_devices():
+    """2 台が同一 bgp_router_id を持つ場合 duplicate_bgp_router_id error が 1 件返ること。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", bgp_router_id="10.0.0.1"),
+            _make_dev_with_rid("r2", bgp_router_id="10.0.0.1"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    dup = [c for c in result if c["kind"] == "duplicate_bgp_router_id"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    assert "10.0.0.1" in dup[0]["message"]
+    assert "r1" in dup[0]["refs"]
+    assert "r2" in dup[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_bgp_router_id_when_unique():
+    """全機器の bgp_router_id が相異なる場合 duplicate_bgp_router_id が返らないこと。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", bgp_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", bgp_router_id="2.2.2.2"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 検出なし
+    assert not any(c["kind"] == "duplicate_bgp_router_id" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_bgp_router_id_when_all_none():
+    """全機器の bgp_router_id が None の場合 duplicate_bgp_router_id が返らないこと。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", bgp_router_id=None),
+            _make_dev_with_rid("r2", bgp_router_id=None),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: None は無視され検出なし
+    assert not any(c["kind"] == "duplicate_bgp_router_id" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_bgp_router_id_three_devices():
+    """3 台が同一 bgp_router_id を持つ場合も duplicate_bgp_router_id error が 1 件返ること（refs に全台）。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", bgp_router_id="7.7.7.7"),
+            _make_dev_with_rid("r2", bgp_router_id="7.7.7.7"),
+            _make_dev_with_rid("r3", bgp_router_id="7.7.7.7"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 3 台重複でも同一 router-id につき 1 件
+    dup = [c for c in result if c["kind"] == "duplicate_bgp_router_id"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    # refs に 3 台すべての device id が含まれること
+    for dev_id in ("r1", "r2", "r3"):
+        assert dev_id in dup[0]["refs"], f"{dev_id} が refs に含まれていない"
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_bgp_router_id_refs_sorted():
+    """duplicate_bgp_router_id の refs（device id 群）が昇順ソートされること。"""
+    # Arrange: r3, r1, r2 の順で登録（意図的に非昇順）
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r3", bgp_router_id="8.8.8.8"),
+            _make_dev_with_rid("r1", bgp_router_id="8.8.8.8"),
+            _make_dev_with_rid("r2", bgp_router_id="8.8.8.8"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: refs の device id 群が昇順ソートされていること
+    dup = [c for c in result if c["kind"] == "duplicate_bgp_router_id"]
+    assert len(dup) == 1
+    dev_refs = [r for r in dup[0]["refs"] if r in ("r1", "r2", "r3")]
+    assert dev_refs == sorted(dev_refs), f"refs の device id が昇順でない: {dev_refs}"
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_bgp_router_id_when_single_device():
+    """bgp_router_id が重複するのが 1 台だけ（他は None）の場合は検出しないこと。"""
+    # Arrange: r1 のみが router-id を持つ（1 台のみ = 重複なし）
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", bgp_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", bgp_router_id=None),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 1 台のみは検出しない
+    assert not any(c["kind"] == "duplicate_bgp_router_id" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_bgp_router_id_multiple_groups():
+    """複数の BGP router-id 重複グループが決定的順序で両方出ること。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", bgp_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", bgp_router_id="1.1.1.1"),
+            _make_dev_with_rid("r3", bgp_router_id="2.2.2.2"),
+            _make_dev_with_rid("r4", bgp_router_id="2.2.2.2"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 2 件
+    dup = [c for c in result if c["kind"] == "duplicate_bgp_router_id"]
+    assert len(dup) == 2
+    rid_msgs = [c["message"] for c in dup]
+    assert "1.1.1.1" in rid_msgs[0]
+    assert "2.2.2.2" in rid_msgs[1]
+
+
+# ---------------------------------------------------------------------------
+# 両ルール: 独立性・共存・ソート順
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_ospf_and_bgp_rid_duplicate_independently():
+    """ospf と bgp の両方で router-id が重複する場合、両ルールが独立して検出されること。"""
+    # Arrange: r1/r2 が ospf_router_id 重複、r3/r4 が bgp_router_id 重複
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="5.5.5.5"),
+            _make_dev_with_rid("r2", ospf_router_id="5.5.5.5"),
+            _make_dev_with_rid("r3", bgp_router_id="6.6.6.6"),
+            _make_dev_with_rid("r4", bgp_router_id="6.6.6.6"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: ospf と bgp で各 1 件
+    ospf_dup = [c for c in result if c["kind"] == "duplicate_ospf_router_id"]
+    bgp_dup = [c for c in result if c["kind"] == "duplicate_bgp_router_id"]
+    assert len(ospf_dup) == 1
+    assert len(bgp_dup) == 1
+    assert "5.5.5.5" in ospf_dup[0]["message"]
+    assert "6.6.6.6" in bgp_dup[0]["message"]
+
+
+@pytest.mark.unit
+def test_build_checks_rid_duplicate_sort_order_with_other_rules():
+    """duplicate_ospf/bgp_router_id（error）が severity→kind 昇順ソートに乗ること。
+
+    ソート順: error→warning、同一 severity 内は kind 昇順。
+    duplicate_bgp_router_id < duplicate_ip < duplicate_ospf_router_id（アルファベット順）
+    """
+    # Arrange: duplicate_ip(error) + duplicate_ospf_router_id(error) を同時発生させる
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1"),
+            _make_dev_with_rid("r2", ospf_router_id="1.1.1.1"),
+        ],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert 1: error のみ（warning はない）
+    kinds = [c["kind"] for c in result]
+    assert "duplicate_ip" in kinds
+    assert "duplicate_ospf_router_id" in kinds
+
+    # Assert 2: kind が昇順に並ぶ（error 内で "duplicate_ip" < "duplicate_ospf_router_id"）
+    error_items = [c for c in result if c["severity"] == "error"]
+    error_kinds = [c["kind"] for c in error_items]
+    assert error_kinds == sorted(error_kinds), f"error 内で kind が昇順でない: {error_kinds}"
+
+
+@pytest.mark.unit
+def test_build_checks_rid_duplicate_deterministic():
+    """build_checks の router-id 重複検出が2回呼んで同一結果を返すこと（決定性）。"""
+    # Arrange: ospf と bgp 両方の重複を含む
+    topo = _minimal_topo(
+        devices=[
+            _make_dev_with_rid("r1", ospf_router_id="1.1.1.1", bgp_router_id="9.9.9.9"),
+            _make_dev_with_rid("r2", ospf_router_id="1.1.1.1", bgp_router_id="9.9.9.9"),
+        ],
+    )
+
+    # Act: 2 回呼ぶ
+    result_a = build_checks(topo)
+    result_b = build_checks(topo)
+
+    # Assert: 完全一致
+    assert json.dumps(result_a, sort_keys=True) == json.dumps(result_b, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# golden 回帰: router-id が null → 既存の checks==[] を維持
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_build_checks_golden_result_regression_rid_unchanged():
+    """golden (r1+r2) の ospf_router_id/bgp_router_id がいずれも null であるため、
+    duplicate_ospf/bgp_router_id は検出されず、checks が [] のまま変わらないこと。
+
+    golden YAML 確認:
+      r1.ospf_router_id = null, r1.bgp_router_id = null
+      r2.ospf_router_id = null, r2.bgp_router_id = null
+    → ルール5/6 の対象となる非 None router-id が存在しない。
+    """
+    topo = load_topology(str(GOLDEN))
+    result = build_checks(topo)
+    # duplicate_ospf_router_id / duplicate_bgp_router_id が出ないこと
+    assert not any(c["kind"] in ("duplicate_ospf_router_id", "duplicate_bgp_router_id")
+                   for c in result)
+    # 全体として checks は依然として空
+    assert result == []

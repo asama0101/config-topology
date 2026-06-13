@@ -407,6 +407,44 @@ def build_stats(topo, links=None, bgp_edges=None):
     }
 
 
+def _collect_rid_duplicates(devices, field, kind, proto_label):
+    """router-id 重複を検出し check エントリのリストを返す共通ヘルパー。
+
+    引数:
+      devices     : topology dict の devices リスト
+      field       : 検査するフィールド名（"ospf_router_id" または "bgp_router_id"）
+      kind        : check エントリの kind 文字列（"duplicate_ospf_router_id" 等）
+      proto_label : メッセージ用プロトコル名（"OSPF" または "BGP"）
+
+    返り値: [{"severity": "error", "kind": ..., "message": ..., "refs": [...]}, ...]
+      - None は無視、1 台のみは検出しない
+      - refs = sorted(dev_ids) + [rid]（device id 昇順 + router-id 値末尾）
+      - message = "<proto_label> router-id <rid> が複数機器で重複: <dev1>, <dev2>, ..."
+      - router-id 値の昇順で決定的に走査
+    """
+    rid_groups: dict = {}
+    for d in devices:
+        rid = d.get(field)
+        if rid is None:
+            continue
+        rid_groups.setdefault(rid, [])
+        if d["id"] not in rid_groups[rid]:
+            rid_groups[rid].append(d["id"])
+
+    results = []
+    for rid in sorted(rid_groups):
+        dev_ids = sorted(rid_groups[rid])
+        if len(dev_ids) < 2:
+            continue
+        results.append({
+            "severity": "error",
+            "kind": kind,
+            "message": "%s router-id %s が複数機器で重複: %s" % (proto_label, rid, ", ".join(dev_ids)),
+            "refs": dev_ids + [rid],
+        })
+    return results
+
+
 def build_checks(topo, links=None):
     """topology dict を決定的に走査し設計上の注意点を検出したリストを返す。
 
@@ -433,6 +471,10 @@ def build_checks(topo, links=None):
            - _SPECIAL_NH（0.0.0.0 / :: / 255.255.255.255）
            - デフォルトルート prefix（0.0.0.0/0・::/0）
            - IF 名が next_hop に使われる場合（Null0 等、ipaddress.ip_address でパース不能）
+      5. duplicate_ospf_router_id (error): 同一 ospf_router_id を持つ2台以上の機器。
+         None 無視・機器内 ospf=bgp 共用は非対象（同一機器内の一致は検出しない）。
+      6. duplicate_bgp_router_id (error): 同一 bgp_router_id を持つ2台以上の機器。
+         None 無視・機器内 ospf=bgp 共用は非対象（同一機器内の一致は検出しない）。
     """
     results = []
 
@@ -557,6 +599,17 @@ def build_checks(topo, links=None):
                 prefix, nh, device),
             "refs": [device, prefix, nh],
         })
+
+    # ---- ルール 5: duplicate_ospf_router_id ----
+    # ospf_router_id（非 None）でグループ化し、2 台以上の device が同一値を持つ場合に検出。
+    # None は無視。1 台のみは検出しない。決定的にするため router-id 値昇順で走査。
+    results.extend(_collect_rid_duplicates(
+        topo["devices"], "ospf_router_id", "duplicate_ospf_router_id", "OSPF"))
+
+    # ---- ルール 6: duplicate_bgp_router_id ----
+    # bgp_router_id（非 None）でグループ化し、2 台以上の device が同一値を持つ場合に検出。
+    results.extend(_collect_rid_duplicates(
+        topo["devices"], "bgp_router_id", "duplicate_bgp_router_id", "BGP"))
 
     # ---- 安定ソート: severity(error→warning)→kind→refs 文字列 ----
     _SEV_ORDER = {"error": 0, "warning": 1}

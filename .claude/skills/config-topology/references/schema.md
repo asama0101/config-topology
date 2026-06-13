@@ -59,6 +59,8 @@ topology/
 | `hostname` | string | config 上のホスト名（verbatim） |
 | `vendor` | string | `cisco_ios` / `juniper_junos`（パーサ識別子） |
 | `as` | int \| null | ローカル AS 番号（BGP/autonomous-system が無ければ null） |
+| `ospf_router_id` | string \| null | OSPF router-id（§5.2.1。未設定は null） |
+| `bgp_router_id` | string \| null | BGP router-id（§5.2.1。未設定は null） |
 | `sections` | object[] | 拡張枠（初版は空配列）。`{"title": "...", "rows": [...]}` 形式で任意データを添付可能 |
 
 ## interfaces
@@ -213,6 +215,8 @@ network 宣言 1 件につき 1 エントリ。
 | kind | severity | 検出条件 |
 |------|----------|---------|
 | `duplicate_ip` | error | 同一ホスト IP（v4/v6・secondary 含む）が複数 IF に存在。link-local（`scope="link-local"`、fe80::/10）は除外 |
+| `duplicate_bgp_router_id` | error | 同一 `bgp_router_id` を 2 台以上の device が持つ場合、router-id ごとに 1 件。None は無視。同一機器内での ospf/bgp 共用は機器間重複ではないため対象外。`refs` = 該当 device id 群（昇順）＋ 重複 router-id 値（ospf と同形式） |
+| `duplicate_ospf_router_id` | error | 同一 `ospf_router_id` を 2 台以上の device が持つ場合、router-id ごとに 1 件。None は無視。`refs` = 該当 device id 群（昇順）＋ 重複 router-id 値 |
 | `mtu_mismatch` | warning | 同一物理リンク両端の MTU が双方非 None かつ不一致。`build_links()` 統合済みリンク（端点ペア単位）を基準とするため、dual-stack（同一端点に v4+v6 の raw 行 2 件）でも 1 件のみ検出される |
 | `bgp_unresolved_local_ip` | warning | routing.bgp エントリで `local_ip` が None またはキー欠如 |
 | `static_dangling_next_hop` | warning | static の next_hop がトポロジー全体のどの IF サブネットにも属さず、どの IF のホスト IP とも一致しない。スキップ対象: 特殊値（`0.0.0.0`・`::`・`255.255.255.255`）、デフォルトルート prefix（`0.0.0.0/0`・`::/0`）、IF 名等の非 IP 文字列（Null0 等）。link-local アドレスは all_subnets から除外（fe80:: 帯への誤属を防ぐ） |
