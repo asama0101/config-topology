@@ -21,3 +21,5 @@ __pycache__/
 .ipynb_checkpoints/
 # 一時チェック/検証スクリプト（開発中のみ使用、リポジトリには含めない）
 .claude/skills/config-topology/dev/_*.py
+# §11.5 目視用の合成デモ成果物（生成 HTML・合成 config を含むため追跡しない）
+/m4-visual/
