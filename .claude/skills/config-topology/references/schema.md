@@ -155,3 +155,33 @@ network 宣言 1 件につき 1 エントリ。
 | 新プロトコル（VRRP 等） | `routing` に新キー（→ `routing.<proto>.yaml` 層が増える） | なし（加算） |
 | 機器固有の追加情報 | `devices[].sections` に append | なし（加算） |
 | CDP/LLDP 由来リンク | `links[].kind` に新値 | なし（加算） |
+
+## render 層 DATA 派生（層別 YAML スキーマ外）
+
+以下は **render 層の `build_data()` が topology dict から生成する JS 用 DATA オブジェクト** のフィールドであり、
+**層別 YAML スキーマには含まれない**（YAML ファイルへの出力・schema_version への影響なし）。
+
+### DATA.checks（D2 設計検証パネル）
+
+`lib/rendering/data_transform.build_checks(topo)` が返すリスト。各要素の型:
+
+```
+{
+  "severity": "error" | "warning",    # 重大度
+  "kind": str,                         # ルール識別子（下表）
+  "message": str,                      # 人間向けメッセージ
+  "refs": [str, ...]                   # 参照先（device::ifname・IP・subnet 等）
+}
+```
+
+返却順は `severity`（error→warning）→ `kind` → `refs` の安定ソート（決定的）。
+
+| kind | severity | 検出条件 |
+|------|----------|---------|
+| `duplicate_ip` | error | 同一ホスト IP（v4/v6・secondary 含む）が複数 IF に存在。link-local（`scope="link-local"`、fe80::/10）は除外 |
+| `mtu_mismatch` | warning | 同一物理リンク両端の MTU が双方非 None かつ不一致。`build_links()` 統合済みリンク（端点ペア単位）を基準とするため、dual-stack（同一端点に v4+v6 の raw 行 2 件）でも 1 件のみ検出される |
+| `bgp_unresolved_local_ip` | warning | routing.bgp エントリで `local_ip` が None またはキー欠如 |
+| `static_dangling_next_hop` | warning | static の next_hop がトポロジー全体のどの IF サブネットにも属さず、どの IF のホスト IP とも一致しない。スキップ対象: 特殊値（`0.0.0.0`・`::`・`255.255.255.255`）、デフォルトルート prefix（`0.0.0.0/0`・`::/0`）、IF 名等の非 IP 文字列（Null0 等）。link-local アドレスは all_subnets から除外（fe80:: 帯への誤属を防ぐ） |
+
+`build_data()` は `"checks": build_checks(topo, links=links)` を返り値に追加するため、
+埋め込み `DATA.checks` として HTML に含まれ、ブラウザ側の `renderChecksView()` が描画する。

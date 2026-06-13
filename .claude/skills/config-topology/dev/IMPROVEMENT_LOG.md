@@ -37,7 +37,7 @@
 
 ### D. 業務支援機能
 - [x] D1 構成統計ダッシュボード（機器/IF/AS別/area別/リンク種別/dual-stack率/BGP/OSPF集計の新ビュー）— M ✅反復1完了
-- [ ] D2 設計検証警告の集約パネル（MTU/速度不一致・重複IP・AS不整合・area不一致・未解決BGP local_ip・dangling next_hop）— M（D1後）
+- [x] D2 設計検証警告の集約パネル（重複IP・MTU不一致・未解決BGP local_ip・dangling next_hop）— M ✅反復3完了
 - [ ] D3 前回トポロジー差分レポート（history/ 旧YAML と現YAML を時刻非依存で diff）— L（D1後）
 - [ ] D4 IPアドレス計画/サブネット使用率ビュー — M（D1後）
 
@@ -65,4 +65,12 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - 非対応（明記済み）: `passive-interface default`・`no passive-interface`。
 - 見送り(LOW): `_build_if` private import、IOS/JunOS 拡張パス非対称(YAGNI)、pytestmark分割。
 
-### 次: 反復3 B1 隣接フォーカスモード（assets.py JS のみ。選択ノードの N hop 隣接のみ強調・他を淡色化）。または C1（BGP update-source）。render と parser を交互にする方針なら B1。
+### 反復3: D2 設計検証パネル（CHECKS ビュー）— ✅完了（2026-06-14）
+- `build_checks(topo, links=None)` を data_transform.py に新設、`build_data` に `DATA.checks` 加算。4ルール: duplicate_ip(error)/mtu_mismatch/bgp_unresolved_local_ip/static_dangling_next_hop(warning)。severity→kind→refs 安定ソート。
+- 新規 CHECKS 表ビュー（tabs.py / assets.py renderChecksView）。0件時は肯定メッセージ。
+- レビュー対応: link-local 偽陽性除外（duplicate_ip・static_dangling、最重要）、mtu_mismatch を build_links 統合済みリンク基準にして dual-stack 重複解消、bgp local_ip キー欠如ガード、template `_json` の `</script>` エスケープ（XSS ハードニング）、`_SPECIAL_NH` モジュール定数化、テスト堅牢化（ソート3段検証・重複テスト除去）。
+- doc: schema.md DATA.checks ルール表、requirements.md §8.2（「到達不可」→正確表現）、SKILL.md、.claude/CLAUDE.md render層索引に build_checks/renderChecksView 反映。
+- テスト 336 passed（+48）。golden byte 不変・render 決定性維持。
+- 見送り(LOW): duplicate_ip refs の list→set 微最適化、型ヒント（build_stats と様式統一で無し）。
+
+### 次候補: 反復4 B1 隣接フォーカスモード（render JS）/ C1 BGP update-source（parser）/ A1 area-ASクラスタリング（layout）。render(D1,D2)が続いたので parser系 C1 か layout系 A1 を推奨。

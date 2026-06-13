@@ -9,7 +9,8 @@ from .tabs import build_tabs
 
 
 def _json(obj):
-    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    # </script> を <\/script> にエスケープし、埋め込み JSON が script ブロックを早期終了させないようにする
+    return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 
 
 def _tabs_nav(tabs):

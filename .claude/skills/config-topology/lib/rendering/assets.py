@@ -549,7 +549,7 @@ const S = {
   sort:{addr:null, ifs:null},
   collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
 };
-const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats";
+const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats" || S.view === "checks";
 const $ = s => document.querySelector(s);
 const world = $("#world"), tooltip = $("#tooltip");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1160,6 +1160,7 @@ function graphSearchFeedback() {
 
 function renderTableView() {
   if (S.view === "stats") { $("#tableview").innerHTML = renderStatsView(); return; }
+  if (S.view === "checks") { $("#tableview").innerHTML = renderChecksView(); return; }
   $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
 }
 
@@ -1438,6 +1439,38 @@ function renderStatsView() {
   const kindRows = [["link", lk.link ?? 0], ["segment", lk.segment ?? 0], ["stub", lk.stub ?? 0]];
   html += tbl("LINK KINDS", ["Kind", "Count"], kindRows);
 
+  return html;
+}
+
+/* ================= CHECKS view (D2 設計検証パネル) ================= */
+function renderChecksView() {
+  const checks = DATA.checks;
+  if (!checks || checks.length === 0) {
+    return '<div class="thead"><h3>CHECKS</h3><span class="cnt">0 件</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">問題は検出されませんでした。</div>';
+  }
+  const sevBadge = sev => {
+    if (sev === "error")   return `<span class="badge" style="color:var(--danger);border-color:var(--danger)">${esc(sev)}</span>`;
+    if (sev === "warning") return `<span class="badge" style="color:var(--accent);border-color:var(--accent)">${esc(sev)}</span>`;
+    return `<span class="badge">${esc(sev)}</span>`;
+  };
+  const errors   = checks.filter(c => c.severity === "error").length;
+  const warnings = checks.filter(c => c.severity === "warning").length;
+  const summary  = [errors ? `${errors} error` : "", warnings ? `${warnings} warning` : ""].filter(Boolean).join(", ");
+  let html = `<div class="thead"><h3>CHECKS</h3><span class="cnt">${esc(summary)}</span></div>`;
+  html += `<table class="dt" style="max-width:1080px;margin:0 24px 48px"><tr>
+    <th style="width:80px">Severity</th>
+    <th style="width:160px">Kind</th>
+    <th>Message</th>
+    <th>Refs</th></tr>`;
+  for (const c of checks) {
+    html += `<tr class="trow">
+      <td>${sevBadge(c.severity)}</td>
+      <td class="dim-t" style="font-size:11px">${esc(c.kind)}</td>
+      <td>${esc(c.message)}</td>
+      <td class="dim-t" style="font-size:10px">${(c.refs||[]).map(r=>esc(r)).join("<br>")}</td></tr>`;
+  }
+  html += "</table>";
   return html;
 }
 

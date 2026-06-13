@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.topology_io import load_topology
-from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if
+from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if, build_checks
 
 pytestmark = pytest.mark.integration
 
@@ -232,7 +232,7 @@ def test_same_neighbor_two_sessions_distinct_links():
 
 
 # ===========================================================================
-# D1 修正項目テスト（TDD: 先に追加 → RED → 修正 → GREEN）
+# D1 修正項目テスト
 # ===========================================================================
 
 # --- 修正 1: by_as の数値ソート ---
@@ -502,3 +502,839 @@ def test_build_if_ospf_missing_key_handled():
     result = _build_if(itf)
     assert "ospf" in result
     assert result["ospf"] is None
+
+
+# ===========================================================================
+# D2 設計検証パネル — build_checks テスト
+# ===========================================================================
+
+def _minimal_topo(**overrides):
+    """テスト用最小 topology dict ベース。overrides で各フィールドを差し替える。"""
+    base = {
+        "meta": {"generated_from": []},
+        "devices": [],
+        "interfaces": [],
+        "links": [],
+        "segments": [],
+        "routing": {"bgp": [], "ospf": [], "static": []},
+    }
+    base.update(overrides)
+    return base
+
+
+def _make_if(device, name, addresses, mtu=None):
+    """最小 interface dict を生成するヘルパー。"""
+    return {
+        "id": f"{device}::{name}",
+        "device": device,
+        "name": name,
+        "ip": None,
+        "vlan": None,
+        "description": None,
+        "shutdown": False,
+        "admin_status": "up",
+        "oper_status": None,
+        "mtu": mtu,
+        "speed": None,
+        "duplex": None,
+        "l2_l3": None,
+        "switchport": None,
+        "encapsulation": None,
+        "source": "parsed",
+        "addresses": addresses,
+    }
+
+
+def _make_dev(dev_id, hostname="R1", vendor="cisco_ios", as_=65001):
+    """最小 device dict を生成するヘルパー。"""
+    return {
+        "id": dev_id,
+        "hostname": hostname,
+        "vendor": vendor,
+        "as": as_,
+        "ospf_router_id": None,
+        "bgp_router_id": None,
+        "sections": [],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 基本構造テスト
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_returns_list():
+    """build_checks が list を返すこと。"""
+    topo = _minimal_topo()
+    result = build_checks(topo)
+    assert isinstance(result, list)
+
+
+@pytest.mark.unit
+def test_build_checks_empty_topo_returns_empty():
+    """空 topology で build_checks が空リストを返すこと（問題なし）。"""
+    topo = _minimal_topo()
+    result = build_checks(topo)
+    assert result == []
+
+
+@pytest.mark.unit
+def test_build_checks_item_schema():
+    """検出結果の各要素が必須キーを持つこと。"""
+    # duplicate_ip ルールで1件検出される最小フィクスチャ
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+    )
+    result = build_checks(topo)
+    assert len(result) >= 1
+    for item in result:
+        assert "severity" in item
+        assert "kind" in item
+        assert "message" in item
+        assert "refs" in item
+        assert item["severity"] in ("error", "warning")
+        assert isinstance(item["refs"], list)
+
+
+# ---------------------------------------------------------------------------
+# ルール 1: duplicate_ip（error）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_v4_detected():
+    """同一ホスト v4 IP が複数 IF に存在する場合 duplicate_ip error が返ること。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    assert "10.0.0.1" in dup[0]["message"]
+    # refs に両方の device::ifname が含まれること
+    assert "r1::Gi0" in dup[0]["refs"]
+    assert "r2::Gi0" in dup[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_v6_detected():
+    """同一ホスト v6 IP が複数 IF に存在する場合も duplicate_ip error が返ること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 128}]),
+            _make_if("r2", "Lo0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 128}]),
+        ],
+    )
+
+    result = build_checks(topo)
+
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    assert "2001:db8::1" in dup[0]["message"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_secondary_detected():
+    """secondary アドレスも duplicate_ip の対象になること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.1", "prefix": 30},
+                {"af": "v4", "ip": "172.16.0.1", "prefix": 24, "secondary": True},
+            ]),
+            _make_if("r2", "Gi0", [
+                {"af": "v4", "ip": "172.16.0.1", "prefix": 24},
+            ]),
+        ],
+    )
+
+    result = build_checks(topo)
+
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert any("172.16.0.1" in d["message"] for d in dup)
+
+
+@pytest.mark.unit
+def test_build_checks_no_duplicate_ip_when_unique():
+    """IP が一意の場合 duplicate_ip が返らないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "duplicate_ip" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_refs_sorted():
+    """duplicate_ip の refs が ip 昇順で並んでいること。"""
+    # 3 IF が同一 IP を持つケース → refs は ip 昇順
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3")],
+        interfaces=[
+            _make_if("r3", "Gi0", [{"af": "v4", "ip": "10.0.0.5", "prefix": 30}]),
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.5", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.5", "prefix": 30}]),
+        ],
+    )
+
+    result = build_checks(topo)
+
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    # refs は device::ifname のリストで安定していること（ip 昇順の後は refs 自体が安定ソートされていること）
+    assert dup[0]["refs"] == sorted(dup[0]["refs"])
+
+
+# ---------------------------------------------------------------------------
+# ルール 2: mtu_mismatch（warning）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_mtu_mismatch_detected():
+    """同一物理リンクの両端 MTU が非 None かつ不一致の場合 mtu_mismatch warning が返ること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}], mtu=9000),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}], mtu=1500),
+        ],
+        links=[{"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+                "subnet": "10.0.0.0/30", "kind": "inferred-subnet"}],
+    )
+
+    result = build_checks(topo)
+
+    mm = [c for c in result if c["kind"] == "mtu_mismatch"]
+    assert len(mm) == 1
+    assert mm[0]["severity"] == "warning"
+    assert "9000" in mm[0]["message"] or "1500" in mm[0]["message"]
+    # refs に両端 device::ifname とリンク subnet が含まれること
+    assert "r1::Gi0" in mm[0]["refs"]
+    assert "r2::Gi0" in mm[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_mtu_mismatch_skipped_when_one_none():
+    """片側 MTU が None の場合 mtu_mismatch を返さないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}], mtu=9000),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}], mtu=None),
+        ],
+        links=[{"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+                "subnet": "10.0.0.0/30", "kind": "inferred-subnet"}],
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "mtu_mismatch" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_mtu_mismatch_skipped_when_equal():
+    """両端 MTU が一致する場合 mtu_mismatch を返さないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}], mtu=1500),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}], mtu=1500),
+        ],
+        links=[{"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+                "subnet": "10.0.0.0/30", "kind": "inferred-subnet"}],
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "mtu_mismatch" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# ルール 3: bgp_unresolved_local_ip（warning）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_bgp_unresolved_local_ip_detected():
+    """BGP エントリで local_ip が None の場合 bgp_unresolved_local_ip warning が返ること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": None,
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"}
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    result = build_checks(topo)
+
+    unr = [c for c in result if c["kind"] == "bgp_unresolved_local_ip"]
+    assert len(unr) == 1
+    assert unr[0]["severity"] == "warning"
+    assert "r1" in unr[0]["refs"]
+    assert "10.0.0.2" in unr[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_bgp_unresolved_local_ip_not_flagged_when_present():
+    """local_ip が非 None の BGP エントリは bgp_unresolved_local_ip を返さないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"}
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "bgp_unresolved_local_ip" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# ルール 4: static_dangling_next_hop（warning）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_static_dangling_next_hop_detected():
+    """static ルートの next_hop がどの IF サブネットにも属さない場合 static_dangling_next_hop が返ること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [],
+            "ospf": [],
+            "static": [
+                {"device": "r1", "prefix": "192.168.100.0/24", "next_hop": "172.16.99.1",
+                 "af": "v4"},
+            ],
+        },
+    )
+
+    result = build_checks(topo)
+
+    dang = [c for c in result if c["kind"] == "static_dangling_next_hop"]
+    assert len(dang) == 1
+    assert dang[0]["severity"] == "warning"
+    assert "r1" in dang[0]["refs"]
+    assert "192.168.100.0/24" in dang[0]["refs"]
+    assert "172.16.99.1" in dang[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_static_default_route_not_dangling():
+    """static ルートの next_hop が 0.0.0.0 のデフォルトルートは dangling と検出しないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [],
+            "ospf": [],
+            "static": [
+                {"device": "r1", "prefix": "0.0.0.0/0", "next_hop": "0.0.0.0", "af": "v4"},
+            ],
+        },
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "static_dangling_next_hop" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_static_next_hop_in_subnet_not_dangling():
+    """static ルートの next_hop が IF サブネット内に属する場合 dangling と検出しないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [],
+            "ospf": [],
+            "static": [
+                # next_hop=10.0.0.2 は r1 Gi0 の 10.0.0.0/30 に属する
+                {"device": "r1", "prefix": "192.168.100.0/24", "next_hop": "10.0.0.2", "af": "v4"},
+            ],
+        },
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "static_dangling_next_hop" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_static_next_hop_is_host_ip_not_dangling():
+    """static ルートの next_hop が IF のホスト IP に一致する場合 dangling と検出しないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [],
+            "ospf": [],
+            "static": [
+                # next_hop=10.0.0.2 は r2::Lo0 のホスト IP と一致
+                {"device": "r1", "prefix": "192.168.100.0/24", "next_hop": "10.0.0.2", "af": "v4"},
+            ],
+        },
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "static_dangling_next_hop" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# 決定性テスト
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_deterministic():
+    """build_checks を2回呼んで同一結果が返ること（決定性）。"""
+    topo = load_topology(str(GOLDEN))
+    a = json.dumps(build_checks(topo), sort_keys=True)
+    b = json.dumps(build_checks(topo), sort_keys=True)
+    assert a == b
+
+
+@pytest.mark.unit
+def test_build_checks_sort_order_severity_then_kind():
+    """build_checks の返却リストが severity(error→warning)→kind 順に安定ソートされること。"""
+    # duplicate_ip(error) と bgp_unresolved_local_ip(warning) が共存するフィクスチャ
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": None,
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65002, "type": "ebgp", "af": "v4"}
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    result = build_checks(topo)
+
+    severities = [c["severity"] for c in result]
+    # error は warning より前
+    last_error_idx = max((i for i, s in enumerate(severities) if s == "error"), default=-1)
+    first_warning_idx = min((i for i, s in enumerate(severities) if s == "warning"), default=len(result))
+    assert last_error_idx < first_warning_idx
+
+
+# ---------------------------------------------------------------------------
+# build_data 統合テスト: checks キーの追加
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_build_data_has_checks_key():
+    """build_data の返り値に 'checks' キーが含まれること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    assert "checks" in data
+
+
+@pytest.mark.integration
+def test_build_data_checks_is_list():
+    """build_data の 'checks' が list であること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    assert isinstance(data["checks"], list)
+
+
+@pytest.mark.integration
+def test_build_data_checks_consistent_with_build_checks():
+    """build_data の checks が build_checks と同一内容であること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    expected = build_checks(topo)
+    assert data["checks"] == expected
+
+
+# ---------------------------------------------------------------------------
+# ゴールデン topo での回帰テスト（golden での検出結果を実値で固定）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_build_checks_golden_result_regression():
+    """golden topo での build_checks 結果を実値で固定（回帰検出）。
+
+    golden (r1+r2): 検出ルール別の期待:
+    - duplicate_ip: なし（全 IF の IP は一意）
+    - mtu_mismatch: なし（全 IF の mtu=None）
+    - bgp_unresolved_local_ip: なし（local_ip=10.0.0.1/10.0.0.2 が存在）
+    - static_dangling_next_hop:
+        r1: prefix=0.0.0.0/0 next_hop=10.0.0.2 → 0.0.0.0/0 はデフォルトルートスキップ
+        r2: prefix=0.0.0.0/0 next_hop=10.0.0.1 → 同上
+      ゆえに 0 件
+    期待: checks = []
+    """
+    topo = load_topology(str(GOLDEN))
+    result = build_checks(topo)
+    # golden では設計上の問題点は0件（デフォルトルートはスキップ、MTU=None はスキップ）
+    assert result == []
+
+
+# ===========================================================================
+# D2 修正項目テスト（修正 1-6）
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 修正 1: link-local 偽陽性の除外
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_link_local_not_flagged():
+    """同一 fe80:: アドレスが複数 IF に存在しても duplicate_ip を返さないこと。
+
+    link-local（scope="link-local"）は各リンクで共通の fe80:: を持つことが通常であり、
+    重複として報告すべきでない。
+    """
+    # Arrange: r1::Gi0 と r2::Gi0 が同一 fe80::1 を持つ（link-local）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.1", "prefix": 30},
+                {"af": "v6", "ip": "fe80::1", "prefix": 64, "scope": "link-local"},
+            ]),
+            _make_if("r2", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.2", "prefix": 30},
+                {"af": "v6", "ip": "fe80::1", "prefix": 64, "scope": "link-local"},
+            ]),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: link-local の重複は無視され duplicate_ip が出ない
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert dup == [], f"link-local の重複が誤検知された: {dup}"
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_global_v6_still_flagged():
+    """グローバル v6 IP の重複は引き続き duplicate_ip として検出されること（回帰）。"""
+    # Arrange: グローバル v6 が重複し、link-local は両者で共通
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [
+                {"af": "v6", "ip": "2001:db8::1", "prefix": 128},
+                {"af": "v6", "ip": "fe80::1", "prefix": 64, "scope": "link-local"},
+            ]),
+            _make_if("r2", "Gi0", [
+                {"af": "v6", "ip": "2001:db8::1", "prefix": 128},
+                {"af": "v6", "ip": "fe80::2", "prefix": 64, "scope": "link-local"},
+            ]),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: グローバル v6 の重複は検出される
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert "2001:db8::1" in dup[0]["message"]
+
+
+@pytest.mark.unit
+def test_build_checks_static_dangling_excludes_link_local_subnets():
+    """link-local アドレス（fe80::）が all_subnets/all_host_ips に混入せず、
+    static_dangling_next_hop の偽陰性・偽陽性が発生しないこと。
+
+    fe80::/64 のサブネットが all_subnets に含まれると、next_hop が fe80:: 帯に
+    入る任意の値が「属する」と誤判定される可能性があるため除外必須。
+    """
+    # Arrange: fe80:: のみを持つ IF と、link-local 外サブネットに属さない next_hop
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [
+                {"af": "v6", "ip": "fe80::1", "prefix": 64, "scope": "link-local"},
+            ]),
+        ],
+        routing={
+            "bgp": [],
+            "ospf": [],
+            "static": [
+                # next_hop が fe80:: サブネット内のアドレス →
+                # link-local が all_subnets に混入すると誤って「in_subnet」と判定されてしまう
+                {"device": "r1", "prefix": "2001:db8::/32",
+                 "next_hop": "2001:db8::99", "af": "v6"},
+            ],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: グローバルルーティング可能なサブネットが存在しないため dangling
+    dang = [c for c in result if c["kind"] == "static_dangling_next_hop"]
+    assert len(dang) == 1, (
+        "link-local を除外した all_subnets には 2001:db8::99 が属するサブネットが存在しないはず"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 修正 2: mtu_mismatch の dual-stack 重複解消（resolved_links 使用）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_mtu_mismatch_dualstack_no_duplicate():
+    """dual-stack（同一端点ペアに v4+v6 エントリ）かつ MTU 不一致でも mtu_mismatch が 1 件のみであること。"""
+    # Arrange: r1::Gi0 と r2::Gi0 の間に v4 エントリと v6 エントリが 2 行（dual-stack）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.1", "prefix": 30},
+                {"af": "v6", "ip": "2001:db8::1", "prefix": 64},
+            ], mtu=9000),
+            _make_if("r2", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.2", "prefix": 30},
+                {"af": "v6", "ip": "2001:db8::2", "prefix": 64},
+            ], mtu=1500),
+        ],
+        links=[
+            # dual-stack: 同一端点ペアに v4 と v6 の 2 行
+            {"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+             "subnet": "10.0.0.0/30", "kind": "inferred-subnet"},
+            {"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+             "subnet": "2001:db8::/64", "kind": "inferred-subnet"},
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: dual-stack でも mtu_mismatch は 1 件のみ（端点ペア単位）
+    mm = [c for c in result if c["kind"] == "mtu_mismatch"]
+    assert len(mm) == 1, f"dual-stack で mtu_mismatch が重複検出された: {mm}"
+
+
+@pytest.mark.unit
+def test_build_checks_mtu_mismatch_single_link_still_detected():
+    """v4 のみの単一リンクで mtu_mismatch が引き続き検出されること（回帰）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}], mtu=9000),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}], mtu=1500),
+        ],
+        links=[
+            {"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+             "subnet": "10.0.0.0/30", "kind": "inferred-subnet"},
+        ],
+    )
+
+    result = build_checks(topo)
+
+    mm = [c for c in result if c["kind"] == "mtu_mismatch"]
+    assert len(mm) == 1
+    assert mm[0]["severity"] == "warning"
+
+
+# ---------------------------------------------------------------------------
+# 修正 3: bgp_unresolved_local_ip の KeyError ガード
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_bgp_unresolved_local_ip_missing_key_no_exception():
+    """local_ip キー自体が欠如した BGP エントリで KeyError が起きないこと。"""
+    # Arrange: local_ip キーを持たないエントリ（手編集 YAML 相当）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        routing={
+            "bgp": [
+                # local_ip キーが存在しない（None 値とは別）
+                {"device": "r1", "local_as": 65001,
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act: 例外が起きないこと
+    try:
+        result = build_checks(topo)
+    except KeyError as e:
+        pytest.fail(f"local_ip キー欠如で KeyError が発生した: {e}")
+
+    # Assert: bgp_unresolved_local_ip として検出される（None 扱い）
+    unr = [c for c in result if c["kind"] == "bgp_unresolved_local_ip"]
+    assert len(unr) == 1
+
+
+# ---------------------------------------------------------------------------
+# 修正 4: </script> インジェクション対策
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_render_html_script_injection_escaped():
+    """hostname 等に </script> を含む topo を render して生成 HTML のデータ内に
+    生の </script> が現れないこと（<\\/script> にエスケープされること）。
+    """
+    from lib.rendering.template import render_html
+    # Arrange: hostname に </script> を埋め込んだ最小 topo
+    topo = _minimal_topo(
+        devices=[{
+            "id": "r1",
+            "hostname": 'R1</script><script>alert(1)</script>',
+            "vendor": "cisco_ios",
+            "as": 65001,
+            "ospf_router_id": None,
+            "bgp_router_id": None,
+            "sections": [],
+        }],
+    )
+
+    # Act
+    html = render_html(topo)
+
+    # Assert: JSON データ埋め込みブロック内に生の </script> が現れない
+    # （<script> タグを早期終了させる文字列がエスケープされていること）
+    # DATA の埋め込みスクリプトを取り出して検査
+    import re
+    data_match = re.search(r'<script>const DATA=(.*?);</script>', html, re.DOTALL)
+    assert data_match, "DATA 埋め込みが見つからない"
+    data_str = data_match.group(1)
+    assert '</script>' not in data_str, (
+        "DATA 埋め込みに生の </script> が残っている（インジェクション可能）"
+    )
+    # エスケープ済みの形式が存在すること
+    assert '<\\/script>' in data_str or '\\u003c/script\\u003e' in data_str or \
+           '<\\/script>' in data_str, \
+        "エスケープ済みの </script> が見つからない"
+
+
+@pytest.mark.unit
+def test_json_function_escapes_script_closing_tag():
+    r"""template._json() が </script> を <\/script> にエスケープすること。"""
+    from lib.rendering.template import _json
+    obj = {"key": "</script><script>alert(1)"}
+    result = _json(obj)
+    assert '</script>' not in result, f"生の </script> が残っている: {result}"
+    assert '<\\/script>' in result, f"エスケープが適用されていない: {result}"
+
+
+# ---------------------------------------------------------------------------
+# 修正 5: _SPECIAL_NH モジュール定数化（動作変更なし・構造テスト）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_special_nh_is_module_level_constant():
+    """_SPECIAL_NH がモジュールレベルの定数として定義されていること。"""
+    from lib.rendering import data_transform
+    assert hasattr(data_transform, "_SPECIAL_NH"), (
+        "_SPECIAL_NH がモジュールレベル定数として存在しない"
+    )
+    assert isinstance(data_transform._SPECIAL_NH, frozenset)
+    # 既存の特殊値が含まれること
+    assert "0.0.0.0" in data_transform._SPECIAL_NH
+    assert "::" in data_transform._SPECIAL_NH
+    assert "255.255.255.255" in data_transform._SPECIAL_NH
+
+
+# ---------------------------------------------------------------------------
+# 修正 6: ソート順テストの強化（severity→kind→refs 安定ソート）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_sort_order_severity_kind_refs():
+    """build_checks が severity(error→warning)→kind 昇順→refs 安定ソートで並ぶこと。"""
+    # Arrange: 複数の warning を異なる kind で生成し、kind と refs の順序を検証
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            # duplicate_ip (error) を生成
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                # bgp_unresolved_local_ip (warning) を生成
+                {"device": "r1", "local_as": 65001, "local_ip": None,
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+                {"device": "r2", "local_as": 65002, "local_ip": None,
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ebgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [
+                # static_dangling_next_hop (warning) を生成
+                {"device": "r1", "prefix": "192.168.99.0/24", "next_hop": "172.16.99.1", "af": "v4"},
+                {"device": "r2", "prefix": "192.168.88.0/24", "next_hop": "172.16.88.1", "af": "v4"},
+            ],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert 1: severity が error → warning 順
+    severities = [c["severity"] for c in result]
+    last_err = max((i for i, s in enumerate(severities) if s == "error"), default=-1)
+    first_warn = min((i for i, s in enumerate(severities) if s == "warning"), default=len(result))
+    assert last_err < first_warn, "error が warning より後に出ている"
+
+    # Assert 2: 同一 severity 内で kind が昇順
+    for sev in ("error", "warning"):
+        items_of_sev = [c for c in result if c["severity"] == sev]
+        kinds = [c["kind"] for c in items_of_sev]
+        assert kinds == sorted(kinds), f"severity={sev} 内で kind が昇順でない: {kinds}"
+
+    # Assert 3: 同一 severity + kind 内で refs が安定ソート（"|".join(refs) 昇順）
+    from itertools import groupby
+    for (sev, knd), group in groupby(result, key=lambda c: (c["severity"], c["kind"])):
+        group_list = list(group)
+        refs_keys = ["|".join(c["refs"]) for c in group_list]
+        assert refs_keys == sorted(refs_keys), (
+            f"severity={sev} kind={knd} 内で refs キーが昇順でない: {refs_keys}"
+        )

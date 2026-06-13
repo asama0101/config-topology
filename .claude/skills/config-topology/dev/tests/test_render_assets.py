@@ -63,8 +63,9 @@ def test_node_check_syntax():
             "meta:{generated_from:[]},"
             "stats:{devices:0,interfaces:0,links:0,segments:0,"
             "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
-            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0}};"
-            "const POS={};const VIEWS=['physical','stats','addr','ifs'];\n")
+            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
+            "checks:[]};"
+            "const POS={};const VIEWS=['physical','stats','checks','addr','ifs'];\n")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(stub + assets._JS)
         path = f.name
@@ -123,3 +124,44 @@ def test_ospf_badge_builds_from_raw_not_esc_parts():
     assert 'r.ospf.cost != null' in assets._JS
     # 旧実装の esc(String(r.ospf.cost)) が parts[] に push される形式は消えていること
     assert 'parts.push(`cost ${esc(String(r.ospf.cost))}`' not in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# D2 設計検証パネル — JS アセットテスト
+# ---------------------------------------------------------------------------
+
+def test_render_checks_view_function_exists():
+    """JS に renderChecksView 関数が定義されていること。"""
+    assert "function renderChecksView" in assets._JS
+
+
+def test_is_table_view_includes_checks():
+    """isTableView() が 'checks' を table view として扱うこと。"""
+    assert '"checks"' in assets._JS
+    # isTableView で checks が含まれていること
+    assert 'S.view === "checks"' in assets._JS
+
+
+def test_render_checks_view_uses_data_checks():
+    """renderChecksView が DATA.checks を参照すること。"""
+    assert "DATA.checks" in assets._JS
+
+
+def test_render_checks_view_has_empty_message():
+    """0 件のとき肯定メッセージを表示するコードが含まれること。"""
+    assert "問題は検出されませんでした" in assets._JS
+
+
+def test_render_checks_view_uses_esc():
+    """renderChecksView が esc() を使用して XSS 対策していること。"""
+    # renderChecksView 内で esc() が呼ばれていること（関数定義から探す）
+    checks_start = assets._JS.find("function renderChecksView")
+    assert checks_start != -1
+    # 関数本体内で esc が使われていること
+    checks_section = assets._JS[checks_start:checks_start + 2000]
+    assert "esc(" in checks_section
+
+
+def test_render_table_view_dispatches_to_checks():
+    """renderTableView が checks ビューに対して renderChecksView を呼び出すこと。"""
+    assert "renderChecksView()" in assets._JS

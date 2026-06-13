@@ -57,6 +57,7 @@ def test_tab_rules_golden_has_bgp_ospf():
     assert 'data-view="physical"' in html
     assert 'data-view="addr"' in html and 'data-view="ifs"' in html
     assert 'data-view="bgp"' in html and 'data-view="ospf"' in html
+    assert 'data-view="checks"' in html    # D2: checks タブは常設
     assert 'data-view="static"' not in html
 
 
@@ -71,6 +72,7 @@ def test_tabs_conditional_no_bgp(tmp_path):
     html = rh(topo)
     assert 'data-view="physical"' in html
     assert 'data-view="addr"' in html and 'data-view="ifs"' in html
+    assert 'data-view="checks"' in html    # D2: checks タブは常設
     assert 'data-view="bgp"' not in html      # bgp 無し → タブ無し
     assert 'data-view="ospf"' not in html
 
@@ -124,3 +126,36 @@ def test_is_table_view_includes_stats():
     """isTableView() が stats を table view として扱うこと（JS コード確認）。"""
     from lib.rendering.assets import _JS
     assert 'S.view === "stats"' in _JS
+
+
+# ---------------------------------------------------------------------------
+# D2 設計検証パネル — HTML 組み込み確認
+# ---------------------------------------------------------------------------
+
+def test_checks_tab_in_html():
+    """生成 HTML に checks タブが含まれること。"""
+    html = _html()
+    assert 'data-view="checks"' in html
+
+
+def test_checks_view_in_views_array():
+    """埋め込み VIEWS 配列に 'checks' が含まれること。"""
+    html = _html()
+    views = json.loads(_embedded(html, "VIEWS"))
+    assert "checks" in views
+
+
+def test_data_checks_embedded_in_html():
+    """埋め込み DATA に 'checks' キーが含まれること。"""
+    html = _html()
+    data = json.loads(_embedded(html, "DATA"))
+    assert "checks" in data
+    assert isinstance(data["checks"], list)
+
+
+def test_render_html_deterministic_with_checks():
+    """render_html を2回呼んでバイト一致すること（決定性・checks 追加後も維持）。"""
+    topo = load_topology(str(GOLDEN))
+    a = render_html(topo)
+    b = render_html(topo)
+    assert a == b
