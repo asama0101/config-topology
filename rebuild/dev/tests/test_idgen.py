@@ -20,8 +20,8 @@ def test_simple_dedup():
 
 
 def test_collision_bump():
-    # 2台目 R1 が r1-2、R1-2 はそれと衝突するため r1-3（§5.5 訂正済み例）
-    assert _ids(["R1", "R1", "R1-2"]) == ["r1", "r1-2", "r1-3"]
+    # 2台目 R1 が r1-2、3台目 R1-2(slug r1-2) はそれと衝突し -2 付与で r1-2-2（単純重複回避・§5.5）
+    assert _ids(["R1", "R1", "R1-2"]) == ["r1", "r1-2", "r1-2-2"]
 
 
 def test_empty_hostname():
