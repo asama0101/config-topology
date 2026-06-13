@@ -83,3 +83,23 @@ def test_segment_bbox_does_not_explode_with_many_segments():
     ys = [p["y"] for p in pos.values()]
     diag = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
     assert diag < 6000, diag      # 発散していない（修正前は数万 px）
+
+
+def test_ext_peer_anchored_to_all_source_devices():
+    # 同一外部ピア ext:E へ d1,d2 の両方から external エッジ
+    data = {
+        "devices": {"d1": {}, "d2": {}},
+        "links": [{"a": "d1", "b": "d2"}],
+        "segments": [],
+        "extPeers": [{"id": "ext:E"}],
+        "bgpEdges": [
+            {"id": "be:ext:d1:E", "kind": "external", "a": "d1", "ext": "ext:E"},
+            {"id": "be:ext:d2:E", "kind": "external", "a": "d2", "ext": "ext:E"},
+        ],
+    }
+    pos = compute_positions(data)
+    def dist(a, b):
+        return ((pos[a]["x"]-pos[b]["x"])**2 + (pos[a]["y"]-pos[b]["y"])**2)**0.5
+    # ext ノードは d1・d2 の双方から妥当距離内（片側偏りしない）
+    assert dist("ext:E", "d1") < 2000
+    assert dist("ext:E", "d2") < 2000

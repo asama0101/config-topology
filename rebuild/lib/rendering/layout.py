@@ -20,8 +20,10 @@ def _initial_circle(node_ids):
 def compute_positions(data):
     """全ノード（device + segment + ext）の決定的 POS を返す（座標は round(.,1)）。
 
-    引力エッジは物理リンクに加えセグメント↔メンバー・外部ピア↔接続元・iBGP ループバックからも
-    張る（孤立ノードが斥力のみで発散するのを防ぐため）。
+    引力エッジは物理リンクに加えセグメント↔メンバー・iBGP ループバックからも張る。
+    外部ピアは extPeers[].from ではなく external bgpEdges の全接続元から引力を張ることで、
+    複数デバイスが同一ピアへ接続する場合も偏らず中間に配置される。
+    （孤立ノードが斥力のみで発散するのを防ぐため）
     """
     dev_ids = list(data["devices"].keys())
     seg_ids = [s["id"] for s in data.get("segments", [])]
@@ -48,11 +50,19 @@ def compute_positions(data):
     for s in data.get("segments", []):
         for m in s.get("members", []):
             _add_edge(s["id"], m.get("dev"))
-    for e in data.get("extPeers", []):
-        _add_edge(e["id"], e.get("from"))
+    # 外部ピアの引力: external bgpEdges の全接続元を優先し、
+    # bgpEdges が空の場合は extPeers[].from にフォールバック（後方互換）。
+    # 複数デバイスが同一ピアへ接続する場合も全方向に引力を張る。
+    ext_anchored = set()
     for be in data.get("bgpEdges", []):
-        if be.get("kind") == "loopback":
+        if be.get("kind") == "external":
+            _add_edge(be.get("a"), be.get("ext"))
+            ext_anchored.add(be.get("ext"))
+        elif be.get("kind") == "loopback":
             _add_edge(be.get("a"), be.get("b"))
+    for e in data.get("extPeers", []):
+        if e["id"] not in ext_anchored:
+            _add_edge(e["id"], e.get("from"))
 
     ids_sorted = sorted(node_ids)
     for it in range(_ITER):
