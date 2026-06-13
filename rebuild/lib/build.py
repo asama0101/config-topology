@@ -31,7 +31,11 @@ def build_devices_interfaces(parsed):
 
 
 def _iface_subnets(itf):
-    """IF の addresses から所属ネットワーク CIDR 集合（link-local 除外・重複除去）を返す。"""
+    """IF の addresses から所属ネットワーク CIDR 集合（link-local 除外・重複除去）を返す。
+
+    §7.1 step1 の「addresses 空なら ip にフォールバック」は本パイプラインでは不要のため未実装:
+    interfaces dict は正規化モデル由来で addresses が正本・ip はその派生（addresses==[] ⟺ ip is None）。
+    """
     nets = []
     seen = set()
     for a in itf["addresses"]:
@@ -90,7 +94,7 @@ def _resolve_local_ip(dev, neighbor):
 
 
 def _bgp_type(local_as, peer_as):
-    if peer_as is None:
+    if peer_as is None or local_as is None:
         return "unknown"
     if local_as == peer_as:
         return "ibgp"
@@ -165,7 +169,10 @@ def annotate_ospf(links, segments, ospf_entries, iface_device_map):
 
 
 def build_topology(parsed, generated_from, title=DEFAULT_TITLE):
-    """正規化 Device 群 → topology dict（§5・§7）。全リストを §7.5 の決定的順序で出力。"""
+    """正規化 Device 群 → topology dict（§5・§7）。全リストを §7.5 の決定的順序で出力。
+
+    generated_from は順序付きシーケンス（list）であること（set 渡しは決定性を壊す）。
+    """
     device_ids, devices, interfaces = build_devices_interfaces(parsed)
     id_dev = list(zip(device_ids, parsed))
 

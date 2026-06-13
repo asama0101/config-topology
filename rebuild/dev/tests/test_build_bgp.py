@@ -58,3 +58,13 @@ def test_v6_link_local_not_used_as_local_ip():
               [BgpNeighbor("fe80::2", 65002, "v6")])
     # link-local は local_ip に使わない → None
     assert build_bgp([("r1", r1)])[0]["local_ip"] is None
+
+
+def test_unknown_when_local_as_none():
+    from lib.models import BgpNeighbor, Device
+    d = Device(hostname="X", vendor="juniper_junos", as_=None)
+    d.interfaces = []
+    d.bgp = [BgpNeighbor("10.0.0.2", 65002, "v4")]
+    e = build_bgp([("x", d)])[0]
+    assert e["local_as"] is None
+    assert e["type"] == "unknown"          # local_as 不明 → unknown（両者既知でないと ebgp にしない）
