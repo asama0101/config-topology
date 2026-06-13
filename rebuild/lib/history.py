@@ -51,3 +51,17 @@ def retain_for_build(output_dir, html_pair, now_str, history_root="history"):
     for t in targets:
         shutil.move(str(t), str(dest / t.name))
     return dest
+
+
+def retain_for_render(output_html, now_str, history_root="history"):
+    """render 再生成前の退避（§10.3）。既存 HTML を history/<now_str>/ へ移動する。
+
+    既存 HTML が無ければ何もせず None を返す。退避したら退避先 Path を返す。
+    """
+    output_html = Path(output_html)
+    if not output_html.exists():
+        return None
+    dest = unique_history_dir(history_root, now_str)
+    dest.mkdir(parents=True)
+    shutil.move(str(output_html), str(dest / output_html.name))
+    return dest

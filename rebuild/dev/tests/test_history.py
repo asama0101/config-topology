@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # rebuild/
 from lib.history import (  # noqa: E402
     current_timestamp,
     retain_for_build,
+    retain_for_render,
     unique_history_dir,
 )
 
@@ -101,3 +102,21 @@ def test_retain_build_collision_suffix(tmp_path):
     (history / "2026-06-14_1530").mkdir(parents=True)   # 既存退避ディレクトリ
     dest = retain_for_build(out, None, "2026-06-14_1530", history_root=history)
     assert dest == history / "2026-06-14_1530_2"
+
+
+def test_retain_render_moves_existing_html(tmp_path):
+    html = tmp_path / "topology.html"
+    html.write_text("<!doctype html>old", encoding="utf-8")
+    history = tmp_path / "history"
+    dest = retain_for_render(html, "2026-06-14_1530", history_root=history)
+    assert dest == history / "2026-06-14_1530"
+    assert (dest / "topology.html").read_text(encoding="utf-8") == "<!doctype html>old"
+    assert not html.exists()
+
+
+def test_retain_render_none_when_absent(tmp_path):
+    html = tmp_path / "topology.html"              # 存在しない
+    history = tmp_path / "history"
+    dest = retain_for_render(html, "2026-06-14_1530", history_root=history)
+    assert dest is None
+    assert not history.exists()
