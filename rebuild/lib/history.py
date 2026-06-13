@@ -42,8 +42,8 @@ def retain_for_build(output_dir, html_pair, now_str, history_root="history"):
     targets = []
     if output_dir.is_dir() and any(output_dir.glob("*.yaml")):
         targets.append(output_dir)
-    if html_pair is not None and Path(html_pair).exists():
-        targets.append(Path(html_pair))
+        if html_pair is not None and Path(html_pair).exists():
+            targets.append(Path(html_pair))
     if not targets:
         return None
     dest = unique_history_dir(history_root, now_str)

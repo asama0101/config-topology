@@ -82,6 +82,18 @@ def test_retain_build_html_only_when_pair_given(tmp_path):
     assert html.exists()                           # HTML は退避されず残る
 
 
+def test_retain_build_html_not_moved_when_no_yaml(tmp_path):
+    # output_dir に YAML が無い + html_pair 実在 → ペア前提が崩れるので退避しない
+    out = tmp_path / "topology"           # 作成しない（YAML なし）
+    html = tmp_path / "topology.html"
+    html.write_text("<!doctype html>", encoding="utf-8")
+    history = tmp_path / "history"
+    dest = retain_for_build(out, html, "2026-06-14_1530", history_root=history)
+    assert dest is None
+    assert html.exists()                  # HTML は退避されず残る
+    assert not history.exists()           # history も作られない
+
+
 def test_retain_build_collision_suffix(tmp_path):
     out = tmp_path / "topology"
     _seed_topo_dir(out)
