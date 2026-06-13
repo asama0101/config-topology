@@ -876,6 +876,13 @@ function render() {
   renderMinimap();
 }
 
+let _rafId = 0, _rafFn = null;
+function schedule(fn) {
+  _rafFn = fn;
+  if (_rafId) return;
+  _rafId = requestAnimationFrame(() => { _rafId = 0; const f = _rafFn; _rafFn = null; f(); });
+}
+
 function applyTransform() {
   world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
   if (!S.minimap) return;
@@ -1582,8 +1589,8 @@ window.addEventListener("mousemove", ev => {
     const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
     if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
     if (!drag.moved) return;
-    if (drag.node) { POS[drag.node].x = drag.ox + dx / S.k; POS[drag.node].y = drag.oy + dy / S.k; render(); }
-    else { S.tx = drag.ox + dx; S.ty = drag.oy + dy; applyTransform(); }
+    if (drag.node) { POS[drag.node].x = drag.ox + dx / S.k; POS[drag.node].y = drag.oy + dy / S.k; schedule(render); }
+    else { S.tx = drag.ox + dx; S.ty = drag.oy + dy; schedule(applyTransform); }
     return;
   }
   if (rs) { hideTip(); return; }   /* パネルリサイズ中は hover 処理をスキップ */
@@ -1613,7 +1620,7 @@ window.addEventListener("mousemove", ev => {
     if (hoverLink) { hoverLink = null; need = true; }
     if (hoverBgp) { hoverBgp = null; need = true; }
   }
-  if (need) render();
+  if (need) schedule(render);
 });
 window.addEventListener("mouseup", () => { canvas.classList.remove("dragging");
   didDrag = !!(drag && drag.moved);   /* mouseup後に発火する click をドラッグ由来か判定するため退避 */
@@ -1740,7 +1747,7 @@ canvas.addEventListener("wheel", ev => {
   const f = ev.deltaY < 0 ? 1.12 : 1/1.12;
   const k2 = Math.min(4, Math.max(.25, S.k * f));
   S.tx = mx - (mx - S.tx) * (k2/S.k); S.ty = my - (my - S.ty) * (k2/S.k); S.k = k2;
-  applyTransform();
+  schedule(applyTransform);
 }, {passive:false});
 function zoomFit() {
   const xs = Object.values(POS).map(p=>p.x), ys = Object.values(POS).map(p=>p.y);
@@ -1952,6 +1959,6 @@ $("#btn-legend").classList.add("on");
 renderStatus();
 update();
 zoomFit();
-window.addEventListener("resize", () => render());
+window.addEventListener("resize", () => schedule(render));
 
 """
