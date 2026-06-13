@@ -36,7 +36,14 @@ def main(argv=None):
         if vendor is None:
             print("[WARN] %s: skipped (unknown vendor)" % name, file=sys.stderr)
             continue
-        dev = parse_config(text, warnings)
+        try:
+            dev = parse_config(text, warnings)
+        except Exception as e:                       # noqa: BLE001
+            print("[WARN] %s: パース中の予期しない例外につきスキップ (%s)" % (name, e), file=sys.stderr)
+            continue
+        if dev is None:
+            print("[WARN] %s: skipped (unknown vendor)" % name, file=sys.stderr)
+            continue
         devices.append(dev.to_dict())
         print("[INFO] %s: %s" % (name, vendor), file=sys.stderr)
 

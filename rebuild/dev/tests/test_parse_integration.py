@@ -1,5 +1,7 @@
 """§附録 B / §10: 統合 — サンプル config が正しい正規化モデルになり CLI が JSON を出す。"""
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -57,3 +59,19 @@ def test_cli_skips_unknown_vendor_with_warning(tmp_path):
     assert proc.returncode == 0
     assert json.loads(proc.stdout) == []
     assert "[WARN]" in proc.stderr
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root はパーミッションを無視するため検証不能")
+def test_cli_unreadable_file_exits_1(tmp_path):
+    f = tmp_path / "secret.cfg"
+    f.write_text("hostname X\n", encoding="utf-8")
+    os.chmod(f, 0)  # 読み取り不可
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(CLI), str(f)],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 1            # §10.2 入出力エラー → exit 1
+        assert "[ERROR]" in proc.stderr
+    finally:
+        os.chmod(f, stat.S_IRUSR | stat.S_IWUSR)  # cleanup できるよう戻す
