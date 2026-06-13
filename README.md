@@ -33,6 +33,38 @@ Claude が `SKILL.md` に従い、収集・判定 → build（層別 YAML 生成
 
 Python 3 と **PyYAML** のみ（pure Python）。多くの環境では PyYAML は既に利用可能です。
 
+## ディレクトリ構成
+
+```
+config-topology/
+├── README.md
+├── .gitignore
+├── workspace/                          # 入力 config 置き場（*.cfg/*.conf/*.txt・gitignore）
+├── topology/ , topology.html           # 生成物（cwd 直下・gitignore）
+├── history/<YYYY-MM-DD_HHMM>/           # 再生成時に旧成果物を自動退避（gitignore）
+├── docs/
+│   ├── requirements.md                 # 仕様正本（v2.1）
+│   ├── design-sample.html              # UI 設計の正本
+│   └── archive/                        # 完了した構築プロセス成果物（指示書・計画）
+└── .claude/
+    ├── CLAUDE.md                       # 開発・保守者向けの索引
+    └── skills/config-topology/         # スキル本体（= $SKILL）
+        ├── SKILL.md                    # スキル仕様・実行フロー（利用者向け正本）
+        ├── requirements.txt            # 依存（PyYAML）
+        ├── references/                 # schema / link-inference / vendor-parsing
+        ├── scripts/                    # CLI 3 本（parse_configs / build_topology / render_topology）
+        ├── lib/                        # 実装本体
+        │   ├── parsers/                # ベンダー判定・正規化（base / ios / junos）
+        │   ├── rendering/              # HTML 生成（assets / data_transform / layout / tabs / template）
+        │   ├── models.py               # 正規化モデル（Device / Address / 等）
+        │   ├── inputs.py , normalize.py , idgen.py
+        │   ├── build.py , topology_io.py   # 結線推論 / 層別 YAML I/O・参照整合
+        │   └── history.py , run_summary.py # 履歴退避 / 実行サマリー
+        └── dev/                        # 保守者向け（tests / examples ゴールデン / pytest.ini）
+```
+
+入出力（`workspace/`・`topology/`・`topology.html`・`history/`）はすべて**ホスト cwd 直下**で、`.gitignore` 済み（`workspace/.gitkeep` のみ追跡）。
+
 ## ドキュメント / コード実体
 
 コードの実体はスキルバンドル `$SKILL`（= `.claude/skills/config-topology/`）配下にあります。詳細は以下を参照してください。
