@@ -227,3 +227,24 @@ def build_bgp_topology(topo):
         "bgpEdges": [edges[k] for k in edge_order],
         "bgp_rows": bgp_rows,
     }
+
+
+def build_data(topo):
+    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta）。決定的。"""
+    devices = build_devices(topo)
+    links = build_links(topo)
+    segments = build_segments(topo)
+    bgp_topo = build_bgp_topology(topo)
+
+    link_by = {}
+    for r in bgp_topo["bgp_rows"]:
+        link_by[(r["device"], r["nb"])] = r["link"]
+    for dev_id, dev in devices.items():
+        for row in dev["bgp"]:
+            row["link"] = link_by.get((dev_id, row["nb"]))
+
+    return {
+        "meta": {"generated_from": topo["meta"].get("generated_from", [])},
+        "devices": devices, "links": links, "segments": segments,
+        "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
+    }
