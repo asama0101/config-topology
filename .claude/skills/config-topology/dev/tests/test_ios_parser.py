@@ -350,3 +350,97 @@ def test_ios_ospf_passive_interface_default_ignored():
         assert iface.ospf is None or iface.ospf.get("passive") is not True, (
             f"{iface.name}: ospf passive が誤って設定された（passive-interface default は非対応）"
         )
+
+
+# ---------------------------------------------------------------------------
+# C1: BGP update-source 抽出（IOS）
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_update_source_extracted():
+    """neighbor <ip> update-source <ifname> で BgpNeighbor.update_source にインターフェース名が入ること。"""
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 10.0.0.2 remote-as 65001\n"
+            " neighbor 10.0.0.2 update-source Loopback0\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.update_source == "Loopback0"
+
+
+def test_ios_bgp_update_source_before_remote_as():
+    """update-source が remote-as より前に出現しても正しく紐付けられること（順不同保証）。"""
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 10.0.0.2 update-source Loopback0\n"
+            " neighbor 10.0.0.2 remote-as 65001\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.update_source == "Loopback0"
+
+
+def test_ios_bgp_update_source_multiple_neighbors():
+    """複数 neighbor それぞれの update-source が正しい neighbor に紐付けられること。"""
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 10.0.0.2 remote-as 65001\n"
+            " neighbor 10.0.0.2 update-source Loopback0\n"
+            " neighbor 10.0.0.3 remote-as 65002\n"
+            " neighbor 10.0.0.3 update-source GigabitEthernet0/1\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].update_source == "Loopback0"
+    assert nb_map["10.0.0.3"].update_source == "GigabitEthernet0/1"
+
+
+def test_ios_bgp_update_source_under_address_family():
+    """address-family 配下の neighbor <ip> update-source も拾えること。"""
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 10.0.0.2 remote-as 65001\n"
+            " address-family ipv4\n"
+            "  neighbor 10.0.0.2 update-source Loopback0\n"
+            " exit-address-family\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.update_source == "Loopback0"
+
+
+def test_ios_bgp_update_source_none_when_not_configured():
+    """update-source が設定されていない neighbor の update_source は None のままであること。"""
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 10.0.0.2 remote-as 65002\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.update_source is None
+
+
+# ---------------------------------------------------------------------------
+# C1 [test MED-1]: address-family ipv6 配下の v6 neighbor update-source 抽出
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_update_source_v6_neighbor_under_af_ipv6():
+    """address-family ipv6 配下の v6 neighbor に update-source が付くケースで update_source が抽出されること。
+
+    §6.1: address-family ipv6 配下でも neighbor update-source は _parse_bgp_line で処理される。
+    bgp_af が "v6" の文脈で v6 neighbor の update-source が取得できること。
+    """
+    # Arrange: v6 neighbor を address-family ipv6 配下で activate し、
+    #          同じく address-family ipv6 配下で update-source を宣言
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 2001:db8::2 remote-as 65001\n"
+        " address-family ipv6\n"
+        "  neighbor 2001:db8::2 activate\n"
+        "  neighbor 2001:db8::2 update-source Loopback0\n"
+        " exit-address-family\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = [n for n in dev.bgp if n.neighbor_ip == "2001:db8::2"][0]
+    assert nb.af == "v6"
+    assert nb.update_source == "Loopback0"

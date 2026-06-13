@@ -132,6 +132,8 @@ def parse_junos(text: str, warnings: list) -> Device:
     dev = Device(hostname="", vendor="juniper_junos")
     ifaces: dict[str, Interface] = {}   # name → Interface（出現順保持）
     ospf_decls: list[tuple] = []        # (area, base_if, af) — 全 IF 確定後に解決
+    bgp_neighbors: dict[str, BgpNeighbor] = {}  # nip → BgpNeighbor（update_source 後付け用）
+    pending_local_address: dict[str, str] = {}   # nip → local-address（peer-as より先に来た場合）
 
     def get_if(name: str) -> Interface:
         """ifaces dict から取得、未登録なら新規 Interface を作成する。"""
@@ -178,9 +180,33 @@ def parse_junos(text: str, warnings: list) -> Device:
             try:
                 af = "v6" if ":" in ip else "v4"
                 nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
-                dev.bgp.append(BgpNeighbor(nip, peer, af))
+                nb = BgpNeighbor(nip, peer, af)
+                # peer-as より先に local-address が来たケースを適用
+                if nip in pending_local_address:
+                    nb.update_source = pending_local_address.pop(nip)
+                dev.bgp.append(nb)
+                bgp_neighbors[nip] = nb
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos bgp neighbor parse failed: %s (%s)" % (body, e))
+            continue
+
+        # BGP local-address: protocols bgp group <g> neighbor <ip> local-address <localip>
+        # JunOS local-address は BgpNeighbor.update_source に格納する（IP 直接指定）。
+        # 孤立 pending local-address の挙動:
+        #   対応する peer-as が最後まで現れなかった pending_local_address エントリは
+        #   警告なくドロップされる（意図的）。既存の他パース失敗時の挙動（握りつぶし継続）と整合。
+        m = re.match(r"^protocols bgp group \S+ neighbor\s+(\S+)\s+local-address\s+(\S+)", body)
+        if m:
+            ip, local_ip = m.group(1), m.group(2)
+            try:
+                nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+                if nip in bgp_neighbors:
+                    bgp_neighbors[nip].update_source = local_ip
+                else:
+                    # peer-as がまだ現れていない — pending に積む
+                    pending_local_address[nip] = local_ip
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos bgp local-address parse failed: %s (%s)" % (body, e))
             continue
 
         # OSPFv2: protocols ospf area <a> interface <if> [metric <n> | interface-type <t> | passive]

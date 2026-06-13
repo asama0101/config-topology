@@ -399,15 +399,19 @@ bgp: [...]
 |-----------|-----|------|------|
 | `device` | string | ✓ | 機器 ID（devices[].id への参照） |
 | `local_as` | int | ✓ | ローカル AS 番号 |
-| `local_ip` | string \| null | ✓ | neighbor と同一サブネットにある自機 IP（解決不能なら null） |
+| `local_ip` | string \| null | ✓ | neighbor と同一サブネットにある自機 IP（解決不能なら null）。update_source フォールバックが成功した場合も非 null になる |
 | `neighbor_ip` | string | ✓ | ネイバー IP（v4 または v6） |
 | `peer_as` | int \| null | ✓ | ピア AS（不明なら null） |
 | `type` | string | ✓ | `"ebgp"` / `"ibgp"` / `"unknown"` |
 | `af` | string | ✓ | `"v4"` / `"v6"` |
+| `update_source` | string \| null | ✗ | **任意・設定時のみ出力**。IOS の `update-source <ifname>` または JunOS の `local-address <ip>`。未設定の場合はキー自体を省略する |
 
 **local_ip 解決ルール**:
-- neighbor_ip と同一サブネットにある自機のインターフェース IP を検索。
+- neighbor_ip と同一サブネットにある自機のインターフェース IP を検索（一次解決）。
 - v4 neighbor に対しては v4 local_ip、v6 neighbor に対しては v6 local_ip を返す。
+- 一次解決が null かつ `update_source` が設定されている場合にフォールバック:
+  - `update_source` が有効な IP アドレスなら、AF が一致する場合のみその IP を local_ip として採用（JunOS local-address）。
+  - IP でなければ（インターフェース名）、dev.interfaces から name が一致する IF の AF 一致アドレス（v6 は link-local 除外）を返す（IOS update-source）。
 - 解決できなければ null。
 - config に対向が存在しない外部 AS でも BGP エントリは片側オーバーレイとして残す。
 
@@ -532,6 +536,7 @@ CIDR の `.` と `/` を `_` に置換。
 | `encapsulation dot1Q <vlan>` | IF | `encapsulation = "dot1q"` | IGNORECASE |
 | `router bgp <asn>` | 機器 | `as = <asn>`, BGP ブロック開始 | |
 | `neighbor <ip> remote-as <peer>` | BGP neighbor | `neighbor_ip = <ip>`, `peer_as = <peer>`, `af = "v4"` | グローバル登録 |
+| `neighbor <ip> update-source <ifname>` | BGP neighbor | `update_source = <ifname>`（インターフェース名）| remote-as と順不同可。address-family 配下も対応 |
 | `address-family ipv6` | BGP AF | neighbor に `activate` で `af = "v6"` に変更 | v6 neighbor のみ |
 | `neighbor <v6ip> activate` (under address-family ipv6) | BGP AF | `af = "v6"` に変更（当該 neighbor） | activate されていない v4 neighbor は af="v4" 確定 |
 | `router ospf <pid>` | OSPF process | process ID = <pid> | |
@@ -585,6 +590,7 @@ CIDR の `.` と `/` を `_` に置換。
 | `set routing-options autonomous-system <asn>` | 機器 | `as = <asn>` | |
 | `set routing-options router-id <id>` | 機器 | `bgp_router_id = <id>`（OSPF 専用 router-id 未設定時は `ospf_router_id` のフォールバックにも使用） | §5.2.1 |
 | `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BGP neighbor | `neighbor_ip = <ip>`, `peer_as = <peer>` | neighbor_ip が v4 なら `af="v4"` |
+| `set protocols bgp group <g> neighbor <ip> local-address <localip>` | BGP neighbor | `update_source = <localip>`（ローカル IP 文字列）| peer-as と順不同可 |
 | neighbor_ip が v6 アドレス | BGP neighbor | `af = "v6"`（neighbor_ip を v6 短縮形に正規化して格納） | |
 | `set protocols ospf area <a> interface <if>` | OSPF network | `area = <正規化済み a>`, `network = <CIDR_or_IF_name>`, `af = "v4"` | IF の v4 サブネットから CIDR；不能なら IF 名 |
 | `set protocols ospf3 area <a> interface <if>` | OSPF v3 | `area = <正規化済み a>`, `network = <IF_base_name>`, `af = "v6"`, `process = null` | ドット除去（unit 除去） |
@@ -890,7 +896,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - 機器カード:
   - ヘッダ: hostname / vendor / AS 番号 / **router-id バッジ（OSPF・BGP は機器内で同一のため `rid` として1つに統合**。設定時のみ）
   - **Interfaces** 表: Name / IPv4 / IPv6（GUA＋link-local を淡色併記）/ Description / Status
-  - **BGP Sessions** 表: neighbor / peer_as / type / **af**
+  - **BGP Sessions** 表: neighbor / peer_as / type / **af** / **src**（update-source/local-address 由来の local_ip ソース。未設定は `—`）
   - **OSPF Networks** 表: network / area
   - **Static Routes** 表: prefix / next_hop
   - **Sections**: `devices[].sections` の汎用表示（初版は常に空）

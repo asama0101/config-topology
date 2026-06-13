@@ -114,11 +114,12 @@ topology/
 |-----------|----|------|
 | `device` | string | 機器 ID（devices[].id への参照） |
 | `local_as` | int | ローカル AS |
-| `local_ip` | string \| null | neighbor と同一サブネットにある自 IF の IP（§7.3）。v6 neighbor に対しては v6 local_ip を返す。解決不能は null。 |
+| `local_ip` | string \| null | neighbor と同一サブネットにある自 IF の IP（§7.3）。v6 neighbor に対しては v6 local_ip を返す。解決不能は null。update_source による解決フォールバックが成功した場合も非 null になる。 |
 | `neighbor_ip` | string | ネイバー IP（v4 または v6） |
 | `peer_as` | int \| null | ピア AS。不明なら null。 |
 | `type` | string | `"ebgp"` / `"ibgp"` / `"unknown"`（§7.3） |
 | `af` | string | アドレスファミリ（`"v4"` / `"v6"`） |
+| `update_source` | string \| null | **任意・設定時のみ出力**。IOS の `neighbor update-source <ifname>`（インターフェース名）または JunOS の `local-address <ip>`（ローカル IP 文字列）。未設定の場合はキー自体を省略する（null 値は出力しない）。build.py の `_resolve_local_ip` が `update_source` フィールドを参照してサブネット一致失敗時のフォールバックに使用する。 |
 
 ### `ospf`（object[]）
 network 宣言 1 件につき 1 エントリ。

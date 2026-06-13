@@ -165,3 +165,30 @@ def test_render_checks_view_uses_esc():
 def test_render_table_view_dispatches_to_checks():
     """renderTableView が checks ビューに対して renderChecksView を呼び出すこと。"""
     assert "renderChecksView()" in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# C1 [render テスト]: BGP SESSIONS 表の src 列
+# ---------------------------------------------------------------------------
+
+def test_bgp_sessions_table_has_src_column_header():
+    """BGP SESSIONS 表に <th>src</th> ヘッダが存在すること。
+
+    §8.5: デバイス詳細カードの BGP SESSIONS テーブルには
+    neighbor / peer AS / type / af に加えて src 列を持つ。
+    """
+    assert '<th>src</th>' in assets._JS
+
+
+def test_bgp_sessions_table_renders_esc_b_src():
+    """BGP SESSIONS 表のデータ行が esc(b.src) を経由して src を描画すること。
+
+    b.src が truthy のとき esc(b.src) で XSS エスケープして表示すること。
+    """
+    assert 'esc(b.src)' in assets._JS
+
+
+def test_bgp_sessions_table_src_fallback_dash():
+    """b.src が falsy（None/undefined/空文字）のとき "—" を表示すること。"""
+    # b.src ? esc(b.src) : "—" パターン
+    assert 'b.src?esc(b.src):"—"' in assets._JS

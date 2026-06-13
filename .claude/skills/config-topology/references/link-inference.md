@@ -35,7 +35,11 @@
 
 1. 各 BGP neighbor の `neighbor_ip` を、全機器のすべてのインターフェース IP と突合。
 2. 突合した IF が見つかれば、その機器の AS を参照。
-3. `local_ip` = 「neighbor_ip と同一サブネットにある自機のインターフェース IP」を採用（無ければ null）。**v6 neighbor に対しては v6 local_ip を返す**（af ファミリ一致）。
+3. `local_ip` = 「neighbor_ip と同一サブネットにある自機のインターフェース IP」を採用（一次解決）。**v6 neighbor に対しては v6 local_ip を返す**（af ファミリ一致）。
+   - 一次解決が null で、かつ neighbor に **`update_source`** が設定されている場合はフォールバック解決を行う（iBGP over loopback 等）:
+     - `update_source` が IP として妥当（JunOS `local-address`）→ その IP を採用（af 一致時のみ。link-local は不採用）。
+     - `update_source` がインターフェース名（IOS `update-source <if>`）→ その IF の af 一致アドレス（v6 link-local 除外）を採用。
+   - フォールバックでも解決できなければ null。`update_source` の抽出元は IOS `neighbor <ip> update-source <if>` / JunOS `... neighbor <ip> local-address <ip>`（§vendor-parsing）。
 4. `type` 判定:
    - `local_as == peer_as` → `ibgp`（内部）
    - `local_as != peer_as`（両者既知） → `ebgp`（外部）

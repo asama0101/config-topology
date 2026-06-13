@@ -68,3 +68,114 @@ def test_unknown_when_local_as_none():
     e = build_bgp([("x", d)])[0]
     assert e["local_as"] is None
     assert e["type"] == "unknown"          # local_as 不明 → unknown（両者既知でないと ebgp にしない）
+
+
+# ---------------------------------------------------------------------------
+# C1: update_source フォールバックによる local_ip 解決テスト
+# ---------------------------------------------------------------------------
+
+def test_ibgp_loopback_update_source_ifname_resolves_local_ip():
+    """iBGP over loopback: サブネット一致が None でも update-source Loopback0 で local_ip が解決されること。"""
+    # Arrange: R1 は Gi0/0 (10.0.0.1/30) と Loopback0 (1.1.1.1/32) を持つ。
+    #          neighbor は 2.2.2.2（別セグメント）→ サブネット一致では None。
+    #          update-source Loopback0 → Loopback0 の 1.1.1.1 を local_ip に解決。
+    r1 = _dev("R1", 65001,
+              [Interface(name="GigabitEthernet0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)]),
+               Interface(name="Loopback0",
+                         addresses=[Address("v4", "1.1.1.1", 32)])],
+              [BgpNeighbor("2.2.2.2", 65001, "v4", update_source="Loopback0")])
+    bgp = build_bgp([("r1", r1)])
+    assert bgp[0]["local_ip"] == "1.1.1.1"
+
+
+def test_ibgp_loopback_update_source_ip_resolves_local_ip():
+    """JunOS local-address（IP 直接指定）で local_ip が解決されること。"""
+    # Arrange: neighbor 2.2.2.2（直結外）、update_source="1.1.1.1"（v4 IP 文字列）
+    r1 = _dev("R1", 65001,
+              [Interface(name="ge-0/0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)]),
+               Interface(name="lo0",
+                         addresses=[Address("v4", "1.1.1.1", 32)])],
+              [BgpNeighbor("2.2.2.2", 65001, "v4", update_source="1.1.1.1")])
+    bgp = build_bgp([("r1", r1)])
+    assert bgp[0]["local_ip"] == "1.1.1.1"
+
+
+def test_subnet_match_unchanged_when_update_source_present():
+    """サブネット一致が成功する場合、update_source があっても既存ロジックの結果を使うこと（不変）。"""
+    # Arrange: neighbor 10.0.0.2 は Gi0 の 10.0.0.0/30 サブネット内 → サブネット一致が成功
+    r1 = _dev("R1", 65001,
+              [Interface(name="GigabitEthernet0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)]),
+               Interface(name="Loopback0",
+                         addresses=[Address("v4", "1.1.1.1", 32)])],
+              [BgpNeighbor("10.0.0.2", 65001, "v4", update_source="Loopback0")])
+    bgp = build_bgp([("r1", r1)])
+    # サブネット一致が優先され Gi0 の 10.0.0.1 になること（Loopback0 ではない）
+    assert bgp[0]["local_ip"] == "10.0.0.1"
+
+
+def test_update_source_nonexistent_ifname_returns_none():
+    """update_source に存在しない IF 名が指定されている場合、local_ip は None のままであること。"""
+    # Arrange: update_source="Loopback99" だが Loopback99 は存在しない
+    r1 = _dev("R1", 65001,
+              [Interface(name="GigabitEthernet0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("2.2.2.2", 65001, "v4", update_source="Loopback99")])
+    bgp = build_bgp([("r1", r1)])
+    assert bgp[0]["local_ip"] is None
+
+
+def test_update_source_ip_af_mismatch_returns_none():
+    """update_source が IP（JunOS local-address）で AF が一致しない場合、local_ip は None になること。"""
+    # Arrange: af="v4" の neighbor だが update_source="2001:db8::1"（v6 IP）
+    r1 = _dev("R1", 65001,
+              [Interface(name="lo0",
+                         addresses=[Address("v6", "2001:db8::1", 128)])],
+              [BgpNeighbor("10.0.0.2", 65001, "v4", update_source="2001:db8::1")])
+    bgp = build_bgp([("r1", r1)])
+    assert bgp[0]["local_ip"] is None
+
+
+def test_update_source_sets_update_source_field_in_bgp_entry():
+    """build_bgp の出力エントリに update_source が値ありのとき 'update_source' キーが含まれること。"""
+    r1 = _dev("R1", 65001,
+              [Interface(name="Loopback0",
+                         addresses=[Address("v4", "1.1.1.1", 32)])],
+              [BgpNeighbor("2.2.2.2", 65001, "v4", update_source="Loopback0")])
+    bgp = build_bgp([("r1", r1)])
+    assert "update_source" in bgp[0]
+    assert bgp[0]["update_source"] == "Loopback0"
+
+
+def test_no_update_source_omits_key_in_bgp_entry():
+    """update_source が None（デフォルト）の場合、build_bgp 出力に 'update_source' キーが出ないこと。"""
+    r1 = _dev("R1", 65001,
+              [Interface(name="GigabitEthernet0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    bgp = build_bgp([("r1", r1)])
+    # update_source なし → キー省略（golden byte 不変）
+    assert "update_source" not in bgp[0]
+
+
+# ---------------------------------------------------------------------------
+# C1 [correctness MED]: _resolve_local_ip — IP 直指定ブランチの link-local 除外
+# ---------------------------------------------------------------------------
+
+def test_update_source_link_local_ip_v6_returns_none():
+    """update_source が link-local アドレス（fe80::1）の v6 neighbor で local_ip が None になること。
+
+    サブネット一致ブランチ・IF 名解決ブランチが link-local を除外するのと整合。
+    IP 直指定ブランチ（JunOS local-address）でも is_link_local なら None を返すこと。
+    """
+    # Arrange: v6 neighbor、update_source が link-local IP
+    r1 = _dev("R1", 65001,
+              [Interface(name="lo0",
+                         addresses=[Address("v6", "2001:db8::1", 128)])],
+              [BgpNeighbor("2001:db8::2", 65001, "v6", update_source="fe80::1")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert: link-local の update_source は local_ip に使わない → None
+    assert bgp[0]["local_ip"] is None

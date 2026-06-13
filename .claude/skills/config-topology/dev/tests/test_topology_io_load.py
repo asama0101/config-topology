@@ -109,3 +109,39 @@ def test_empty_physical_file_degrades_gracefully(tmp_path):
     (tmp_path / "physical.yaml").write_text("", encoding="utf-8")
     loaded = load_topology(str(tmp_path))
     assert loaded["links"] == [] and loaded["segments"] == []
+
+
+# ---------------------------------------------------------------------------
+# C1 [test HIGH-2]: routing.bgp に update_source を含む YAML ラウンドトリップ
+# ---------------------------------------------------------------------------
+
+def test_roundtrip_bgp_with_update_source(tmp_path):
+    """routing.bgp エントリに update_source を含む topology を dump→load して
+    update_source が保持されることを検証する。
+
+    update_source は任意フィールド（None の場合は省略）のため、
+    値あり・値なしの両ケースで ラウンドトリップを確認する。
+    """
+    # Arrange
+    topo = _topo()
+    topo["routing"]["bgp"] = [
+        # update_source あり（iBGP over loopback ケース）
+        {"af": "v4", "device": "r1", "local_as": 65001, "local_ip": "1.1.1.1",
+         "neighbor_ip": "2.2.2.2", "peer_as": 65001, "type": "ibgp",
+         "update_source": "Loopback0"},
+        # update_source なし（通常の eBGP ケース）
+        {"af": "v4", "device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp"},
+    ]
+    # Act
+    dump_topology(topo, str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    # Assert: update_source が保持されること
+    bgp = loaded["routing"]["bgp"]
+    assert len(bgp) == 2
+    # update_source あり → 保持
+    entry_with_src = next(e for e in bgp if e["neighbor_ip"] == "2.2.2.2")
+    assert entry_with_src["update_source"] == "Loopback0"
+    # update_source なし → キーが存在しないか None
+    entry_without_src = next(e for e in bgp if e["neighbor_ip"] == "10.0.0.2")
+    assert entry_without_src.get("update_source") is None

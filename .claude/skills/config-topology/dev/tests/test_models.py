@@ -1,7 +1,7 @@
 """§4.1 データモデル: addresses 並び順・派生 ip・to_dict のテスト。"""
 import pytest
 
-from lib.models import Address, Interface, Device
+from lib.models import Address, BgpNeighbor, Interface, Device
 
 pytestmark = pytest.mark.unit
 
@@ -105,3 +105,40 @@ def test_interface_ospf_empty_dict_omits_key_from_dict():
     iface = Interface(name="Gi0/0", ospf={})
     d = iface.to_dict()
     assert "ospf" not in d
+
+
+# ---------------------------------------------------------------------------
+# C1: BgpNeighbor.update_source フィールドテスト
+# ---------------------------------------------------------------------------
+
+def test_bgpneighbor_update_source_none_omits_key_from_dict():
+    """update_source=None（デフォルト）のとき to_dict() に 'update_source' キーが出ないこと。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "update_source" not in d
+    assert d == {"neighbor_ip": "10.0.0.2", "peer_as": 65002, "af": "v4"}
+
+
+def test_bgpneighbor_update_source_ifname_appears_in_dict():
+    """update_source にインターフェース名がある場合、to_dict() に 'update_source' キーが出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", update_source="Loopback0")
+    d = nb.to_dict()
+    assert "update_source" in d
+    assert d["update_source"] == "Loopback0"
+
+
+def test_bgpneighbor_update_source_ip_appears_in_dict():
+    """update_source に IP アドレスがある場合（JunOS local-address）、to_dict() に出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", update_source="1.1.1.1")
+    d = nb.to_dict()
+    assert d["update_source"] == "1.1.1.1"
+
+
+def test_bgpneighbor_default_fields_unchanged():
+    """update_source 追加後も既存フィールド（neighbor_ip/peer_as/af）の型・意味が変わらないこと。"""
+    nb = BgpNeighbor(neighbor_ip="2001:db8::2", peer_as=65002, af="v6")
+    d = nb.to_dict()
+    assert d["neighbor_ip"] == "2001:db8::2"
+    assert d["peer_as"] == 65002
+    assert d["af"] == "v6"
+    assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}  # update_source なし → 3キーのみ

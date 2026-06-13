@@ -1338,3 +1338,129 @@ def test_build_checks_sort_order_severity_kind_refs():
         assert refs_keys == sorted(refs_keys), (
             f"severity={sev} kind={knd} 内で refs キーが昇順でない: {refs_keys}"
         )
+
+
+# ===========================================================================
+# C1: 相乗効果テスト — iBGP loopback + update-source で bgp_unresolved_local_ip が出ない
+# ===========================================================================
+
+@pytest.mark.unit
+def test_build_checks_ibgp_loopback_update_source_no_unresolved_warning():
+    """iBGP over loopback で update-source により local_ip が解決された場合、
+    bgp_unresolved_local_ip warning が出ないこと（相乗効果テスト）。
+
+    update-source なしの場合は local_ip=None → bgp_unresolved_local_ip が出る。
+    update-source で local_ip が解決された場合は bgp_unresolved_local_ip が出ない。
+    """
+    # Arrange: local_ip を直接注入（build_checks は local_ip!=None を見て警告を出さないことを検証）。
+    # フォールバック解決自体は test_build_bgp 側でカバー。
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Loopback0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),
+            _make_if("r2", "Loopback0", [{"af": "v4", "ip": "2.2.2.2", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # local_ip=1.1.1.1（update-source Loopback0 により解決済み）
+                {"device": "r1", "local_as": 65001, "local_ip": "1.1.1.1",
+                 "neighbor_ip": "2.2.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                {"device": "r2", "local_as": 65001, "local_ip": "2.2.2.2",
+                 "neighbor_ip": "1.1.1.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: bgp_unresolved_local_ip warning が出ないこと
+    unr = [c for c in result if c["kind"] == "bgp_unresolved_local_ip"]
+    assert unr == [], (
+        "update-source で local_ip が解決されたはずなのに bgp_unresolved_local_ip が出た: "
+        + str(unr)
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_loopback_no_update_source_warns():
+    """iBGP over loopback で update-source なし（local_ip=None）なら
+    bgp_unresolved_local_ip が出ること（対照テスト）。
+    """
+    # Arrange: local_ip=None（update-source なし・サブネット一致も不可）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": None,
+                 "neighbor_ip": "2.2.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: bgp_unresolved_local_ip warning が出ること
+    unr = [c for c in result if c["kind"] == "bgp_unresolved_local_ip"]
+    assert len(unr) == 1
+
+
+# ---------------------------------------------------------------------------
+# C1: build_devices に update_source が渡されること
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_devices_bgp_row_includes_update_source_when_present():
+    """routing.bgp エントリに update_source がある場合、build_devices の bgp 行に 'src' が含まれること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Loopback0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "1.1.1.1",
+                 "neighbor_ip": "2.2.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+                 "update_source": "Loopback0"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    from lib.rendering.data_transform import build_devices
+    devices = build_devices(topo)
+    bgp_rows = devices["r1"]["bgp"]
+    assert len(bgp_rows) == 1
+    assert bgp_rows[0].get("src") == "Loopback0"
+
+
+@pytest.mark.unit
+def test_build_devices_bgp_row_no_src_when_update_source_absent():
+    """routing.bgp エントリに update_source がない場合、build_devices の bgp 行に 'src' が None であること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "GigabitEthernet0/0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    from lib.rendering.data_transform import build_devices
+    devices = build_devices(topo)
+    bgp_rows = devices["r1"]["bgp"]
+    assert len(bgp_rows) == 1
+    # update_source なし → src は None（or キーなし）
+    assert bgp_rows[0].get("src") is None

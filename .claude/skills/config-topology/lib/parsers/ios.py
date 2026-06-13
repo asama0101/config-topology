@@ -113,8 +113,16 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
         return
 
 
-def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict, warnings: list) -> None:
-    """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate。"""
+def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
+                    pending_update_source: dict, warnings: list) -> None:
+    """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate / update-source。
+
+    pending_update_source: {nip: ifname} — remote-as より先に update-source が来たとき一時保持する。
+
+    孤立 pending update-source の挙動:
+      対応する remote-as が最後まで現れなかった pending_update_source エントリは
+      警告なくドロップされる（意図的）。既存の他パース失敗時の挙動（握りつぶし継続）と整合。
+    """
     m = re.match(r"^bgp router-id\s+(\S+)", s)
     if m:
         dev.bgp_router_id = m.group(1)
@@ -126,6 +134,9 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict, warnings:
             af = "v6" if ":" in ip else "v4"
             nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
             nb = BgpNeighbor(nip, peer, af)
+            # remote-as より先に update-source が来たケースを適用
+            if nip in pending_update_source:
+                nb.update_source = pending_update_source.pop(nip)
             dev.bgp.append(nb)
             neighbors[nip] = nb
         except Exception as e:                       # noqa: BLE001
@@ -139,6 +150,19 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict, warnings:
                 neighbors[nip].af = "v6"
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp activate parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+update-source\s+(\S+)", s)
+    if m:
+        ip, ifname = m.group(1), m.group(2)
+        try:
+            nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+            if nip in neighbors:
+                neighbors[nip].update_source = ifname
+            else:
+                # remote-as がまだ現れていない — pending に積む
+                pending_update_source[nip] = ifname
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("bgp update-source parse failed: %s (%s)" % (s, e))
         return
 
 
@@ -180,6 +204,7 @@ def parse_ios(text: str, warnings: list) -> Device:
     ospf_pid = None
     bgp_af = "v4"
     neighbors = {}
+    pending_update_source = {}  # {nip: ifname} — remote-as より先に update-source が来たとき一時保持
     pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
     passive_ifaces = []  # router ospf 配下の passive-interface 名リスト
 
@@ -264,7 +289,7 @@ def parse_ios(text: str, warnings: list) -> Device:
             elif s == "exit-address-family":
                 bgp_af = "v4"
             else:
-                _parse_bgp_line(dev, s, bgp_af, neighbors, warnings)
+                _parse_bgp_line(dev, s, bgp_af, neighbors, pending_update_source, warnings)
         elif context == "ospf":
             _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces)
 

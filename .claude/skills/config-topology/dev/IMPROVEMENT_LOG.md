@@ -29,7 +29,8 @@
 - [ ] B4 凡例からの一括レイヤー操作＋ショートカット拡充 — S（A1後）
 
 ### C. BGP/OSPF 設定管理（parse→build→schema→render の加算フィールド）
-- [ ] C1 BGP update-source / peer-group 抽出 → local_ip/iBGP判定精度向上 — M
+- [x] C1 BGP update-source 抽出 → local_ip 解決フォールバック — M ✅反復4完了（peer-group は C1b に分割・未着手）
+- [ ] C1b BGP peer-group のメンバー継承（remote-as/update-source をグループから継承）— M
 - [x] C2 OSPF interface cost / passive / network-type（interfaces[].ospf 加算）— M ✅反復2完了
 - [ ] C3 OSPF area type (stub/nssa)＋area注釈（routing.ospf[].area_type）— M（C2後）
 - [ ] C4 BGP timers / next-hop-self / RR-client / community（routing.bgp[].attrs）— M（C1後）
@@ -73,4 +74,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - テスト 336 passed（+48）。golden byte 不変・render 決定性維持。
 - 見送り(LOW): duplicate_ip refs の list→set 微最適化、型ヒント（build_stats と様式統一で無し）。
 
-### 次候補: 反復4 B1 隣接フォーカスモード（render JS）/ C1 BGP update-source（parser）/ A1 area-ASクラスタリング（layout）。render(D1,D2)が続いたので parser系 C1 か layout系 A1 を推奨。
+### 反復4: C1 BGP update-source 抽出＋local_ip 解決フォールバック — ✅完了（2026-06-14）
+- BgpNeighbor に update_source 追加（IOS=update-source IF名 / JunOS=local-address IP、omit-when-None）。
+- build._resolve_local_ip にフォールバック: サブネット一致 None 時、IP直指定(AF一致・link-local除外) or IF名解決(config順・v6 link-local除外)。サブネット一致成功時は挙動不変。
+- iBGP over loopback の local_ip 解決 → D2 の bgp_unresolved_local_ip 警告が消える相乗効果。render の BGP SESSIONS 表に src 列。
+- レビュー対応: IP直指定ブランチの link-local 除外、YAMLラウンドトリップテスト、v6/AF-ipv6配下のupdate-sourceテスト、src列render テスト、孤立 pending ドロップを意図的と docstring 明記。
+- doc: schema.md/vendor-parsing.md/requirements.md §6・§8.5/link-inference.md §2 を同期。
+- テスト 366 passed（+30）。golden byte 不変・render 決定性維持。
+- 見送り(LOW): pending dict命名非対称、フィールドdocstringスタイル、型ヒント具体化。
+
+### 次候補: 反復5 A1 area-ASクラスタリング（layout.py 初期座標にグループ重心・決定的）/ B1 隣接フォーカス（render JS）/ C3 OSPF area type（parser、C2後で可）。parser(C2,C1)とrender(D1,D2)が続いたので layout系 A1 を推奨（観点A 視認性・未着手領域）。

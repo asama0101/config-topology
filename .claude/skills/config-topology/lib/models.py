@@ -30,9 +30,17 @@ class BgpNeighbor:
     neighbor_ip: str
     peer_as: Optional[int]
     af: str
+    update_source: Optional[str] = None
+    """IOS は `update-source <ifname>`（インターフェース名）、JunOS は `local-address <ip>`
+    （ローカル IP 文字列）を格納する。build 側で IP かインターフェース名かを判別して解決する。
+    値があるときのみ to_dict() に出力（None は省略）。
+    """
 
     def to_dict(self):
-        return {"neighbor_ip": self.neighbor_ip, "peer_as": self.peer_as, "af": self.af}
+        d = {"neighbor_ip": self.neighbor_ip, "peer_as": self.peer_as, "af": self.af}
+        if self.update_source is not None:
+            d["update_source"] = self.update_source
+        return d
 
 
 @dataclass

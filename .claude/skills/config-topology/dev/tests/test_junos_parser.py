@@ -322,3 +322,56 @@ def test_junos_parser_regex_no_redundant_optional_group():
     src = inspect.getsource(junos_mod)
     # 冗長パターンが残っていないこと
     assert '(.*)?$' not in src, "junos.py に冗長な (.*)?$ が残っている（(.*)$ に修正すること）"
+
+
+# ---------------------------------------------------------------------------
+# C1: BGP update-source（JunOS local-address）抽出
+# ---------------------------------------------------------------------------
+
+def test_junos_bgp_local_address_extracted():
+    """set protocols bgp group <g> neighbor <ip> local-address <localip> で update_source に IP が入ること。"""
+    text = ("set system host-name X\n"
+            "set routing-options autonomous-system 65001\n"
+            "set protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+            "set protocols bgp group ibgp neighbor 10.0.0.2 local-address 1.1.1.1\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.update_source == "1.1.1.1"
+
+
+def test_junos_bgp_local_address_v6():
+    """v6 neighbor の local-address（v6 IP）が update_source に入ること。"""
+    text = ("set system host-name X\n"
+            "set routing-options autonomous-system 65001\n"
+            "set protocols bgp group ibgp6 neighbor 2001:db8::2 peer-as 65001\n"
+            "set protocols bgp group ibgp6 neighbor 2001:db8::2 local-address 2001:db8::1\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = [n for n in dev.bgp if n.neighbor_ip == "2001:db8::2"][0]
+    assert nb.update_source == "2001:db8::1"
+
+
+def test_junos_bgp_local_address_multiple_neighbors():
+    """複数 neighbor の local-address がそれぞれの neighbor に紐付けられること。"""
+    text = ("set system host-name X\n"
+            "set routing-options autonomous-system 65001\n"
+            "set protocols bgp group g1 neighbor 10.0.0.2 peer-as 65001\n"
+            "set protocols bgp group g1 neighbor 10.0.0.2 local-address 1.1.1.1\n"
+            "set protocols bgp group g2 neighbor 10.0.0.3 peer-as 65002\n"
+            "set protocols bgp group g2 neighbor 10.0.0.3 local-address 2.2.2.2\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].update_source == "1.1.1.1"
+    assert nb_map["10.0.0.3"].update_source == "2.2.2.2"
+
+
+def test_junos_bgp_update_source_none_when_no_local_address():
+    """local-address が無い neighbor の update_source は None であること。"""
+    text = ("set system host-name X\n"
+            "set protocols bgp group g neighbor 10.0.0.2 peer-as 65002\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.update_source is None

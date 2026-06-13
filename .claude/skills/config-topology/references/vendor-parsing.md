@@ -21,6 +21,7 @@
 | **BgpNeighbor** | `neighbor_ip`（str）| ネイバー IP |
 | | `peer_as`（int \| None）| ピア AS |
 | | `af`（str）| `"v4"` / `"v6"` |
+| | `update_source`（str \| None）| IOS: `update-source <ifname>` のインターフェース名。JunOS: `local-address <ip>` のローカル IP 文字列。未設定は None（to_dict では省略）。build.py の `_resolve_local_ip` がサブネット一致失敗時のフォールバックに使用。 |
 | **OspfNetwork** | `process`（int \| None）| プロセス ID |
 | | `network`（str）| CIDR またはインターフェース名 |
 | | `area`（str）| エリア（正規化前） |
@@ -58,6 +59,7 @@
 | `description <text>` | description | テキスト（クォート除去） |
 | `router bgp <asn>` | Device.as_ | asn |
 | `neighbor <ip> remote-as <peer>` | BgpNeighbor | (af は IP アドレス形式で v4/v6 判定) |
+| `neighbor <ip> update-source <ifname>` | BgpNeighbor.update_source | インターフェース名を格納（remote-as と順不同可）。address-family 配下も対応 |
 | `address-family ipv6` + `neighbor ... activate` | BgpNeighbor.af | "v6" に更新 |
 | `router ospf <pid>` / `network ... area <a>` | OspfNetwork | (af="v4", area は§6.3で正規化) |
 | `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |
@@ -88,6 +90,7 @@
 | `set routing-options autonomous-system <asn>` | Device.as_ | asn |
 | `set routing-options router-id <id>` | Device.bgp_router_id / ospf_router_id | ID（§5.2.1） |
 | `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BgpNeighbor | (af は IP 形式で v4/v6 判定) |
+| `set protocols bgp group <g> neighbor <ip> local-address <localip>` | BgpNeighbor.update_source | ローカル IP 文字列を格納（peer-as と順不同可） |
 | `set protocols ospf area <a> interface <if>` | OspfNetwork | (af="v4", area は§6.3で正規化, network は v4 CIDR または IF 名) |
 | `set protocols ospf3 area <a> interface <if>` | OspfNetwork | (af="v6", process=null, network=IF ベース名) |
 | `… ospf[3] … interface <if> {metric\|interface-type\|passive}` | Interface.ospf | metric→cost / interface-type→network_type / passive→True |

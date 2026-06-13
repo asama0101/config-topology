@@ -81,7 +81,16 @@ def infer_links_segments(interfaces):
 
 
 def _resolve_local_ip(dev, neighbor):
-    """neighbor_ip と同一サブネットにある自機 IF の IP（af 一致）を返す。無ければ None（§7.3）。"""
+    """neighbor_ip と同一サブネットにある自機 IF の IP（af 一致）を返す。無ければ None（§7.3）。
+
+    サブネット一致が None で neighbor.update_source が設定されている場合にフォールバック:
+    - update_source が IP として妥当（ipaddress.ip_address 成功）→ その IP を返す（JunOS local-address）。
+      ただし AF が neighbor.af と一致する場合のみ。不一致なら None のまま。
+    - そうでなければ（インターフェース名）→ dev.interfaces から name==update_source の IF を探し、
+      その IF の neighbor.af 一致アドレス（v6 は link-local 除外）を返す。
+      複数あれば config 順で最初。
+    既存のサブネット一致ロジックは不変（フォールバックは None のときのみ）。
+    """
     try:
         nbip = ipaddress.ip_address(neighbor.neighbor_ip)
     except ValueError:
@@ -95,6 +104,36 @@ def _resolve_local_ip(dev, neighbor):
             net = ipaddress.ip_network("%s/%s" % (a.ip, a.prefix), strict=False)
             if nbip in net:
                 return a.ip
+
+    # サブネット一致が失敗 → update_source フォールバック
+    src = neighbor.update_source
+    if src is None:
+        return None
+
+    # update_source が IP か判定
+    try:
+        src_addr = ipaddress.ip_address(src)
+        # IP として有効 → AF 一致チェック
+        src_af = "v6" if src_addr.version == 6 else "v4"
+        if src_af != neighbor.af:
+            return None
+        # link-local（fe80::/10）は結線推論・サブネット一致ブランチと整合して除外する
+        if src_addr.is_link_local:
+            return None
+        return src
+    except ValueError:
+        pass
+
+    # IP でなければインターフェース名として解決
+    for itf in dev.interfaces:
+        if itf.name != src:
+            continue
+        for a in itf.addresses:
+            if a.af != neighbor.af:
+                continue
+            if a.af == "v6" and a.scope == "link-local":
+                continue
+            return a.ip
     return None
 
 
@@ -107,16 +146,22 @@ def _bgp_type(local_as, peer_as):
 
 
 def build_bgp(id_dev):
-    """id_dev: [(device_id, Device)] → routing.bgp エントリ列（§7.3）。"""
+    """id_dev: [(device_id, Device)] → routing.bgp エントリ列（§7.3）。
+
+    update_source は値があるときのみ出力（None は省略 → golden byte 不変）。
+    """
     out = []
     for dev_id, dev in id_dev:
         for nb in dev.bgp:
-            out.append({
+            entry = {
                 "device": dev_id, "local_as": dev.as_,
                 "local_ip": _resolve_local_ip(dev, nb),
                 "neighbor_ip": nb.neighbor_ip, "peer_as": nb.peer_as,
                 "type": _bgp_type(dev.as_, nb.peer_as), "af": nb.af,
-            })
+            }
+            if nb.update_source is not None:
+                entry["update_source"] = nb.update_source
+            out.append(entry)
     return out
 
 
