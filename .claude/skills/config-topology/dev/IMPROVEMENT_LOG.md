@@ -34,7 +34,8 @@
 - [ ] C1b BGP peer-group のメンバー継承（remote-as/update-source をグループから継承）— M
 - [x] C2 OSPF interface cost / passive / network-type（interfaces[].ospf 加算）— M ✅反復2完了
 - [x] C3 OSPF area type (stub/nssa/totally)（routing.ospf[].area_type）— M ✅反復7完了
-- [ ] C4 BGP timers / next-hop-self / RR-client / community（routing.bgp[].attrs）— M（C1後）
+- [x] C4 BGP route-reflector-client / next-hop-self（routing.bgp[].rr/nhs）— M ✅反復9完了
+- [ ] C4b BGP timers / community（routing.bgp[].attrs）— M
 - [ ] C5 redistribute 抽出（sections or routing 注釈）— L（C2,C4後）
 
 ### D. 業務支援機能
@@ -115,6 +116,12 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - テスト 435→512 passed（+77）。golden/既存 e2e 無影響。
 - 注: D4(サブネット使用率)は既存 ADDRESSES 表(IPAM風・使用率付き)と重複するため見送り、高価値・重複なしの D3 を優先した。
 
-### 観点カバレッジ: A=A1 / B=B1 / C=C2,C1,C3 / D=D1,D2,D3 — 4観点すべて着手済み。
-### 次候補: 反復9 A2 リンクラベル重なり回避（layout/JS・観点A 視認性）/ C4 BGP timers/next-hop-self/RR-client/community（parser・観点C 強TDD）/ B2 表ビュー列フィルタ（render・観点B）/ D3b 差分HTML表示。観点バランスでは A か B。ただし A2/B2 は render-JS で弱テスト傾向→node実ロジックテストで補強する前提なら可。強TDD志向なら C4（parser）。推奨は C4 か A2。
-推奨順序の残り目安: C4 → A2 → B2 → D3b → A1b → C5 → C1b → 残り。
+### 反復9: C4 BGP route-reflector-client / next-hop-self — ✅完了（2026-06-14）
+- BgpNeighbor に route_reflector_client/next_hop_self（bool, omit-when-False）追加。IOS per-neighbor（pending_rr/pending_nhs で順不同）、JunOS は group cluster→rr_client（next_hop_self はポリシーベースで非対応）。build 透過・render に RR/NHS バッジ（attr 列）。
+- レビュー対応: pending 引数を必須化、**lib/diff.py の COMPARE に rr/nhs 追加（D3 差分ツールが RR/NHS 変更を検出）**、nhs の AF配下テスト・attr 列テスト追加、コメント整備。
+- doc: schema.md・vendor-parsing.md（モデル表含む）・requirements.md §6.1/§8.5/§10.4 を同期。
+- テスト 512→551 passed（+39）。golden byte 不変・render 決定性維持。test レビュアーが「誤適用検出テストは今回有効」と確認（A1/B1/C3 の弱テスト教訓が定着）。
+
+### 観点カバレッジ: A=A1 / B=B1 / C=C2,C1,C3,C4 / D=D1,D2,D3。**C/D が厚く A/B が手薄（各1）**。
+### 次候補: 反復10 は観点バランス上 **A か B を優先**。A2 リンクラベル重なり回避（layout/JS）/ B2 表ビュー列フィルタ（vendor/area/AS チップ・render JS）。どちらも render-JS で弱テスト傾向のため、**純関数を切り出して node 実ロジックテストで検証**する設計（B1 の nHopNeighbors 方式）を必須とする。B2 は STATS/CHECKS の絞り込みに繋がり業務価値も高いので推奨。次点 A2。
+推奨順序の残り目安: B2 → A2 → D3b → A1b → C4b → C5 → C1b → 残り。

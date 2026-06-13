@@ -149,6 +149,7 @@ def build_bgp(id_dev):
     """id_dev: [(device_id, Device)] → routing.bgp エントリ列（§7.3）。
 
     update_source は値があるときのみ出力（None は省略 → golden byte 不変）。
+    route_reflector_client / next_hop_self は True のときのみ出力（False は省略 → golden byte 不変）。
     """
     out = []
     for dev_id, dev in id_dev:
@@ -161,6 +162,10 @@ def build_bgp(id_dev):
             }
             if nb.update_source is not None:
                 entry["update_source"] = nb.update_source
+            if nb.route_reflector_client:
+                entry["route_reflector_client"] = True
+            if nb.next_hop_self:
+                entry["next_hop_self"] = True
             out.append(entry)
     return out
 

@@ -35,11 +35,23 @@ class BgpNeighbor:
     （ローカル IP 文字列）を格納する。build 側で IP かインターフェース名かを判別して解決する。
     値があるときのみ to_dict() に出力（None は省略）。
     """
+    route_reflector_client: bool = False
+    """IOS `neighbor route-reflector-client`（True 時のみ to_dict() に出力）。
+    JunOS は group cluster 宣言を持つ group の neighbor に True を設定（§6.2）。
+    """
+    next_hop_self: bool = False
+    """IOS `neighbor next-hop-self`（True 時のみ to_dict() に出力）。
+    JunOS は next-hop-self をポリシーベースで制御するため本実装では常に False（§6.2）。
+    """
 
     def to_dict(self):
         d = {"neighbor_ip": self.neighbor_ip, "peer_as": self.peer_as, "af": self.af}
         if self.update_source is not None:
             d["update_source"] = self.update_source
+        if self.route_reflector_client:
+            d["route_reflector_client"] = True
+        if self.next_hop_self:
+            d["next_hop_self"] = True
         return d
 
 

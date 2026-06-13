@@ -692,3 +692,174 @@ def test_ios_ospf_area_type_last_declaration_wins():
     area9 = [o for o in dev.ospf if o.area == "9"]
     assert len(area9) == 1
     assert area9[0].area_type == "nssa"
+
+
+# ---------------------------------------------------------------------------
+# C4: BGP route-reflector-client / next-hop-self 抽出（IOS）
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_route_reflector_client_extracted():
+    """neighbor <ip> route-reflector-client で BgpNeighbor.route_reflector_client=True になること。"""
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " neighbor 10.0.0.2 route-reflector-client\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.route_reflector_client is True
+
+
+def test_ios_bgp_next_hop_self_extracted():
+    """neighbor <ip> next-hop-self で BgpNeighbor.next_hop_self=True になること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 next-hop-self\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.next_hop_self is True
+
+
+def test_ios_bgp_rrc_before_remote_as_order_independent():
+    """route-reflector-client が remote-as より前に来ても正しく紐付けられること（順不同保証）。"""
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 route-reflector-client\n"
+        " neighbor 10.0.0.2 remote-as 65001\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.route_reflector_client is True
+
+
+def test_ios_bgp_nhs_before_remote_as_order_independent():
+    """next-hop-self が remote-as より前に来ても正しく紐付けられること（順不同保証）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 next-hop-self\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.next_hop_self is True
+
+
+def test_ios_bgp_rrc_only_targets_named_neighbor():
+    """route-reflector-client は指定 neighbor のみに True を設定し、他 neighbor は False のままであること（誤適用検出）。"""
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " neighbor 10.0.0.2 route-reflector-client\n"
+        " neighbor 10.0.0.3 remote-as 65001\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].route_reflector_client is True
+    assert nb_map["10.0.0.3"].route_reflector_client is False
+
+
+def test_ios_bgp_nhs_only_targets_named_neighbor():
+    """next-hop-self は指定 neighbor のみに True を設定し、他 neighbor は False のままであること（誤適用検出）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 next-hop-self\n"
+        " neighbor 10.0.0.3 remote-as 65003\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].next_hop_self is True
+    assert nb_map["10.0.0.3"].next_hop_self is False
+
+
+def test_ios_bgp_rrc_not_set_defaults_false():
+    """route-reflector-client が設定されていない neighbor の route_reflector_client は False であること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.route_reflector_client is False
+
+
+def test_ios_bgp_nhs_not_set_defaults_false():
+    """next-hop-self が設定されていない neighbor の next_hop_self は False であること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.next_hop_self is False
+
+
+def test_ios_bgp_rrc_and_nhs_combined():
+    """route-reflector-client と next-hop-self が同一 neighbor に同時に設定されること。"""
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " neighbor 10.0.0.2 route-reflector-client\n"
+        " neighbor 10.0.0.2 next-hop-self\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.route_reflector_client is True
+    assert nb.next_hop_self is True
+
+
+def test_ios_bgp_rrc_under_address_family():
+    """address-family 配下の neighbor route-reflector-client も拾えること。"""
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " address-family ipv4\n"
+        "  neighbor 10.0.0.2 route-reflector-client\n"
+        " exit-address-family\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.route_reflector_client is True
+
+
+def test_ios_bgp_nhs_under_address_family_ipv6():
+    """address-family ipv6 配下の neighbor next-hop-self で next_hop_self=True が抽出されること。
+
+    rrc の address-family テストはあるが nhs の address-family テストが欠落していたため追加。
+    """
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 2001:db8::2 remote-as 65002\n"
+        " address-family ipv6\n"
+        "  neighbor 2001:db8::2 activate\n"
+        "  neighbor 2001:db8::2 next-hop-self\n"
+        " exit-address-family\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.next_hop_self is True

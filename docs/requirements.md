@@ -537,6 +537,8 @@ CIDR の `.` と `/` を `_` に置換。
 | `router bgp <asn>` | 機器 | `as = <asn>`, BGP ブロック開始 | |
 | `neighbor <ip> remote-as <peer>` | BGP neighbor | `neighbor_ip = <ip>`, `peer_as = <peer>`, `af = "v4"` | グローバル登録 |
 | `neighbor <ip> update-source <ifname>` | BGP neighbor | `update_source = <ifname>`（インターフェース名）| remote-as と順不同可。address-family 配下も対応 |
+| `neighbor <ip> route-reflector-client` | BGP neighbor | `route_reflector_client = true`（True 時のみ YAML 出力）| remote-as と順不同可。address-family 配下も対応。他 neighbor に影響しない |
+| `neighbor <ip> next-hop-self` | BGP neighbor | `next_hop_self = true`（True 時のみ YAML 出力）| remote-as と順不同可。address-family 配下も対応。他 neighbor に影響しない |
 | `address-family ipv6` | BGP AF | neighbor に `activate` で `af = "v6"` に変更 | v6 neighbor のみ |
 | `neighbor <v6ip> activate` (under address-family ipv6) | BGP AF | `af = "v6"` に変更（当該 neighbor） | activate されていない v4 neighbor は af="v4" 確定 |
 | `router ospf <pid>` | OSPF process | process ID = <pid> | |
@@ -595,6 +597,8 @@ CIDR の `.` と `/` を `_` に置換。
 | `set routing-options router-id <id>` | 機器 | `bgp_router_id = <id>`（OSPF 専用 router-id 未設定時は `ospf_router_id` のフォールバックにも使用） | §5.2.1 |
 | `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BGP neighbor | `neighbor_ip = <ip>`, `peer_as = <peer>` | neighbor_ip が v4 なら `af="v4"` |
 | `set protocols bgp group <g> neighbor <ip> local-address <localip>` | BGP neighbor | `update_source = <localip>`（ローカル IP 文字列）| peer-as と順不同可 |
+| `set protocols bgp group <g> cluster <id>` | BGP neighbor | cluster を持つ group の全 neighbor に `route_reflector_client = true`（末尾一括適用・True 時のみ YAML 出力）| JunOS の RR 表現。cluster のない group の neighbor は False（影響なし） |
+| JunOS next_hop_self | BGP neighbor | **非対応（常に False・YAML 出力なし）**。JunOS は next-hop-self をポリシー（export policy）ベースで制御するため set 形式 config から直接抽出できない | |
 | neighbor_ip が v6 アドレス | BGP neighbor | `af = "v6"`（neighbor_ip を v6 短縮形に正規化して格納） | |
 | `set protocols ospf area <a> interface <if>` | OSPF network | `area = <正規化済み a>`, `network = <CIDR_or_IF_name>`, `af = "v4"` | IF の v4 サブネットから CIDR；不能なら IF 名 |
 | `set protocols ospf3 area <a> interface <if>` | OSPF v3 | `area = <正規化済み a>`, `network = <IF_base_name>`, `af = "v6"`, `process = null` | ドット除去（unit 除去） |
@@ -910,7 +914,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - 機器カード:
   - ヘッダ: hostname / vendor / AS 番号 / **router-id バッジ（OSPF・BGP は機器内で同一のため `rid` として1つに統合**。設定時のみ）
   - **Interfaces** 表: Name / IPv4 / IPv6（GUA＋link-local を淡色併記）/ Description / Status
-  - **BGP Sessions** 表: neighbor / peer_as / type / **af** / **src**（update-source/local-address 由来の local_ip ソース。未設定は `—`）
+  - **BGP Sessions** 表: neighbor / peer_as / type / **af** / **src**（update-source/local-address 由来の local_ip ソース。未設定は `—`）/ **attr**（`RR`=route-reflector-client・`NHS`=next-hop-self のバッジ。未設定は `—`）
   - **OSPF Networks** 表: network / area
   - **Static Routes** 表: prefix / next_hop
   - **Sections**: `devices[].sections` の汎用表示（初版は常に空）
@@ -1068,7 +1072,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 | `interfaces` | `id` | `description`, `shutdown`, `mtu`, `speed`, `addresses`, `ospf` |
 | `links` | `(subnet, a_device, a_if, b_device, b_if)` | added/removed のみ |
 | `segments` | `id` | `members`（集合比較） |
-| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source` |
+| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source`, `route_reflector_client`, `next_hop_self` |
 | `routing_ospf` | `(device, network, af)` | `process`, `area`, `area_type` |
 | `routing_static` | `(device, prefix, af)` | `next_hop` |
 

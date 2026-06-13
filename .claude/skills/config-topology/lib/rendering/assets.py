@@ -525,6 +525,7 @@ _BODY = """\
 
 """
 
+# _JS: BGP SESSIONS 表の attr 列は b.rr=route_reflector_client / b.nhs=next_hop_self をバッジ表示
 _JS = """\
 
 "use strict";
@@ -1115,8 +1116,8 @@ function renderDetails() {
         <table class="dt"><tr><th>Name</th><th>IPv4</th><th>IPv6</th><th>Desc</th><th>St</th></tr>
         ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=n0&&netDrawn(n0)?n0:null;const v6=ifV6List(i);return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}</td><td class="dim-t">${v6.length?v6.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>"):"—"}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
       ${d.bgp.length?`<div class="csec"><h4>BGP SESSIONS</h4>
-        <table class="dt"><tr><th>neighbor</th><th>peer AS</th><th>type</th><th>af</th><th>src</th></tr>
-        ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td><td class="dim-t">${b.src?esc(b.src):"—"}</td></tr>`).join("")}</table></div>`:""}
+        <table class="dt"><tr><th>neighbor</th><th>peer AS</th><th>type</th><th>af</th><th>src</th><th>attr</th></tr>
+        ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td><td class="dim-t">${b.src?esc(b.src):"—"}</td><td class="dim-t">${[b.rr?"RR":null,b.nhs?"NHS":null].filter(Boolean).join(" ")||"—"}</td></tr>`).join("")}</table></div>`:""}
       ${d.ospf.length?`<div class="csec"><h4>OSPF NETWORKS</h4>
         <table class="dt"><tr><th>network</th><th>area</th></tr>
         ${d.ospf.map(o=>{const on=netDrawn(o.net);const areaLabel=o.at?`${esc(o.area)} (${esc(o.at)})`:esc(o.area);return `<tr class="ospfrow${on&&netHot(o.net)?" hot":""}"${on?` data-net="${esc(o.net)}"`:""}><td>${esc(o.net)}</td><td class="dim-t">${areaLabel}</td></tr>`;}).join("")}</table></div>`:""}

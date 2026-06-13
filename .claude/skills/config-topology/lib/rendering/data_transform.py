@@ -35,7 +35,9 @@ def build_devices(topo):
     for e in topo["routing"].get("bgp", []):
         row = {"nb": e["neighbor_ip"], "pas": e["peer_as"], "type": e["type"],
                "af": e["af"], "lip": e["local_ip"], "link": None,
-               "src": e.get("update_source")}
+               "src": e.get("update_source"),
+               "rr": e.get("route_reflector_client"),
+               "nhs": e.get("next_hop_self")}
         bgp_by_dev.setdefault(e["device"], []).append(row)
     for e in topo["routing"].get("ospf", []):
         row = {"net": e["network"], "area": e["area"], "proc": e["process"],

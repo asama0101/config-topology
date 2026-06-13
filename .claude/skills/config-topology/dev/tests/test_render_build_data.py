@@ -1544,3 +1544,105 @@ def test_build_devices_ospf_row_all_area_type_values():
         "3": "nssa",
         "4": "totally-nssa",
     }
+
+
+# ---------------------------------------------------------------------------
+# C4: build_devices の bgp 行に rr/nhs が含まれること
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_devices_bgp_row_rrc_true_present():
+    """routing.bgp エントリに route_reflector_client=True がある場合、build_devices の bgp 行に 'rr': True が含まれること。"""
+    from lib.rendering.data_transform import build_devices
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+                 "route_reflector_client": True},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    devices = build_devices(topo)
+    row = devices["r1"]["bgp"][0]
+    assert row.get("rr") is True
+
+
+@pytest.mark.unit
+def test_build_devices_bgp_row_rrc_absent_falsy():
+    """routing.bgp エントリに route_reflector_client がない場合、build_devices の bgp 行の 'rr' は falsy であること。"""
+    from lib.rendering.data_transform import build_devices
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    devices = build_devices(topo)
+    row = devices["r1"]["bgp"][0]
+    assert not row.get("rr")
+
+
+@pytest.mark.unit
+def test_build_devices_bgp_row_nhs_true_present():
+    """routing.bgp エントリに next_hop_self=True がある場合、build_devices の bgp 行に 'nhs': True が含まれること。"""
+    from lib.rendering.data_transform import build_devices
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4",
+                 "next_hop_self": True},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    devices = build_devices(topo)
+    row = devices["r1"]["bgp"][0]
+    assert row.get("nhs") is True
+
+
+@pytest.mark.unit
+def test_build_devices_bgp_row_nhs_absent_falsy():
+    """routing.bgp エントリに next_hop_self がない場合、build_devices の bgp 行の 'nhs' は falsy であること。"""
+    from lib.rendering.data_transform import build_devices
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    devices = build_devices(topo)
+    row = devices["r1"]["bgp"][0]
+    assert not row.get("nhs")

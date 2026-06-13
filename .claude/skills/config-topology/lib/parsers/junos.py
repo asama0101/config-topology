@@ -135,6 +135,8 @@ def parse_junos(text: str, warnings: list) -> Device:
     bgp_neighbors: dict[str, BgpNeighbor] = {}  # nip → BgpNeighbor（update_source 後付け用）
     pending_local_address: dict[str, str] = {}   # nip → local-address（peer-as より先に来た場合）
     area_types: dict[tuple[str, str], str] = {}  # {(norm_area, af): area_type_str} — 末尾で適用
+    bgp_neighbor_group: dict[str, str] = {}      # nip → group name（cluster 後付け適用用）
+    cluster_groups: set[str] = set()             # cluster 宣言を持つ group 集合
 
     def get_if(name: str) -> Interface:
         """ifaces dict から取得、未登録なら新規 Interface を作成する。"""
@@ -175,9 +177,9 @@ def parse_junos(text: str, warnings: list) -> Device:
             continue
 
         # BGP neighbor: protocols bgp group <g> neighbor <ip> peer-as <asn>
-        m = re.match(r"^protocols bgp group \S+ neighbor\s+(\S+)\s+peer-as\s+(\d+)", body)
+        m = re.match(r"^protocols bgp group (\S+) neighbor\s+(\S+)\s+peer-as\s+(\d+)", body)
         if m:
-            ip, peer = m.group(1), int(m.group(2))
+            grp, ip, peer = m.group(1), m.group(2), int(m.group(3))
             try:
                 af = "v6" if ":" in ip else "v4"
                 nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
@@ -187,8 +189,19 @@ def parse_junos(text: str, warnings: list) -> Device:
                     nb.update_source = pending_local_address.pop(nip)
                 dev.bgp.append(nb)
                 bgp_neighbors[nip] = nb
+                bgp_neighbor_group[nip] = grp   # group 名を記録（cluster 後付け用）
+                # 同一 neighbor IP が複数 group に跨るのは未定義（実 JunOS では発生しない・後勝ち。既存 update_source/local-address と一貫）
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos bgp neighbor parse failed: %s (%s)" % (body, e))
+            continue
+
+        # BGP cluster: protocols bgp group <g> cluster <cluster-id>
+        # JunOS の route reflector は group に cluster を付けることで表現する。
+        # cluster を持つ group に属する neighbor が route reflector client となる（§6.2）。
+        # JunOS の next_hop_self はポリシーベースのため本実装では対象外（False 固定）。
+        m = re.match(r"^protocols bgp group (\S+) cluster\s+\S+", body)
+        if m:
+            cluster_groups.add(m.group(1))
             continue
 
         # BGP local-address: protocols bgp group <g> neighbor <ip> local-address <localip>
@@ -277,6 +290,14 @@ def parse_junos(text: str, warnings: list) -> Device:
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos static parse failed: %s (%s)" % (body, e))
             continue
+
+    # cluster を持つ group の neighbor に route_reflector_client=True を設定（末尾一括適用）
+    # JunOS の next_hop_self はポリシーベースのため本実装では対象外（False 固定・docstring 明記）
+    if cluster_groups:
+        for nip, nb in bgp_neighbors.items():
+            grp = bgp_neighbor_group.get(nip)
+            if grp and grp in cluster_groups:
+                nb.route_reflector_client = True
 
     # OSPF network を全 IF 確定後に解決（宣言前 address 対応）
     for area, base_if, af in ospf_decls:

@@ -114,13 +114,18 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
 
 
 def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
-                    pending_update_source: dict, warnings: list) -> None:
-    """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate / update-source。
+                    pending_update_source: dict, warnings: list,
+                    pending_rr: dict, pending_nhs: dict) -> None:
+    """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate /
+    update-source / route-reflector-client / next-hop-self。
 
     pending_update_source: {nip: ifname} — remote-as より先に update-source が来たとき一時保持する。
+    pending_rr: {nip: True} — remote-as より先に route-reflector-client が来たとき一時保持する。
+    pending_nhs: {nip: True} — remote-as より先に next-hop-self が来たとき一時保持する。
+    3つの pending 引数はいずれも必須（呼び出し元 parse_ios が実 dict を渡す）。
 
-    孤立 pending update-source の挙動:
-      対応する remote-as が最後まで現れなかった pending_update_source エントリは
+    孤立 pending の挙動:
+      対応する remote-as が最後まで現れなかった pending エントリは
       警告なくドロップされる（意図的）。既存の他パース失敗時の挙動（握りつぶし継続）と整合。
     """
     m = re.match(r"^bgp router-id\s+(\S+)", s)
@@ -137,6 +142,12 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
             # remote-as より先に update-source が来たケースを適用
             if nip in pending_update_source:
                 nb.update_source = pending_update_source.pop(nip)
+            # remote-as より先に route-reflector-client が来たケースを適用
+            if nip in pending_rr:
+                nb.route_reflector_client = pending_rr.pop(nip)
+            # remote-as より先に next-hop-self が来たケースを適用
+            if nip in pending_nhs:
+                nb.next_hop_self = pending_nhs.pop(nip)
             dev.bgp.append(nb)
             neighbors[nip] = nb
         except Exception as e:                       # noqa: BLE001
@@ -163,6 +174,32 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
                 pending_update_source[nip] = ifname
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp update-source parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+route-reflector-client\b", s)
+    if m:
+        ip = m.group(1)
+        try:
+            nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+            if nip in neighbors:
+                neighbors[nip].route_reflector_client = True
+            else:
+                # remote-as がまだ現れていない — pending に積む
+                pending_rr[nip] = True
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("bgp route-reflector-client parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+next-hop-self\b", s)
+    if m:
+        ip = m.group(1)
+        try:
+            nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+            if nip in neighbors:
+                neighbors[nip].next_hop_self = True
+            else:
+                # remote-as がまだ現れていない — pending に積む
+                pending_nhs[nip] = True
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("bgp next-hop-self parse failed: %s (%s)" % (s, e))
         return
 
 
@@ -224,6 +261,8 @@ def parse_ios(text: str, warnings: list) -> Device:
     bgp_af = "v4"
     neighbors = {}
     pending_update_source = {}  # {nip: ifname} — remote-as より先に update-source が来たとき一時保持
+    pending_rr = {}             # {nip: True} — remote-as より先に route-reflector-client が来たとき一時保持
+    pending_nhs = {}            # {nip: True} — remote-as より先に next-hop-self が来たとき一時保持
     pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
     passive_ifaces = []  # router ospf 配下の passive-interface 名リスト
     area_types = {}      # {(ospf_pid, norm_area): area_type_str} — area stub/nssa 宣言を収集し末尾で適用
@@ -309,7 +348,7 @@ def parse_ios(text: str, warnings: list) -> Device:
             elif s == "exit-address-family":
                 bgp_af = "v4"
             else:
-                _parse_bgp_line(dev, s, bgp_af, neighbors, pending_update_source, warnings)
+                _parse_bgp_line(dev, s, bgp_af, neighbors, pending_update_source, warnings, pending_rr, pending_nhs)
         elif context == "ospf":
             _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces, area_types)
 

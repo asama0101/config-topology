@@ -376,3 +376,41 @@ def test_nhop_seed_not_in_adj_still_included(node_bin):
     adj = '{"A":["B"],"B":["A"]}'
     result = _run_nhop_test(node_bin, adj, '["UNKNOWN_NODE"]', 1)
     assert result == {"UNKNOWN_NODE"}  # seed 自身のみ: 他ノード(A/B)が混入しないことも検証
+
+
+# ---------------------------------------------------------------------------
+# C4: BGP SESSIONS 表の attr 列（RR/NHS バッジ）テスト
+# ---------------------------------------------------------------------------
+
+def test_bgp_sessions_table_has_attr_column_header():
+    """BGP SESSIONS 表に <th>attr</th> ヘッダが存在すること。
+
+    attr 列は route_reflector_client(RR) / next_hop_self(NHS) の略称バッジを表示する列。
+    """
+    assert '<th>attr</th>' in assets._JS
+
+
+def test_bgp_sessions_table_attr_rr_badge_logic():
+    """attr 列が b.rr を "RR" バッジに変換するロジックを含むこと。
+
+    b.rr が truthy のとき "RR" 文字列が生成されること。
+    RR = route_reflector_client の略称。
+    """
+    assert 'b.rr?"RR"' in assets._JS
+
+
+def test_bgp_sessions_table_attr_nhs_badge_logic():
+    """attr 列が b.nhs を "NHS" バッジに変換するロジックを含むこと。
+
+    b.nhs が truthy のとき "NHS" 文字列が生成されること。
+    NHS = next_hop_self の略称。
+    """
+    assert 'b.nhs?"NHS"' in assets._JS
+
+
+def test_bgp_sessions_table_attr_fallback_dash():
+    """attr 列で RR/NHS 共に falsy のとき "—" が表示されること。
+
+    [b.rr?"RR":null, b.nhs?"NHS":null].filter(Boolean).join(" ")||"—" パターン。
+    """
+    assert '.filter(Boolean).join(" ")||"—"' in assets._JS

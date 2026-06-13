@@ -195,3 +195,54 @@ def test_ospfnetwork_existing_fields_unchanged():
     assert d["area"] == "0"
     assert d["af"] == "v4"
     assert set(d.keys()) == {"process", "network", "area", "af"}  # area_type なし → 4キーのみ
+
+
+# ---------------------------------------------------------------------------
+# C4: BgpNeighbor.route_reflector_client / next_hop_self フラグテスト
+# ---------------------------------------------------------------------------
+
+def test_bgpneighbor_rrc_false_omits_key_from_dict():
+    """route_reflector_client=False（デフォルト）のとき to_dict() に 'route_reflector_client' キーが出ないこと。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "route_reflector_client" not in d
+
+
+def test_bgpneighbor_rrc_true_appears_in_dict():
+    """route_reflector_client=True のとき to_dict() に 'route_reflector_client': True が出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", route_reflector_client=True)
+    d = nb.to_dict()
+    assert d.get("route_reflector_client") is True
+
+
+def test_bgpneighbor_nhs_false_omits_key_from_dict():
+    """next_hop_self=False（デフォルト）のとき to_dict() に 'next_hop_self' キーが出ないこと。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "next_hop_self" not in d
+
+
+def test_bgpneighbor_nhs_true_appears_in_dict():
+    """next_hop_self=True のとき to_dict() に 'next_hop_self': True が出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", next_hop_self=True)
+    d = nb.to_dict()
+    assert d.get("next_hop_self") is True
+
+
+def test_bgpneighbor_both_flags_true_appear():
+    """route_reflector_client=True かつ next_hop_self=True のとき、両キーが to_dict() に出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.3", peer_as=65001, af="v4",
+                     route_reflector_client=True, next_hop_self=True)
+    d = nb.to_dict()
+    assert d.get("route_reflector_client") is True
+    assert d.get("next_hop_self") is True
+
+
+def test_bgpneighbor_flags_false_leaves_base_keys_only():
+    """両フラグが False のとき、to_dict() のキー集合に 'route_reflector_client'/'next_hop_self' が含まれないこと（golden byte 不変）。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "route_reflector_client" not in d
+    assert "next_hop_self" not in d
+    # 既存フィールドは不変
+    assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}

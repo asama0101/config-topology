@@ -1181,3 +1181,60 @@ def test_cli_warn_message_with_output_file(tmp_path):
     proc = _run_cli([str(GOLDEN), str(GOLDEN), "-o", str(out_file)])
     assert proc.returncode == 0, proc.stderr
     assert "WARN" in proc.stderr, "機密注意 WARN が stderr に含まれるはず"
+
+
+# ===========================================================================
+# 20. C4: routing.bgp の route_reflector_client / next_hop_self 変化検出
+# ===========================================================================
+
+@pytest.mark.unit
+def test_routing_bgp_changed_route_reflector_client():
+    """route_reflector_client が False→True に変わった bgp エントリが changed に出ること。
+
+    omit-when-False フィールドのため、old 側はキー欠如（.get() → None/False 相当）、
+    new 側は True。None != True で changed に現れることを検証する。
+    """
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    # old 側はキー欠如（route_reflector_client を持たない）
+    # new 側は True を設定
+    new["routing"]["bgp"][0]["route_reflector_client"] = True
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1, "route_reflector_client の変化は changed に出るはず"
+    ch = changed[0]
+    assert "route_reflector_client" in ch["fields"], \
+        "route_reflector_client フィールドが fields に含まれるはず"
+    assert ch["fields"]["route_reflector_client"] == [None, True]
+
+
+@pytest.mark.unit
+def test_routing_bgp_changed_next_hop_self():
+    """next_hop_self が False→True に変わった bgp エントリが changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    new["routing"]["bgp"][0]["next_hop_self"] = True
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1, "next_hop_self の変化は changed に出るはず"
+    ch = changed[0]
+    assert "next_hop_self" in ch["fields"], \
+        "next_hop_self フィールドが fields に含まれるはず"
+    assert ch["fields"]["next_hop_self"] == [None, True]
+
+
+@pytest.mark.unit
+def test_routing_bgp_rr_true_to_false_detected():
+    """route_reflector_client が True→None（削除）に変わった場合も changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    old["routing"]["bgp"][0]["route_reflector_client"] = True
+    # new 側はキー欠如 → .get() = None
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1
+    assert "route_reflector_client" in changed[0]["fields"]
+    assert changed[0]["fields"]["route_reflector_client"] == [True, None]

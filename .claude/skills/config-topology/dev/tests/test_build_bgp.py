@@ -179,3 +179,84 @@ def test_update_source_link_local_ip_v6_returns_none():
     bgp = build_bgp([("r1", r1)])
     # Assert: link-local の update_source は local_ip に使わない → None
     assert bgp[0]["local_ip"] is None
+
+
+# ---------------------------------------------------------------------------
+# C4: build_bgp — route_reflector_client / next_hop_self 透過テスト
+# ---------------------------------------------------------------------------
+
+def test_build_bgp_rrc_true_emits_key():
+    """route_reflector_client=True の BgpNeighbor を持つ Device の build_bgp 出力に 'route_reflector_client': True が含まれること。"""
+    # Arrange
+    r1 = _dev("RR", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65001, "v4", route_reflector_client=True)])
+    # Act
+    bgp = build_bgp([("rr", r1)])
+    # Assert
+    assert bgp[0].get("route_reflector_client") is True
+
+
+def test_build_bgp_rrc_false_omits_key():
+    """route_reflector_client=False（デフォルト）の場合、build_bgp 出力に 'route_reflector_client' キーが出ないこと（golden byte 不変）。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "route_reflector_client" not in bgp[0]
+
+
+def test_build_bgp_nhs_true_emits_key():
+    """next_hop_self=True の BgpNeighbor の build_bgp 出力に 'next_hop_self': True が含まれること。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4", next_hop_self=True)])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert bgp[0].get("next_hop_self") is True
+
+
+def test_build_bgp_nhs_false_omits_key():
+    """next_hop_self=False（デフォルト）の場合、build_bgp 出力に 'next_hop_self' キーが出ないこと（golden byte 不変）。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "next_hop_self" not in bgp[0]
+
+
+def test_build_bgp_both_flags_true():
+    """route_reflector_client=True かつ next_hop_self=True の場合、両キーが build_bgp 出力に含まれること。"""
+    # Arrange
+    r1 = _dev("RR", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65001, "v4",
+                           route_reflector_client=True, next_hop_self=True)])
+    # Act
+    bgp = build_bgp([("rr", r1)])
+    # Assert
+    assert bgp[0].get("route_reflector_client") is True
+    assert bgp[0].get("next_hop_self") is True
+
+
+def test_build_bgp_golden_unchanged_no_flags():
+    """フラグなし（デフォルト）の場合、build_bgp 出力の基本キー集合が既存 golden と一致すること（byte 不変確認）。"""
+    # Arrange: 既存 golden と同じ構成（update_source なし、フラグなし）
+    r1 = _dev("R1", 65001,
+              [Interface(name="GigabitEthernet0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    e = bgp[0]
+    # Assert: 既存フィールドのみ含むこと（新規フラグキーが混入しない）
+    expected_keys = {"device", "local_as", "local_ip", "neighbor_ip", "peer_as", "type", "af"}
+    assert set(e.keys()) == expected_keys

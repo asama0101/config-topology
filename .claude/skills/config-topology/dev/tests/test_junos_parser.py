@@ -554,3 +554,86 @@ def test_junos_ospf_area_type_last_declaration_wins():
     area13 = [o for o in dev.ospf if o.area == "13" and o.af == "v4"]
     assert len(area13) == 1
     assert area13[0].area_type == "nssa"
+
+
+# ---------------------------------------------------------------------------
+# C4: BGP route-reflector-client 抽出（JunOS）— group cluster → rr_client
+# ---------------------------------------------------------------------------
+
+def test_junos_bgp_cluster_group_sets_rrc():
+    """set protocols bgp group <g> cluster <id> が付いた group の neighbor に route_reflector_client=True が設定されること。"""
+    text = (
+        "set system host-name RR\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+        "set protocols bgp group ibgp cluster 1.1.1.1\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = [n for n in dev.bgp if n.neighbor_ip == "10.0.0.2"][0]
+    assert nb.route_reflector_client is True
+
+
+def test_junos_bgp_no_cluster_group_rrc_false():
+    """cluster を持たない group の neighbor は route_reflector_client=False のままであること（非干渉）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ebgp neighbor 10.0.0.3 peer-as 65002\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = [n for n in dev.bgp if n.neighbor_ip == "10.0.0.3"][0]
+    assert nb.route_reflector_client is False
+
+
+def test_junos_bgp_cluster_only_affects_own_group():
+    """cluster を持つ group の neighbor のみ rrc=True となり、cluster を持たない group の neighbor は False であること（非干渉）。"""
+    text = (
+        "set system host-name RR\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+        "set protocols bgp group ibgp cluster 1.1.1.1\n"
+        "set protocols bgp group ebgp neighbor 10.0.0.3 peer-as 65002\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].route_reflector_client is True
+    assert nb_map["10.0.0.3"].route_reflector_client is False
+
+
+def test_junos_bgp_cluster_multiple_neighbors_in_group():
+    """同一 cluster group 内の複数 neighbor が全員 rrc=True になること。"""
+    text = (
+        "set system host-name RR\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.3 peer-as 65001\n"
+        "set protocols bgp group ibgp cluster 1.1.1.1\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].route_reflector_client is True
+    assert nb_map["10.0.0.3"].route_reflector_client is True
+
+
+def test_junos_bgp_next_hop_self_always_false():
+    """JunOS は next_hop_self をポリシーベースで制御するため、next_hop_self は常に False であること。
+
+    JunOS には IOS の `neighbor next-hop-self` 相当の set コマンドがない。
+    本実装では next_hop_self は False 固定（docstring にも明記）。
+    """
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+        "set protocols bgp group ibgp cluster 1.1.1.1\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    for nb in dev.bgp:
+        assert nb.next_hop_self is False, (
+            "JunOS neighbor %s: next_hop_self は常に False であるべき" % nb.neighbor_ip
+        )
