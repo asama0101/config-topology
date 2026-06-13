@@ -94,3 +94,18 @@ def test_empty_routing_file_treated_as_empty_list(tmp_path):
     (tmp_path / "routing.bgp.yaml").write_text("", encoding="utf-8")   # 空ファイル
     loaded = load_topology(str(tmp_path))
     assert loaded["routing"]["bgp"] == []
+
+
+def test_empty_devices_file_degrades_gracefully(tmp_path):
+    # 手編集で空になった devices.yaml は空リスト扱い（§3.1）— TypeError を出さない
+    dump_topology(_topo(), str(tmp_path))
+    (tmp_path / "devices.yaml").write_text("", encoding="utf-8")
+    loaded = load_topology(str(tmp_path))
+    assert loaded["devices"] == [] and loaded["interfaces"] == []
+
+
+def test_empty_physical_file_degrades_gracefully(tmp_path):
+    dump_topology(_topo(), str(tmp_path))
+    (tmp_path / "physical.yaml").write_text("", encoding="utf-8")
+    loaded = load_topology(str(tmp_path))
+    assert loaded["links"] == [] and loaded["segments"] == []

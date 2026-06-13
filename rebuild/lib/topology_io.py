@@ -47,10 +47,14 @@ def load_topology(in_dir):
             routing[proto] = []
             continue
         routing[proto] = (data or {}).get(proto) or []
+    devs = devs or {}
+    phys = phys or {}
     topo = {
-        "meta": meta,
-        "devices": devs["devices"], "interfaces": devs["interfaces"],
-        "links": phys["links"], "segments": phys["segments"],
+        "meta": meta or {},
+        "devices": devs.get("devices") or [],
+        "interfaces": devs.get("interfaces") or [],
+        "links": phys.get("links") or [],
+        "segments": phys.get("segments") or [],
         "routing": routing,
     }
     _validate_refs(topo)

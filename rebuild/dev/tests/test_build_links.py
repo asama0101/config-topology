@@ -82,3 +82,14 @@ def test_link_endpoint_ordering():
            _if("r1::Gi0", "r1", "Gi0", [("v4", "10.0.0.1", 30)])]
     links, _ = infer_links_segments(ifs)
     assert links[0]["a_device"] == "r1" and links[0]["b_device"] == "r2"
+
+
+def test_three_members_segment_even_with_same_device():
+    # メンバー≥3 は device 構成に関係なく segment（同一機器の複数 IF を含んでも）
+    ifs = [_if("r1::Gi0", "r1", "Gi0", [("v4", "10.0.0.1", 24)]),
+           _if("r1::Gi1", "r1", "Gi1", [("v4", "10.0.0.2", 24)]),
+           _if("r2::ge0", "r2", "ge0", [("v4", "10.0.0.3", 24)])]
+    links, segments = infer_links_segments(ifs)
+    assert links == []
+    assert len(segments) == 1
+    assert segments[0]["members"] == ["r1::Gi0", "r1::Gi1", "r2::ge0"]
