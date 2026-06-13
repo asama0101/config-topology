@@ -76,3 +76,21 @@ def test_dangling_routing_device(tmp_path):
     with pytest.raises(ValueError) as ei:
         load_topology(str(tmp_path))
     assert "routing.static.yaml" in str(ei.value) and "rQ" in str(ei.value)
+
+
+def test_roundtrip_with_routing_entries(tmp_path):
+    topo = _topo()
+    topo["routing"]["bgp"] = [{"af": "v4", "device": "r1", "local_as": 1, "local_ip": None,
+                               "neighbor_ip": "10.0.0.2", "peer_as": 2, "type": "ebgp"}]
+    dump_topology(topo, str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["routing"]["bgp"][0]["neighbor_ip"] == "10.0.0.2"
+    assert loaded["routing"]["ospf"] == [] and loaded["routing"]["static"] == []
+
+
+def test_empty_routing_file_treated_as_empty_list(tmp_path):
+    # 手編集で空になった routing ファイルは空リスト扱い（§3.2）— 内部例外を出さない
+    dump_topology(_topo(), str(tmp_path))
+    (tmp_path / "routing.bgp.yaml").write_text("", encoding="utf-8")   # 空ファイル
+    loaded = load_topology(str(tmp_path))
+    assert loaded["routing"]["bgp"] == []

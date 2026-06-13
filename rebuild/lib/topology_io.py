@@ -41,9 +41,12 @@ def load_topology(in_dir):
     phys = _load_file(in_dir, "physical.yaml")
     routing = {}
     for proto in ("bgp", "ospf", "static"):
-        path = os.path.join(in_dir, "routing.%s.yaml" % proto)
-        routing[proto] = _load_file(in_dir, "routing.%s.yaml" % proto)[proto] \
-            if os.path.exists(path) else []
+        try:
+            data = _load_file(in_dir, "routing.%s.yaml" % proto)
+        except FileNotFoundError:
+            routing[proto] = []
+            continue
+        routing[proto] = (data or {}).get(proto) or []
     topo = {
         "meta": meta,
         "devices": devs["devices"], "interfaces": devs["interfaces"],
