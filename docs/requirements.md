@@ -791,7 +791,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 | 要素 | 可視化要件 |
 |------|----------|
 | **機器** | ノード（矩形等）+ hostname ラベル + 副ラベル（ビュー別: vendor / AS・router-id 等）。**インターフェースチップは描画しない**（§8.4.1） |
-| **リンク** | 実線。選択・ライン選択・ライン hover 時に**線端の IF 名 / IPv4 / IPv6 を改行で縦積み**表示し、中央に subnet（dual-stack は v4・v6 を併記）を表示（§8.5） |
+| **リンク** | 実線。選択・ライン選択・ライン hover 時に**線端の IF 名 / IPv4 / IPv6（GUA＋link-local を淡色併記）を改行で縦積み**表示し、中央に subnet（dual-stack は v4・v6 を併記）を表示（§8.5） |
 | **admin_down リンク** | 破線・淡色で区別 |
 | **dual-stack リンク** | 線種は分けない（通常の1本線）。v6 は IF 端ラベル・subnet ラベルに v4 と同形式で併記する |
 | **セグメント** | 中央ノード（楕円等）＋メンバー IF への放射状接続（spoke）。subnet ラベル。spoke にも IF 名 / IP ラベルを併記（選択・hover 時） |
@@ -879,7 +879,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - 機器/セグメント/外部ピアの選択で表示。複数選択時は先頭に「選択リンク」一覧（選択ノード間リンク・セグメントの両端 IF 情報）を表示。
 - 機器カード:
   - ヘッダ: hostname / vendor / AS 番号 / **router-id バッジ（OSPF・BGP は機器内で同一のため `rid` として1つに統合**。設定時のみ）
-  - **Interfaces** 表: Name / IP（dual-stack は v4 の下に v6 を表示）/ Description / Status
+  - **Interfaces** 表: Name / IPv4 / IPv6（GUA＋link-local を淡色併記）/ Description / Status
   - **BGP Sessions** 表: neighbor / peer_as / type / **af**
   - **OSPF Networks** 表: network / area
   - **Static Routes** 表: prefix / next_hop
@@ -914,14 +914,14 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 
 #### 8.7.1 ADDRESSES（サブネット管理）
 
-- **1 行 = 1 IF**（IPv4 / IPv6 を併記）。列: Device / Interface / IPv4 / IPv6 / Description / Status。
+- **1 行 = 1 IF**（IPv4 / IPv6 を併記）。列: Device / Interface / IPv4 / IPv6 / Description / Status。**v6 link-local（fe80::）は除外**（結線推論除外〔§7.1〕と同様、IPAM ノイズ・重複 IP 誤検出を避けるため）。
 - **サブネット単位にグループ化**（IPAM 風）。グループ見出しに subnet（dual-stack は v4・v6 を 1 行に統合）と**使用率**を表示。使用率＝使用アドレス数 / 収容数で、収容数は v4 prefix から算出する（`/31`＝2、`/32`＝1、それ以外＝`2^(32−prefix)−2`）。v6-only・推論外グループは使用アドレス数（IF 数）のみ表示。使用率は**検索フィルタに依存せず全グループメンバーから算出**する（フィルタで行が減っても分母・使用数は不変）。グループ順は v4 ネットワークアドレス昇順 → v6-only → サブネット推論外（loopback 等）で決定的。
 - **所属サブネットの導出**: 結線推論（links/segments 由来）を優先し、無ければ当該 IF の prefix 長から導出する（対外スタブ /30 等も管理対象に載せる）。/32（host route）は推論外グループへ。
 
 #### 8.7.2 INTERFACES（IF 一覧・ポート管理）
 
 - **機器単位にグループ化**。グループ見出しに**物理ポートの使用ポート集計**（状態別: 使用 / 予約 / 使用不可 / 空き）と**ラインカード別内訳**を表示する。ラインカードは IF 名のスロット表記（例 `GigabitEthernet1/0/x` → カード `GigabitEthernet1/0`）から決定し、仮想 IF（loopback / SVI 等）は物理ポート集計から除外する。
-- 行の列: Interface / Connected to / IPv4 / IPv6 / Description / Status（種別バッジ付）/ MTU / Speed / 指定 / 備考。
+- 行の列: Interface / Connected to / IPv4 / IPv6（GUA＋link-local を淡色併記）/ Description / Status（種別バッジ付）/ MTU / Speed / 指定 / 備考。
 - **対向情報（Connected to）**: リンクは対向機器・IF、セグメントはメンバー一覧、外部 BGP は対向 AS を表示。リンク対向はクリックで**対向 IF 行へジャンプ**（折りたたみ中なら展開してスクロール＋一時強調）。
 - **IF 種別**: 接続（結線あり）/ スタブ（IP ありだが対向なし）/ **未使用（IPv4 / IPv6 いずれのアドレスも description も無し）** / loopback。種別フィルタチップ（ALL / 接続 / スタブ / 未使用 / 予約 / 使用不可 / down）で絞り込む。
 
