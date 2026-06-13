@@ -1,0 +1,15 @@
+bgp:
+- af: v4
+  device: r1
+  local_as: 65001
+  local_ip: 10.0.0.1
+  neighbor_ip: 10.0.0.2
+  peer_as: 65002
+  type: ebgp
+- af: v4
+  device: r2
+  local_as: 65002
+  local_ip: 10.0.0.2
+  neighbor_ip: 10.0.0.1
+  peer_as: 65001
+  type: ebgp
