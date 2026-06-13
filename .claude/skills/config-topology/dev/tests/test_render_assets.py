@@ -1,4 +1,5 @@
 """アセット（CSS/BODY/JS）の自己完結性・適応の構造テスト。"""
+import json
 import re
 import shutil
 import subprocess
@@ -192,3 +193,186 @@ def test_bgp_sessions_table_src_fallback_dash():
     """b.src が falsy（None/undefined/空文字）のとき "—" を表示すること。"""
     # b.src ? esc(b.src) : "—" パターン
     assert 'b.src?esc(b.src):"—"' in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# B1 隣接フォーカスモード — string-presence テスト（補助）
+# ---------------------------------------------------------------------------
+
+def test_focus_mode_state_in_js():
+    """S.focusMode と S.focusHops が state に定義されていること。"""
+    assert 'S.focusMode' in assets._JS
+    assert 'S.focusHops' in assets._JS
+
+
+def test_focus_btn_in_body():
+    """_BODY に id="btn-focus" ボタンが存在し、class="tbtn gonly" が付与されていること。
+
+    gonly クラスは図ビュー専用（表ビューに切り替わると hidden になる）。
+    実装の属性順（class="tbtn gonly" id="btn-focus"）に合わせて検証する。
+    """
+    assert 'id="btn-focus"' in assets._BODY
+    assert 'class="tbtn gonly" id="btn-focus"' in assets._BODY  # 図ビュー専用クラスが付与されていること
+
+
+def test_nhop_neighbors_function_in_js():
+    """_JS に nHopNeighbors 関数が定義されていること。"""
+    assert 'function nHopNeighbors' in assets._JS
+
+
+def test_focus_set_in_apply_visibility():
+    """applyVisibility 内で focusSet と focusActive が使われていること。"""
+    assert 'focusSet' in assets._JS
+    assert 'focusActive' in assets._JS  # 二重ガード集約変数が存在すること
+
+
+def test_focus_mode_dim_condition_for_nodes():
+    """ノードの dim 条件に focusMode ガードが含まれること。
+
+    focusActive 変数（= S.focusMode && S.sel.size）を使った名前付き条件で検証する。
+    同一条件の二重記述を 1 変数に集約（maint HIGH 修正後の形式）。
+    """
+    assert 'focusActive && !focusSet.has(id)' in assets._JS
+
+
+def test_focus_mode_dim_condition_for_lines():
+    """ラインの dim 条件に focusMode ガードが含まれること。
+
+    focusActive 変数（= S.focusMode && S.sel.size）を使った名前付き条件で検証する。
+    """
+    assert 'focusActive && !ends.every(id=>focusSet.has(id))' in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# B1 隣接フォーカスモード — node 実行ロジックテスト（nHopNeighbors 純関数の実検証）
+# ---------------------------------------------------------------------------
+
+def _extract_nhop_neighbors_source(js: str) -> str:
+    """_JS から nHopNeighbors 関数ブロックをバランス中括弧で切り出す。"""
+    start_marker = "function nHopNeighbors"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError("nHopNeighbors not found in _JS")
+    # 関数の { } のバランスを数えて切り出す
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError("nHopNeighbors: unbalanced braces")
+
+
+def _run_nhop_test(node_bin: str, adj_js: str, seeds_js: str, hops: int) -> set:
+    """node を使って nHopNeighbors を実行し、結果の Set を Python set として返す。"""
+    func_src = _extract_nhop_neighbors_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        f"const adj = {adj_js};\n"
+        f"const seeds = {seeds_js};\n"
+        f"const result = nHopNeighbors(adj, seeds, {hops});\n"
+        f"process.stdout.write(JSON.stringify([...result]));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                      capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        # ESM が使えない環境はフォールバック（通常の script）
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return set(json.loads(r.stdout))
+
+
+@pytest.fixture(scope="module")
+def node_bin():
+    """node バイナリのパスを返す。存在しなければ skip。"""
+    b = shutil.which("node")
+    if not b:
+        pytest.skip("node 不在のためロジックテストをスキップ")
+    return b
+
+
+def test_nhop_1hop_direct_neighbors(node_bin):
+    """1-hop: seed の直接隣接のみ（seed 自身を含む）が返ること。
+
+    グラフ: A-B-C-D（線形）、seed=A → {A, B} だけ。
+    C や D は含まれない。
+    """
+    adj = '{"A":["B"],"B":["A","C"],"C":["B","D"],"D":["C"]}'
+    result = _run_nhop_test(node_bin, adj, '["A"]', 1)
+    assert result == {"A", "B"}
+
+
+def test_nhop_2hop_two_steps(node_bin):
+    """2-hop: seed から 2 段先まで含むこと。
+
+    グラフ: A-B-C-D（線形）、seed=A → {A, B, C}。D は含まれない。
+    """
+    adj = '{"A":["B"],"B":["A","C"],"C":["B","D"],"D":["C"]}'
+    result = _run_nhop_test(node_bin, adj, '["A"]', 2)
+    assert result == {"A", "B", "C"}
+
+
+def test_nhop_seed_always_included(node_bin):
+    """seed 自身は必ず結果に含まれること（隣接がない場合でも）。
+
+    adj が空リストの seed は隣接が存在しないため、結果は {"A"} のみ。
+    単なる `"A" in result` ではなく厳密な集合一致で「余計なものが入らない」こと
+    も合わせて検証する（部分一致テストはバグを見逃す）。
+    """
+    adj = '{"A":[]}'
+    result = _run_nhop_test(node_bin, adj, '["A"]', 1)
+    assert result == {"A"}  # "A" in result より厳密: 余計なノードが混入しないことも保証
+
+
+def test_nhop_disconnected_node_excluded(node_bin):
+    """非連結ノードは結果に含まれないこと。
+
+    グラフ: A-B、別クラスタ C-D、seed=A → {A, B} のみ。
+    """
+    adj = '{"A":["B"],"B":["A"],"C":["D"],"D":["C"]}'
+    result = _run_nhop_test(node_bin, adj, '["A"]', 1)
+    assert result == {"A", "B"}
+    assert "C" not in result
+    assert "D" not in result
+
+
+def test_nhop_multiple_seeds(node_bin):
+    """複数 seed の和集合が得られること。
+
+    グラフ: A-B-C-D（線形）、seeds=[A, D] with 1-hop → {A, B, C, D}。
+    A の 1-hop = {A, B}、D の 1-hop = {C, D}、和集合 = {A, B, C, D}。
+    """
+    adj = '{"A":["B"],"B":["A","C"],"C":["B","D"],"D":["C"]}'
+    result = _run_nhop_test(node_bin, adj, '["A","D"]', 1)
+    assert result == {"A", "B", "C", "D"}
+
+
+def test_nhop_hops_zero_returns_only_seeds(node_bin):
+    """hops=0 の場合は seed のみが返ること。
+
+    hops を無視して隣接を展開する壊れた BFS では B が混入するため、
+    「B が含まれない」ことも明示的に検証し、そのような実装を確実に弾く。
+    """
+    adj = '{"A":["B"],"B":["A","C"],"C":["B"]}'
+    result = _run_nhop_test(node_bin, adj, '["A"]', 0)
+    assert result == {"A"}
+    assert "B" not in result  # hops=0 で隣接が入らないこと（hops を無視する壊れた BFS を弾く）
+
+
+def test_nhop_seed_not_in_adj_still_included(node_bin):
+    """adj に存在しない id を seeds に含めた場合、その seed 自身は結果に入ること。
+
+    UNKNOWN_NODE は adj に存在しないため隣接が取得できない。
+    結果は {"UNKNOWN_NODE"} のみ（adj 上の他ノード A・B は混入しない）。
+    厳密な集合一致で検証し、「seed が入ること」と「余計なノードが入らないこと」
+    を同時に保証する。
+    """
+    adj = '{"A":["B"],"B":["A"]}'
+    result = _run_nhop_test(node_bin, adj, '["UNKNOWN_NODE"]', 1)
+    assert result == {"UNKNOWN_NODE"}  # seed 自身のみ: 他ノード(A/B)が混入しないことも検証

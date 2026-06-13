@@ -24,7 +24,7 @@
 - [ ] A3 階層/直交レイアウトモード切替 — L（A1後）
 
 ### B. UI操作性
-- [ ] B1 隣接フォーカスモード（選択ノードの N hop 隣接のみ強調・他を淡色化）— S
+- [x] B1 隣接フォーカスモード（選択ノードの N hop 隣接以外を淡色化）— S ✅反復6完了
 - [ ] B2 表ビューの列フィルタ/絞り込みチップ（vendor/area/AS）— M
 - [ ] B3 URLハッシュ状態の保存/復元（選択・ビュー・フィルタを #state= に決定的エンコード）— M
 - [ ] B4 凡例からの一括レイヤー操作＋ショートカット拡充 — S（A1後）
@@ -92,5 +92,14 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: requirements.md §8.3/§9.1/用語集の「機器 ID 昇順」を AS クラスタリング反映に更新、CLAUDE.md 索引に cluster_order。
 - テスト 366→385 passed（+19）。golden byte 不変・render 決定性維持。観点A(視認性)に初進出。
 
-### 次候補: 反復6 B1 隣接フォーカスモード（render JS・観点B 未着手）/ C3 OSPF area type（parser）/ D4 サブネット使用率ビュー（render）/ A2 リンクラベル重なり回避（layout/JS）。観点B(操作性)が未着手なので B1 を推奨。または観点C継続で C3。
-推奨順序の残り目安: B1 → C3 → D4 → A2 → C4 → B2 → A1b → D3 → C5 → 残り。
+### 反復6: B1 隣接フォーカスモード — ✅完了（2026-06-14）
+- assets.py に純関数 `nHopNeighbors(adj, seeds, hops)`（BFS・DOM非依存）、`S.focusMode/focusHops`、`#btn-focus`、applyVisibility の dim 統合を追加。観点B(操作性)に初進出。
+- 選択ノードの N-hop 隣接サブグラフ以外を淡色化（dim）。connectedOnly(非表示)と差別化。既定OFF・図ビュー専用(gonly)・ビュー対応(adjacency 経由)。
+- テスト: node 実行で nHopNeighbors の BFS を実検証（壊すと赤になることを実証）。
+- レビュー対応: 弱いテスト3件を厳密集合一致に強化(A1教訓)、gonly検証、focusActive で二重ガード集約、focusHops コメント、title文言、import整理。
+- doc: SKILL.md・requirements.md §8.5・CLAUDE.md 索引を同期。
+- テスト 385→398 passed（+13）。golden byte 不変・render 決定性維持。
+
+### 観点カバレッジ: A(視認性)=A1 / B(操作性)=B1 / C(設定管理)=C2,C1 / D(業務支援)=D1,D2 — **4観点すべて着手済み**。
+### 次候補: 反復7 C3 OSPF area type stub/nssa（parser・観点C）/ D4 サブネット使用率ビュー（render・観点D）/ A2 リンクラベル重なり回避（layout/JS・観点A）/ B2 表ビュー列フィルタ（render・観点B）。バランス重視なら未深掘りの観点を回す。parser系で強TDD可能な C3 か、業務支援の D4 を推奨。
+推奨順序の残り目安: C3 → D4 → A2 → B2 → C4 → A1b → D3 → C5 → C1b → 残り。

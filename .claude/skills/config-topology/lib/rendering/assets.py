@@ -476,6 +476,7 @@ _BODY = """\
     <span class="tsep gonly"></span>
     <button class="tbtn gonly" id="btn-nodes" title="表示するノードを個別に指定">表示ノード</button>
     <button class="tbtn gonly" id="btn-connected" title="選択ノードの接続先のみ表示">接続先のみ</button>
+    <button class="tbtn gonly" id="btn-focus" title="選択ノードの N-hop 隣接以外を淡色化（フォーカス）">フォーカス</button>
     <span class="tsep gonly"></span>
     <button class="tbtn gonly" id="btn-minimap">MAP</button>
     <button class="tbtn gonly" id="btn-legend">凡例</button>
@@ -543,6 +544,7 @@ const S = {
   view:"physical", k:1, tx:0, ty:0,
   sel:new Set(), search:"", matches:[], mi:-1,
   connectedOnly:false,
+  focusMode:false, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
   filters:{seg:true, ext:true},
   hiddenNodes:new Set(), nodePanel:false,
   legend:true, minimap:true, legendHot:null,
@@ -653,6 +655,28 @@ function adjacency() {
     }
   }
   return adj;
+}
+
+/* nHopNeighbors: BFS で seeds から hops ホップ以内に到達する全 id の Set を返す純関数。
+   adj は {id: Set<id> | Array<id>} 形式（adjacency() の戻り値を直接渡せる）。
+   seeds 自身は必ず結果に含まれる。adj に存在しない seed も結果に含まれる。
+   DOM / グローバル状態に一切依存しない純関数（テストで node 実行できる）。 */
+function nHopNeighbors(adj, seeds, hops) {
+  const visited = new Set(seeds);
+  let frontier = [...seeds];
+  for (let h = 0; h < hops; h++) {
+    const next = [];
+    for (const id of frontier) {
+      const nbrs = adj[id];
+      if (!nbrs) continue;
+      for (const nb of nbrs) {
+        if (!visited.has(nb)) { visited.add(nb); next.push(nb); }
+      }
+    }
+    frontier = next;
+    if (frontier.length === 0) break;
+  }
+  return visited;
 }
 
 /* 積み上げラベル: IF名 / IPv4 / IPv6 を1行ずつ改行して縦に描画（caller 側で null 行を除去して渡す）
@@ -931,6 +955,9 @@ function applyTransform() {
 /* visibility: filters / connected-only / search dim / legend-click 強調 */
 function applyVisibility() {
   const adj = adjacency();
+  /* フォーカスモード: 選択ノードの N-hop 隣接サブグラフ以外を dim（非表示にはしない） */
+  const focusActive = S.focusMode && S.sel.size;
+  const focusSet = focusActive ? nHopNeighbors(adj, [...S.sel], S.focusHops) : null;
   /* 凡例クリックフィルタ: 該当ラインとその端点ノード以外を dim */
   let lgNodes = null, lgLine = null;
   if (S.legendHot) {
@@ -976,7 +1003,8 @@ function applyVisibility() {
   world.querySelectorAll("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']").forEach(el => {
     const id = el.dataset.id;
     const hidden = !visible(id);
-    const dim = (S.matches.length > 0 && !S.matches.includes(id)) || (lgNodes && !lgNodes.has(id));
+    const dim = (S.matches.length > 0 && !S.matches.includes(id)) || (lgNodes && !lgNodes.has(id))
+             || (focusActive && !focusSet.has(id));
     el.classList.toggle("hidden", hidden);
     el.classList.toggle("dim", dim);
     decoState[`${el.dataset.elem}:${id}`] = { hidden, dim };
@@ -989,7 +1017,8 @@ function applyVisibility() {
            ends = e.kind==="loopback" ? [e.a,e.b] : e.kind==="external" ? [e.a,e.ext]
                 : (l => l ? [l.a,l.b] : [])(DATA.links.find(x=>x.id===e.link)); }
     const hidden = ends.length === 0 || !ends.every(visible);
-    const dim = (S.matches.length > 0 && !ends.some(id=>S.matches.includes(id))) || (lgLine && !lgLine(el));
+    const dim = (S.matches.length > 0 && !ends.some(id=>S.matches.includes(id))) || (lgLine && !lgLine(el))
+             || (focusActive && !ends.every(id=>focusSet.has(id)));
     el.classList.toggle("hidden", hidden);
     el.classList.toggle("dim", dim);
     const key = el.dataset.elem === "seglink"
@@ -1967,6 +1996,7 @@ $("#search").addEventListener("keydown", ev => {
 $("#f-seg").onchange = e => { S.filters.seg = e.target.checked; render(); };
 $("#f-ext").onchange = e => { S.filters.ext = e.target.checked; render(); };
 $("#btn-connected").onclick = function() { S.connectedOnly = !S.connectedOnly; this.classList.toggle("on", S.connectedOnly); render(); };
+$("#btn-focus").onclick = function() { S.focusMode = !S.focusMode; this.classList.toggle("on", S.focusMode); render(); };
 
 /* 表示ノード指定パネル: ノード単位で表示/非表示を指定 */
 function renderNodePanel() {
