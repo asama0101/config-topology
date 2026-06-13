@@ -109,3 +109,85 @@ def build_bgp(id_dev):
                 "type": _bgp_type(dev.as_, nb.peer_as), "af": nb.af,
             })
     return out
+
+
+def build_ospf(id_dev):
+    """id_dev: [(device_id, Device)] → routing.ospf エントリ列（§5.4）。"""
+    out = []
+    for dev_id, dev in id_dev:
+        for o in dev.ospf:
+            out.append({"device": dev_id, "process": o.process,
+                        "network": o.network, "area": o.area, "af": o.af})
+    return out
+
+
+def build_static(id_dev):
+    """id_dev: [(device_id, Device)] → routing.static エントリ列（§5.4）。"""
+    out = []
+    for dev_id, dev in id_dev:
+        for s in dev.static:
+            out.append({"device": dev_id, "prefix": s.prefix,
+                        "next_hop": s.next_hop, "af": s.af})
+    return out
+
+
+def aggregate_areas(areas):
+    """端点の area を集約（§5.3.1/§7.4）。単一→そのまま、複数→昇順スラッシュ連結。"""
+    uniq = sorted(set(areas))
+    if len(uniq) == 1:
+        return uniq[0]
+    if all(a.isdigit() for a in uniq):
+        uniq = sorted(uniq, key=int)                 # 全数値 → 数値昇順
+    return "/".join(uniq)                            # 非数値混在 → 辞書式（既に sorted）
+
+
+def annotate_ospf(links, segments, ospf_entries, iface_device_map):
+    """link/segment に subnet 一致の OSPF area/network を注釈（§7.4）。admin_down は除外（§7.2）。"""
+    by_subnet = {}   # network CIDR -> [(device, area)]
+    for o in ospf_entries:
+        by_subnet.setdefault(o["network"], []).append((o["device"], o["area"]))
+
+    for link in links:
+        if link.get("admin_down"):
+            continue
+        devs = {link["a_device"], link["b_device"]}
+        areas = [area for (d, area) in by_subnet.get(link["subnet"], []) if d in devs]
+        if areas:
+            link["ospf_area"] = aggregate_areas(areas)
+            link["ospf_network"] = link["subnet"]
+
+    for seg in segments:
+        devs = {iface_device_map[m] for m in seg["members"]}
+        areas = [area for (d, area) in by_subnet.get(seg["subnet"], []) if d in devs]
+        if areas:
+            seg["ospf_area"] = aggregate_areas(areas)
+            seg["ospf_network"] = seg["subnet"]
+
+
+def build_topology(parsed, generated_from, title=DEFAULT_TITLE):
+    """正規化 Device 群 → topology dict（§5・§7）。全リストを §7.5 の決定的順序で出力。"""
+    device_ids, devices, interfaces = build_devices_interfaces(parsed)
+    id_dev = list(zip(device_ids, parsed))
+
+    links, segments = infer_links_segments(interfaces)
+    bgp = build_bgp(id_dev)
+    ospf = build_ospf(id_dev)
+    static = build_static(id_dev)
+
+    iface_device_map = {itf["id"]: itf["device"] for itf in interfaces}
+    annotate_ospf(links, segments, ospf, iface_device_map)
+
+    # §7.5 決定的順序
+    links.sort(key=lambda l: (l["a_device"], l["a_if"], l["b_device"], l["b_if"], l["subnet"]))
+    segments.sort(key=lambda s: s["id"])
+    bgp.sort(key=lambda e: (e["device"], e["af"], e["neighbor_ip"]))
+    ospf.sort(key=lambda e: (e["device"], e["af"], e["area"], e["network"]))
+    static.sort(key=lambda e: (e["device"], e["af"], e["prefix"], e["next_hop"]))
+
+    return {
+        "meta": {"schema_version": "1.0", "title": title,
+                 "generated_from": list(generated_from)},
+        "devices": devices, "interfaces": interfaces,
+        "links": links, "segments": segments,
+        "routing": {"bgp": bgp, "ospf": ospf, "static": static},
+    }
