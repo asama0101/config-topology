@@ -19,7 +19,7 @@
 ### A. レイアウト視認性
 - [x] A1 AS でのノードクラスタリング（layout.py 初期円周配置を AS グループ順に）— M ✅反復5完了
 - [ ] A1b area でのノードクラスタリング（device 単位 area 集約が必要・cluster_order 拡張）— M
-- [ ] A2 リンクラベル重なり回避（決定的法線オフセット）— M
+- [x] A2 リンクラベル重なり回避（決定的法線オフセット）— M ✅反復15完了
 - [x] A4 ノードサイズの degree 連動（拡大のみ・上限・決定的）— S ✅反復11完了
 - [ ] A3 階層/直交レイアウトモード切替 — L（A1後）
 
@@ -160,6 +160,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: requirements.md §8.4 凡例・CLAUDE.md 索引を同期。
 - テスト 717→738 passed（+21）。golden byte 不変・render 決定性維持。correctness 機能バグなし。
 
-### 観点カバレッジ: A=A1,A4 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b。A2・B3・C5・D4。
-### 次候補: 反復15。A が最も手薄（2）。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ A3 階層レイアウトモード切替（L・A1後）/ A1b area クラスタリング（cluster_order拡張）。観点バランスで A2 推奨（純関数 node 検証可）。次点 C4b/D3c（強TDD/業務）。
-推奨順序の残り目安: A2 → A1b → C4b → D3c → C1b → B2(差別化要) → 残り。
+### 反復15: A2 リンクラベル法線オフセット — ✅完了（2026-06-14）
+- 純関数 `edgeNormalOffset(ax,ay,bx,by,dist)`（方向ベクトルを左90°回転した単位法線×dist・小数1桁丸め・退化 a==b で{0,0}）を node 実検証（直交性=内積≈0で接線誤実装を確実に検出）。
+- subnet ラベルを中点固定 `my+7`（エッジ角度依存で線上に乗る）→ 法線オフセット（LABEL_NORMAL_OFFSET=10）に置換。どの角度でも線から外れて可読性向上。IF ラベル/area バッジはスコープ外。
+- レビュー: correctness 完全承認（直交性・退化・決定性・表示条件不変）。LABEL_NORMAL_OFFSET コメント・CLAUDE.md 索引・test docstring の行番号除去を対応。
+- doc: requirements.md §8.4・CLAUDE.md を同期。
+- テスト 738→749 passed（+11）。golden byte 不変・render 決定性維持。
+
+### 観点カバレッジ: A=A1,A4,A2 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b。**A3・B3・C5・D4**（全観点3+）。
+### 次候補: 反復16。観点はほぼ均衡。C4b BGP timers/community（parser強TDD・pending増殖注意）/ D3c history自動連携（直近history/との差分を自動ビュー化・D3b活用）/ A1b area クラスタリング（cluster_order拡張・A1基盤）/ A3 階層レイアウト（L）。業務価値＋実装容易性で D3c 推奨（render --diff-against を history 自動選択に拡張）。次点 A1b（layout強化）。
+推奨順序の残り目安: D3c → A1b → C4b → C1b → A3 → B2(差別化要) → 残り。

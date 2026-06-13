@@ -856,7 +856,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 | 要素 | 可視化要件 |
 |------|----------|
 | **機器** | ノード（矩形等）+ hostname ラベル + 副ラベル（ビュー別: vendor / AS・router-id 等）。**インターフェースチップは描画しない**（§8.4.1） |
-| **リンク** | 実線。選択・ライン選択・ライン hover 時に**線端の IF 名 / IPv4 / IPv6（GUA＋link-local を淡色併記）を改行で縦積み**表示し、中央に subnet（dual-stack は v4・v6 を併記）を表示（§8.5） |
+| **リンク** | 実線。選択・ライン選択・ライン hover 時に**線端の IF 名 / IPv4 / IPv6（GUA＋link-local を淡色併記）を改行で縦積み**表示し、中央に subnet（dual-stack は v4・v6 を併記）を表示（§8.5）。subnet ラベルはエッジの**法線方向**に決定的オフセット（`edgeNormalOffset`）を加えて配置し、エッジの角度によらず線との重なりを避ける（A2） |
 | **admin_down リンク** | 破線・淡色で区別 |
 | **dual-stack リンク** | 線種は分けない（通常の1本線）。v6 は IF 端ラベル・subnet ラベルに v4 と同形式で併記する |
 | **セグメント** | 中央ノード（楕円等）＋メンバー IF への放射状接続（spoke）。subnet ラベル。spoke にも IF 名 / IP ラベルを併記（選択・hover 時） |

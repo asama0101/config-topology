@@ -1956,3 +1956,218 @@ def test_b4_render_html_determinism():
     h1 = template.render_html(minimal_topology)
     h2 = template.render_html(minimal_topology)
     assert h1 == h2, "B4 実装後に render_html が決定的でなくなった"
+
+
+# ===========================================================================
+# A2: リンクラベルの法線（垂直）オフセットによる重なり回避
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# string-presence テスト
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a2_edge_normal_offset_function_in_js():
+    """edgeNormalOffset 関数が _JS に定義されていること。"""
+    assert "function edgeNormalOffset" in assets._JS, \
+        "_JS に function edgeNormalOffset が見当たらない"
+
+
+@pytest.mark.unit
+def test_a2_label_normal_offset_constant_in_js():
+    """LABEL_NORMAL_OFFSET 定数が _JS に定義されていること。"""
+    assert "LABEL_NORMAL_OFFSET" in assets._JS, \
+        "_JS に LABEL_NORMAL_OFFSET 定数が見当たらない"
+
+
+@pytest.mark.unit
+def test_a2_subnet_label_uses_edge_normal_offset():
+    """subnet ラベル配置が edgeNormalOffset を使っていること（固定 my + 7 が消えたこと）。
+
+    旧実装 `stackLabel(parts, mx, my + 7, ...)` は法線オフセット化により
+    `const off = edgeNormalOffset(...); stackLabel(parts, mx + off.dx, my + off.dy, ...)` に
+    置換される。固定 `my + 7` パターンはリンクセクションに残っていてはならない。
+    """
+    # edgeNormalOffset を呼び出していること
+    assert "edgeNormalOffset(a.x, a.y, b.x, b.y" in assets._JS, \
+        "subnet ラベル配置が edgeNormalOffset を呼び出していない"
+    # off.dx / off.dy を使って stackLabel を呼んでいること
+    assert "off.dx" in assets._JS, \
+        "stackLabel に off.dx が渡されていない"
+    assert "off.dy" in assets._JS, \
+        "stackLabel に off.dy が渡されていない"
+
+
+@pytest.mark.unit
+def test_a2_fixed_my_plus_7_removed():
+    """旧実装の固定 `my + 7` が subnet ラベル配置から除去されていること。
+
+    `stackLabel(parts, mx, my + 7,` というパターンが残っていると
+    法線オフセット化されていないことを意味する。
+    """
+    # links セクションの subnet ラベル部分に my + 7 が残っていないこと
+    # (OSPF area badge セクションは今回スコープ外なので `my+14` 等は許可)
+    assert "stackLabel(parts, mx, my + 7," not in assets._JS, \
+        "旧実装 `stackLabel(parts, mx, my + 7,` が残存している（法線オフセット化されていない）"
+
+
+# ---------------------------------------------------------------------------
+# node 実行ロジックテスト: edgeNormalOffset 純関数の実検証（必須）
+# ---------------------------------------------------------------------------
+
+def _extract_edge_normal_offset_source(js: str) -> str:
+    """_JS から edgeNormalOffset 関数ブロックをバランス中括弧で切り出す。"""
+    start_marker = "function edgeNormalOffset"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError("edgeNormalOffset not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError("edgeNormalOffset: unbalanced braces")
+
+
+def _run_edge_normal_offset(node_bin: str, ax, ay, bx, by, dist) -> dict:
+    """node を使って edgeNormalOffset を実行し {dx, dy} を Python dict として返す。"""
+    func_src = _extract_edge_normal_offset_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        f"const result = edgeNormalOffset({ax}, {ay}, {bx}, {by}, {dist});\n"
+        "process.stdout.write(JSON.stringify(result));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+@pytest.mark.unit
+def test_a2_horizontal_edge_offset_is_vertical(node_bin):
+    """水平エッジ (0,0)-(10,0) の法線オフセットが垂直方向（dx≈0, |dy|≈dist）であること。
+
+    水平エッジ (dx=10, dy=0) の法線は (-dy, dx)/L = (0, 10)/10 = (0, 1)。
+    dist=10 をかけると {dx:0, dy:10}（符号は回転方向により異なるが |dy|≈10）。
+    壊すと赤: 法線ではなく接線（{dx≈10, dy≈0}）にすると dx 大 dy≈0 で失敗する。
+    """
+    result = _run_edge_normal_offset(node_bin, 0, 0, 10, 0, 10)
+    assert abs(result["dx"]) < 1.0, \
+        f"水平エッジの法線オフセットで dx が大きすぎる（接線方向？）: dx={result['dx']}"
+    assert abs(result["dy"]) > 9.0, \
+        f"水平エッジの法線オフセットで |dy| が小さすぎる: dy={result['dy']}"
+
+
+@pytest.mark.unit
+def test_a2_vertical_edge_offset_is_horizontal(node_bin):
+    """垂直エッジ (0,0)-(0,10) の法線オフセットが水平方向（|dx|≈dist, dy≈0）であること。
+
+    垂直エッジ (dx=0, dy=10) の法線は (-dy, dx)/L = (-10, 0)/10 = (-1, 0)。
+    dist=10 をかけると {dx:-10, dy:0}（|dx|≈10）。
+    壊すと赤: 法線ではなく接線（{dx≈0, dy≈10}）にすると dy 大 dx≈0 で失敗する。
+    """
+    result = _run_edge_normal_offset(node_bin, 0, 0, 0, 10, 10)
+    assert abs(result["dx"]) > 9.0, \
+        f"垂直エッジの法線オフセットで |dx| が小さすぎる: dx={result['dx']}"
+    assert abs(result["dy"]) < 1.0, \
+        f"垂直エッジの法線オフセットで dy が大きすぎる（接線方向？）: dy={result['dy']}"
+
+
+@pytest.mark.unit
+def test_a2_diagonal_edge_orthogonality(node_bin):
+    """斜めエッジの法線オフセットがエッジ方向と直交すること（内積≈0）。
+
+    斜めエッジ (0,0)-(3,4) では edge方向=(3,4)、法線=(-4,3)/5（正規化後）× dist。
+    off · (edge方向) ≈ 0 が成立しなければ法線ではなく接線方向になっている。
+    壊すと赤: edgeNormalOffset で (-dy,dx) の代わりに (dx,dy) を返すと
+    off = edge方向と平行になり内積 ≠ 0 で失敗する。
+    """
+    dist = 10
+    result = _run_edge_normal_offset(node_bin, 0, 0, 3, 4, dist)
+    # edge方向ベクトル
+    edge_dx, edge_dy = 3, 4
+    # 内積: off.dx * edge_dx + off.dy * edge_dy ≈ 0
+    dot = result["dx"] * edge_dx + result["dy"] * edge_dy
+    assert abs(dot) < 1.0, \
+        f"法線オフセットがエッジ方向と直交していない（内積={dot:.4f}、接線方向になっている可能性）"
+
+
+@pytest.mark.unit
+def test_a2_offset_magnitude_equals_dist(node_bin):
+    """法線オフセットの大きさが dist に等しいこと（正規化されていること）。
+
+    edgeNormalOffset(0, 0, 3, 4, 10) → sqrt(dx²+dy²) ≈ 10。
+    壊すと赤: 正規化を省くと大きさが L になり dist ≠ 大きさで失敗する。
+    """
+    result = _run_edge_normal_offset(node_bin, 0, 0, 3, 4, 10)
+    magnitude = (result["dx"] ** 2 + result["dy"] ** 2) ** 0.5
+    assert abs(magnitude - 10.0) < 0.5, \
+        f"法線オフセットの大きさが dist(=10) に等しくない: magnitude={magnitude:.4f}"
+
+
+@pytest.mark.unit
+def test_a2_degenerate_same_point_returns_zero(node_bin):
+    """退化ケース a==b（始点==終点）で {dx:0, dy:0} が返ること（例外なし）。
+
+    L=0 の除算で例外を投げる実装を弾く。
+    """
+    result = _run_edge_normal_offset(node_bin, 5, 5, 5, 5, 10)
+    assert result["dx"] == 0.0 or result["dx"] == 0, \
+        f"退化ケースで dx が 0 でない: dx={result['dx']}"
+    assert result["dy"] == 0.0 or result["dy"] == 0, \
+        f"退化ケースで dy が 0 でない: dy={result['dy']}"
+
+
+@pytest.mark.unit
+def test_a2_deterministic_same_call_twice(node_bin):
+    """edgeNormalOffset を同じ引数で2回呼んで同一結果が得られること（決定性）。"""
+    func_src = _extract_edge_normal_offset_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        "const r1 = edgeNormalOffset(1, 2, 4, 6, 12);\n"
+        "const r2 = edgeNormalOffset(1, 2, 4, 6, 12);\n"
+        "const same = (r1.dx === r2.dx && r1.dy === r2.dy);\n"
+        "process.stdout.write(JSON.stringify({r1, r2, same}));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    result = json.loads(r.stdout)
+    assert result["same"] is True, \
+        f"edgeNormalOffset が決定的でない（2回呼んで異なる結果）: {result}"
+
+
+# ---------------------------------------------------------------------------
+# render 決定性テスト（A2 実装後も維持されること）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a2_render_html_determinism():
+    """A2 実装後も render_html が決定的であること（2回バイト一致）。
+
+    edgeNormalOffset が純粋な数式で決定的であるため HTML 出力も決定的であること。
+    """
+    from lib.rendering import template
+    minimal_topology = {
+        "devices": {},
+        "interfaces": [],
+        "links": [],
+        "segments": [],
+        "routing": {"bgp": [], "ospf": [], "static": []},
+        "meta": {"generated_from": [], "schema_version": "2.0"},
+    }
+    h1 = template.render_html(minimal_topology)
+    h2 = template.render_html(minimal_topology)
+    assert h1 == h2, "A2 実装後に render_html が決定的でなくなった"

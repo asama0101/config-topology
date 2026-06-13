@@ -775,6 +775,22 @@ function syncHashToState() {
   history.replaceState(null, "", next);
 }
 
+/* edgeNormalOffset: エッジ (ax,ay)-(bx,by) の法線方向（90°回転）に dist だけオフセットした {dx, dy} を返す純関数。
+   法線は方向ベクトル (ex,ey) を左90°回転した (-ey, ex) を単位化し dist を掛けたもの。
+   L===0（a==b 退化）のときは {dx:0, dy:0} を返す（例外なし）。
+   小数第1位に丸めて決定的な出力にする。DOM/グローバル状態に一切依存しない純関数。 */
+/* LABEL_NORMAL_OFFSET: subnet ラベルをエッジ法線方向へずらす既定距離（SVG 座標単位 px）。
+   小さすぎると線と重なり、大きすぎると隣ノードに被る。10 は NODE_H=56 の約1/5 を目安。 */
+const LABEL_NORMAL_OFFSET = 10;
+function edgeNormalOffset(ax, ay, bx, by, dist) {
+  const ex = bx - ax, ey = by - ay;
+  const L = Math.sqrt(ex * ex + ey * ey);
+  if (L === 0) return { dx: 0, dy: 0 };
+  /* 法線ベクトル: (ex,ey) を左90°回転 → (-ey, ex)、長さLで割って単位化、distを掛ける */
+  const nx = -ey / L * dist, ny = ex / L * dist;
+  return { dx: Math.round(nx * 10) / 10, dy: Math.round(ny * 10) / 10 };
+}
+
 /* nHopNeighbors: BFS で seeds から hops ホップ以内に到達する全 id の Set を返す純関数。
    adj は {id: Set<id> | Array<id>} 形式（adjacency() の戻り値を直接渡せる）。
    seeds 自身は必ず結果に含まれる。adj に存在しない seed も結果に含まれる。
@@ -892,10 +908,12 @@ function render() {
       const lines = [ifn, ip, ip6].filter(Boolean).concat(lls);
       stackLabel(parts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`});
     }
-    /* リンクのネットワーク情報（subnet。v6 も同形式で併記）を選択/ホバー時に表示（OSPFバッジ表示時は重複を避け省略） */
+    /* リンクのネットワーク情報（subnet。v6 も同形式で併記）を選択/ホバー時に表示（OSPFバッジ表示時は重複を避け省略）
+       エッジの法線方向オフセット（edgeNormalOffset）を使い、エッジの角度によらず線の外側にラベルを配置する */
     if (showIf && !(showOspf && l.area && !l.admin_down)) {
       const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
-      stackLabel(parts, mx, my + 7, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`});
+      const off = edgeNormalOffset(a.x, a.y, b.x, b.y, LABEL_NORMAL_OFFSET);
+      stackLabel(parts, mx + off.dx, my + off.dy, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`});
     }
     /* OSPF area badge */
     if (showOspf && l.area && !l.admin_down) {
