@@ -33,6 +33,28 @@ def test_explicit_output(tmp_path):
     assert proc.returncode == 0 and out.exists()
 
 
+def test_render_retains_existing_html(tmp_path):
+    # 既定出力 ./topology.html が既存 → 生成前に history へ退避
+    (tmp_path / "topology.html").write_text("<!doctype html>old", encoding="utf-8")
+    proc = _run([str(GOLDEN)], cwd=str(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    history = tmp_path / "history"
+    assert history.exists()
+    snaps = list(history.iterdir())
+    assert len(snaps) == 1
+    assert (snaps[0] / "topology.html").read_text(encoding="utf-8") == "<!doctype html>old"
+    new = tmp_path / "topology.html"
+    assert new.exists()
+    assert new.read_text(encoding="utf-8").lstrip().lower().startswith("<!doctype html")
+    assert "退避" in proc.stderr
+
+
+def test_render_no_retention_when_absent(tmp_path):
+    proc = _run([str(GOLDEN)], cwd=str(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert not (tmp_path / "history").exists()
+
+
 def test_dangling_ref_exits_1(tmp_path):
     bad = tmp_path / "topo"
     bad.mkdir()
