@@ -1,0 +1,6 @@
+ospf:
+- af: v4
+  area: '0'
+  device: r1
+  network: 192.168.1.0/24
+  process: 1

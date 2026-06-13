@@ -1,0 +1,8 @@
+links:
+- a_device: r1
+  a_if: GigabitEthernet0/0
+  b_device: r2
+  b_if: ge-0/0/0
+  kind: inferred-subnet
+  subnet: 10.0.0.0/30
+segments: []

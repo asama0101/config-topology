@@ -1,0 +1,5 @@
+generated_from:
+- sample-ios-r1.cfg
+- sample-junos-r2.conf
+schema_version: '1.0'
+title: Network Topology (config-derived)
