@@ -658,6 +658,85 @@ function adjacency() {
   return adj;
 }
 
+/* ================= URL ハッシュ状態保存/復元（B3） ================= */
+
+/* encodeState(view, selIds): ビューと選択ノード id 配列からハッシュ文字列を生成する純関数。
+   selIds は昇順ソートして決定的に。各 id は encodeURIComponent でエンコード（: / を含む id 対応）。
+   選択なし（selIds 空）なら n= は付けない。DOM・グローバル変数に一切触れない純関数。 */
+function encodeState(view, selIds) {
+  let s = "";
+  if (view) s += "v=" + encodeURIComponent(view);
+  if (selIds && selIds.length > 0) {
+    const sorted = selIds.slice().sort();
+    const n = sorted.map(id => encodeURIComponent(id)).join(",");
+    s += (s ? "&" : "") + "n=" + n;
+  }
+  return s;
+}
+
+/* decodeState(hashStr): ハッシュ文字列（先頭 # 付き可）をパースして {view, sel} を返す純関数。
+   不正・空・未知形式に対して安全（例外を投げず {view:null, sel:[]} 相当を返す）。
+   DOM・グローバル変数に一切触れない純関数。 */
+function decodeState(hashStr) {
+  try {
+    const s = String(hashStr || "").replace(/^#/, "");
+    if (!s) return { view: null, sel: [] };
+    const params = Object.create(null);   /* __proto__/constructor 等のキー注入をプロトタイプレベルで排除 */
+    for (const part of s.split("&")) {
+      const eq = part.indexOf("=");
+      if (eq === -1) continue;
+      const k = part.slice(0, eq);
+      const v = part.slice(eq + 1);
+      params[k] = v;
+    }
+    const view = params.v ? decodeURIComponent(params.v) || null : null;
+    let sel = [];
+    if (params.n) {
+      sel = params.n.split(",").filter(Boolean).slice(0, 500).map(id => { try { return decodeURIComponent(id); } catch(_) { return null; } }).filter(Boolean);
+    }
+    return { view, sel };
+  } catch (_) {
+    return { view: null, sel: [] };
+  }
+}
+
+/* applyStateFromHash(): location.hash を decodeState し、有効な view/sel を適用する。
+   view が VIEWS に含まれる場合のみ setView 相当で適用。
+   sel の各 id が実在ノード（DATA.devices/segments/extPeers）の場合のみ S.sel に復元（不正 id は無視）。
+   DATA を使う検証はこの関数内で行う（純関数 decodeState とは分離）。 */
+function applyStateFromHash() {
+  const { view, sel } = decodeState(location.hash);
+  if (view && VIEWS.includes(view)) {
+    S.view = view;
+    document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  }
+  if (sel && sel.length > 0) {
+    const validIds = new Set([
+      ...Object.keys(DATA.devices),
+      ...DATA.segments.map(s => s.id),
+      ...DATA.extPeers.map(e => e.id),
+    ]);
+    S.sel.clear();
+    for (const id of sel) { if (validIds.has(id)) S.sel.add(id); }
+  }
+  /* view 固有クリーンアップ: setView と同じロジックで、復元した sel から
+     現在のビューに不適合な id を除去（手細工 URL による不整合を解消）。
+     順序: view 設定 → 有効 sel 復元 → クリーンアップ */
+  const v = S.view;
+  if (v === "bgp") for (const s of DATA.segments) S.sel.delete(s.id);
+  if (v === "ospf") for (const s of DATA.segments) if (!s.area) S.sel.delete(s.id);
+  if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
+}
+
+/* syncHashToState(): 現在の S.view と S.sel を encodeState し、history.replaceState でハッシュ更新。
+   replaceState を使い履歴汚染・リロードを避ける。現在のハッシュと同一なら書かない（無駄な更新防止）。 */
+function syncHashToState() {
+  const encoded = encodeState(S.view, [...S.sel]);
+  const next = "#" + encoded;
+  if (location.hash === next) return;
+  history.replaceState(null, "", next);
+}
+
 /* nHopNeighbors: BFS で seeds から hops ホップ以内に到達する全 id の Set を返す純関数。
    adj は {id: Set<id> | Array<id>} 形式（adjacency() の戻り値を直接渡せる）。
    seeds 自身は必ず結果に含まれる。adj に存在しない seed も結果に含まれる。
@@ -2120,10 +2199,12 @@ function update() {
     if (((lg === "ebgp" || lg === "ibgp") && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf")) S.legendHot = null;
   }
   render(); renderDetails(); renderLegend();
+  syncHashToState();  /* URL ハッシュを現在の view+sel に同期（B3） */
 }
 $("#btn-minimap").classList.add("on");
 $("#btn-legend").classList.add("on");
 renderStatus();
+applyStateFromHash();  /* URL ハッシュから view+sel を復元してから初期描画（B3） */
 update();
 zoomFit();
 window.addEventListener("resize", () => schedule(render));

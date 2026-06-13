@@ -414,3 +414,449 @@ def test_bgp_sessions_table_attr_fallback_dash():
     [b.rr?"RR":null, b.nhs?"NHS":null].filter(Boolean).join(" ")||"—" パターン。
     """
     assert '.filter(Boolean).join(" ")||"—"' in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# B3 URL ハッシュによるビュー・選択状態の保存/復元
+# ---------------------------------------------------------------------------
+
+# ---- string-presence（補助） ----
+
+def test_url_hash_encode_state_function_present():
+    """_JS に encodeState 関数が定義されていること。"""
+    assert 'function encodeState' in assets._JS
+
+
+def test_url_hash_decode_state_function_present():
+    """_JS に decodeState 関数が定義されていること。"""
+    assert 'function decodeState' in assets._JS
+
+
+def test_url_hash_apply_state_from_hash_present():
+    """_JS に applyStateFromHash 関数が定義されていること（boot 連携）。"""
+    assert 'applyStateFromHash' in assets._JS
+
+
+def test_url_hash_replace_state_present():
+    """_JS に history.replaceState 呼び出しが存在すること（履歴汚染防止）。"""
+    assert 'replaceState' in assets._JS
+
+
+def test_url_hash_sync_hash_to_state_present():
+    """_JS にハッシュ書き込み関数（syncHashToState 等）が存在すること。"""
+    assert 'syncHashToState' in assets._JS
+
+
+def test_url_hash_apply_called_before_update_in_boot():
+    """boot 処理で applyStateFromHash が update() より前に呼ばれていること。
+
+    boot ブロック内の呼び出し順序を文字列位置で検証する。
+    function update() の定義終端より後のスコープで、
+    applyStateFromHash() の呼び出しが update() の呼び出しより前にあること。
+    """
+    js = assets._JS
+    # boot ブロックの開始（既存 boot マーカー）
+    boot_start = js.find("/* ================= boot =================")
+    assert boot_start != -1, "boot ブロックが見つからない"
+    boot_section = js[boot_start:]
+    # function update() 定義ブロックの終端を探す（balanced-brace）
+    func_def_marker = "function update()"
+    func_def_pos = boot_section.find(func_def_marker)
+    assert func_def_pos != -1, "function update() が boot ブロックに無い"
+    brace_depth = 0
+    func_start_i = boot_section.index("{", func_def_pos)
+    i = func_start_i
+    while i < len(boot_section):
+        if boot_section[i] == "{":
+            brace_depth += 1
+        elif boot_section[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                break
+        i += 1
+    # 定義ブロック終端以降の "呼び出しセクション" で位置を検索
+    call_section = boot_section[i + 1:]
+    apply_pos = call_section.find("applyStateFromHash()")
+    update_pos = call_section.find("update()")
+    assert apply_pos != -1, "applyStateFromHash() が boot 呼び出しセクションに無い"
+    assert update_pos != -1, "update() が boot 呼び出しセクションに無い"
+    assert apply_pos < update_pos, "applyStateFromHash() は update() より前に呼ばれる必要がある"
+
+
+def test_url_hash_sync_called_inside_update():
+    """update() 関数内で syncHashToState() が呼ばれていること。
+
+    状態変化（選択/ビュー変更）は全て update() を通るため、
+    update() 内で一度呼べば最小変更で済む。
+    """
+    js = assets._JS
+    # update 関数ブロックを切り出す
+    update_start = js.find("function update()")
+    assert update_start != -1
+    # balanced-brace でブロック終端を探す
+    brace_depth = 0
+    func_start = js.index("{", update_start)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                break
+        i += 1
+    update_body = js[update_start:i + 1]
+    assert 'syncHashToState()' in update_body, "syncHashToState() が update() 内で呼ばれていない"
+
+
+# ---- node 実行ロジックテスト（純関数の実検証・必須） ----
+
+def _extract_function_source(js: str, func_name: str) -> str:
+    """_JS から指定した関数ブロックをバランス中括弧で切り出す。
+
+    B1 の nHopNeighbors と同じ balanced-brace 抽出ロジック。
+    """
+    start_marker = f"function {func_name}"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError(f"{func_name} not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError(f"{func_name}: unbalanced braces")
+
+
+def _run_encode_decode_test(node_bin: str, driver_js: str) -> str:
+    """node を使って encodeState/decodeState を実行し stdout を返す。"""
+    encode_src = _extract_function_source(assets._JS, "encodeState")
+    decode_src = _extract_function_source(assets._JS, "decodeState")
+    full = f"{encode_src}\n{decode_src}\n{driver_js}"
+    r = subprocess.run([node_bin, "--input-type=module"], input=full,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=full,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return r.stdout.strip()
+
+
+def test_encode_decode_roundtrip(node_bin):
+    """encodeState → decodeState のラウンドトリップが一致すること。
+
+    decodeState("#" + encodeState("bgp", ["r2","r1"])) の sel は昇順ソートされ
+    ["r1","r2"] になること。ラウンドトリップで view と sel が元通りに復元できること。
+    """
+    driver = (
+        "const encoded = encodeState('bgp', ['r2', 'r1']);\n"
+        "const decoded = decodeState('#' + encoded);\n"
+        "process.stdout.write(JSON.stringify(decoded));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["view"] == "bgp", f"view が復元できない: {result}"
+    assert result["sel"] == ["r1", "r2"], f"sel が昇順ソートで復元できない: {result}"
+
+
+def test_encode_deterministic_order(node_bin):
+    """同じ集合を順不同で渡しても同一エンコードになること（決定性）。
+
+    sel は昇順ソートして決定的に encode するため、順序に依存しない。
+    """
+    driver = (
+        "const e1 = encodeState('physical', ['r2', 'r1', 'r3']);\n"
+        "const e2 = encodeState('physical', ['r3', 'r1', 'r2']);\n"
+        "process.stdout.write(JSON.stringify({e1, e2, same: e1 === e2}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["same"] is True, f"順序が変わるとエンコードが変わってしまう: {result}"
+
+
+def test_encode_no_n_when_no_selection(node_bin):
+    """選択なしのとき n= が付かないこと。
+
+    encodeState('physical', []) は 'v=physical' だけを返す。
+    decodeState で sel=[] が復元されること。
+    """
+    driver = (
+        "const encoded = encodeState('physical', []);\n"
+        "const hasN = encoded.includes('n=');\n"
+        "const decoded = decodeState('#' + encoded);\n"
+        "process.stdout.write(JSON.stringify({encoded, hasN, sel: decoded.sel}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["hasN"] is False, f"選択なしなのに n= が付いている: {result}"
+    assert result["sel"] == [], f"sel が空配列でない: {result}"
+
+
+def test_encode_decode_special_chars(node_bin):
+    """特殊文字 id が encode→decode で保たれること。
+
+    'ext:203.0.113.7' や 'seg-192.0.2.0/30' のような ':' や '/' を含む id が
+    encodeURIComponent でエンコードされ、decodeURIComponent で復元されること。
+    """
+    driver = (
+        "const ids = ['ext:203.0.113.7', 'seg-192.0.2.0/30'];\n"
+        "const encoded = encodeState('bgp', ids);\n"
+        "const decoded = decodeState('#' + encoded);\n"
+        "const restored = decoded.sel.slice().sort();\n"
+        "const expected = ids.slice().sort();\n"
+        "process.stdout.write(JSON.stringify({restored, expected, ok: JSON.stringify(restored) === JSON.stringify(expected)}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["ok"] is True, f"特殊文字 id が decode で変わっている: {result}"
+
+
+def test_decode_empty_string_safe(node_bin):
+    """decodeState('') が例外を投げず安全な値を返すこと。
+
+    不正入力に対して {view:null, sel:[]} 相当を返すこと。
+    """
+    driver = (
+        "let caught = null, result = null;\n"
+        "try { result = decodeState(''); } catch(e) { caught = e.message; }\n"
+        "process.stdout.write(JSON.stringify({caught, view: result ? result.view : 'ERROR', sel: result ? result.sel : 'ERROR'}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["caught"] is None, f"例外が投げられた: {result['caught']}"
+    assert result["view"] is None or result["view"] == "", f"view が安全でない: {result}"
+    assert result["sel"] == [], f"sel が安全でない: {result}"
+
+
+def test_decode_garbage_safe(node_bin):
+    """decodeState('#garbage') が例外を投げず安全な値を返すこと。
+
+    不正形式に対して {view:null, sel:[]} 相当を返すこと。
+    """
+    driver = (
+        "let caught = null, result = null;\n"
+        "try { result = decodeState('#garbage'); } catch(e) { caught = e.message; }\n"
+        "process.stdout.write(JSON.stringify({caught, view: result ? result.view : 'ERROR', sel: result ? result.sel : 'ERROR'}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["caught"] is None, f"例外が投げられた: {result['caught']}"
+    assert result["view"] is None, f"view が null でない: {result}"
+    assert result["sel"] == [], f"sel が安全でない: {result}"
+
+
+def test_decode_empty_v_and_n_safe(node_bin):
+    """decodeState('#v=&n=') が例外を投げず安全な値を返すこと。
+
+    v= が空、n= が空のとき view は null 相当、sel は [] になること。
+    """
+    driver = (
+        "let caught = null, result = null;\n"
+        "try { result = decodeState('#v=&n='); } catch(e) { caught = e.message; }\n"
+        "process.stdout.write(JSON.stringify({caught, view: result ? result.view : 'ERROR', sel: result ? result.sel : 'ERROR'}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["caught"] is None, f"例外が投げられた: {result['caught']}"
+    assert result["sel"] == [], f"sel が安全でない: {result}"
+
+
+def test_encode_sort_breaks_if_not_sorted(node_bin):
+    """ソートなし実装では決定性テストが失敗することの実証（壊れた実装の赤検証）。
+
+    同じ id セットを異なる順序で渡してもエンコードが同一になることを確認するテスト
+    (test_encode_deterministic_order) は、ソートが無ければ失敗する。
+    このテストはソートが意味を持つことを確認する：ソート後の selIds で
+    エンコードすると r1,r2,r3 の順になること（昇順）。
+    """
+    driver = (
+        "const encoded = encodeState('physical', ['r3', 'r1', 'r2']);\n"
+        "const decoded = decodeState('#' + encoded);\n"
+        # ソートされていれば r1,r2,r3 の昇順になる
+        "const isSorted = decoded.sel.join(',') === 'r1,r2,r3';\n"
+        "process.stdout.write(JSON.stringify({sel: decoded.sel, isSorted}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["isSorted"] is True, f"encodeState が sel を昇順ソートしていない: {result}"
+
+
+# ---- render 決定性（ハッシュは HTML に焼かれないことを担保） ----
+
+def test_render_html_determinism_with_hash_state():
+    """render_html を 2 回呼んでバイト一致すること。
+
+    URL ハッシュは実行時のクライアント状態であり生成 HTML に焼き込まれない。
+    同一入力 → 同一バイトの決定性が維持されること。
+    """
+    from lib.rendering import template
+    # 最小限のトポロジーデータで2回 render して比較
+    # topology dict は topology_io.load_topology が返す形式に合わせる
+    minimal_topology = {
+        "devices": {},
+        "interfaces": [],
+        "links": [],
+        "segments": [],
+        "routing": {"bgp": [], "ospf": [], "static": []},
+        "meta": {"generated_from": [], "schema_version": "2.0"},
+    }
+    h1 = template.render_html(minimal_topology)
+    h2 = template.render_html(minimal_topology)
+    assert h1 == h2, "render_html が決定的でない（2回呼んで異なるバイト列）"
+    # ハッシュ文字列が HTML 本体（<script> タグ外）に焼き込まれていないことを確認。
+    # （location.hash は _JS 定数内 = <script> タグ中にあってよいが、
+    #   テンプレート変数として動的に挿入されてはいけない）
+    # NOTE: 以前のアサーション "not in h1 or in assets._JS" は常時 True で無効だった。
+    #       script タグを除去した HTML 本体に location.hash が現れないことを直接検証する。
+    no_script = re.sub(r'<script[^>]*>.*?</script>', '', h1, flags=re.DOTALL)
+    assert "location.hash" not in no_script, \
+        "location.hash が <script> タグ外の HTML 本体に焼き込まれている"
+
+
+# ---------------------------------------------------------------------------
+# B3 追加テスト群（修正 #1 / #4 / #5b / #5c）
+# ---------------------------------------------------------------------------
+
+# ---- 修正 #1: プロトタイプ汚染防御（__proto__ / constructor 注入） ----
+
+def test_decode_state_proto_pollution_safe(node_bin):
+    """decodeState("#__proto__=x&v=bgp") がプロトタイプを汚染せず {view:"bgp", sel:[]} を返すこと。
+
+    params を Object.create(null) で生成することで __proto__ / constructor キーの注入を防ぐ。
+    DOM 非依存の純関数テストで node 実行し、汚染の有無と戻り値を両方検証する。
+    """
+    driver = (
+        # __proto__ を注入した後に Object.prototype が汚染されていないかを検証
+        "const before = Object.prototype.x;\n"
+        "const result = decodeState('#__proto__=x&v=bgp');\n"
+        "const afterProto = Object.prototype.x;\n"
+        "const polluted = afterProto !== before;\n"
+        "process.stdout.write(JSON.stringify({"
+        "  view: result.view, sel: result.sel, polluted"
+        "}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["view"] == "bgp", f"view が bgp でない: {result}"
+    assert result["sel"] == [], f"sel が空でない: {result}"
+    assert result["polluted"] is False, f"Object.prototype が汚染された: {result}"
+
+
+def test_decode_state_constructor_pollution_safe(node_bin):
+    """decodeState("#constructor=x&v=ospf") が constructor キーで汚染されず {view:"ospf"} を返すこと。"""
+    driver = (
+        "const result = decodeState('#constructor=x&v=ospf');\n"
+        "process.stdout.write(JSON.stringify({view: result.view, sel: result.sel}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["view"] == "ospf", f"view が ospf でない: {result}"
+    assert result["sel"] == [], f"sel が空でない: {result}"
+
+
+# ---- 修正 #4: sel 上限ガード ----
+
+def test_decode_state_sel_limit_in_js():
+    """decodeState の n= 処理に sel 上限ガード（.slice(0, 500)）が含まれていること。
+
+    巨大入力での無駄処理を防ぐ上限ガード。
+    決定性・通常動作（500 件以内）に影響しないこと（500 は実トポロジー規模を十分上回る）。
+    """
+    assert '.slice(0, 500)' in assets._JS, \
+        "decodeState の sel 上限ガード .slice(0, 500) が _JS に含まれていない"
+
+
+def test_decode_state_sel_limit_functional(node_bin):
+    """sel 上限ガードが機能すること: 501 件渡しても 500 件に切り捨てられること。
+
+    DOM 依存なしの純関数で検証。通常のトポロジー（< 500 件）には影響しない。
+    """
+    # 501 件の id 配列を生成して n= に渡す
+    driver = (
+        "const ids = Array.from({length: 501}, (_, i) => 'node-' + i);\n"
+        "const encoded = encodeState('physical', ids);\n"
+        "const decoded = decodeState('#' + encoded);\n"
+        "process.stdout.write(JSON.stringify({count: decoded.sel.length}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["count"] <= 500, f"sel が 500 件を超えている: {result['count']}"
+
+
+# ---- 修正 #5b: #v=bgp（選択なし）のラウンドトリップ ----
+
+def test_decode_bgp_view_no_sel_roundtrip(node_bin):
+    """#v=bgp（選択なし）の decode が {view:"bgp", sel:[]} を返すこと。
+
+    encodeState('bgp', []) → decodeState のラウンドトリップで
+    view="bgp" かつ sel=[] が保たれること。
+    """
+    driver = (
+        "const encoded = encodeState('bgp', []);\n"
+        "const decoded = decodeState('#' + encoded);\n"
+        "process.stdout.write(JSON.stringify({view: decoded.view, sel: decoded.sel, hasN: encoded.includes('n=')}));\n"
+    )
+    out = _run_encode_decode_test(node_bin, driver)
+    result = json.loads(out)
+    assert result["view"] == "bgp", f"view が bgp でない: {result}"
+    assert result["sel"] == [], f"sel が空でない: {result}"
+    assert result["hasN"] is False, f"選択なしなのに n= が付いている: {result}"
+
+
+# ---- 修正 #5c: applyStateFromHash の string-presence テスト ----
+
+def test_apply_state_from_hash_views_includes_in_js():
+    """applyStateFromHash 内で VIEWS.includes による view 検証が行われていること。
+
+    DOM 依存のため実挙動は node で検証できないが、
+    実装に VIEWS.includes が applyStateFromHash 関数内に含まれることを確認する。
+    注意: このテストは string-presence のみ。実際の DOM 状態変化は E2E テストが担う。
+    """
+    js = assets._JS
+    func_start = js.find("function applyStateFromHash")
+    assert func_start != -1, "applyStateFromHash 関数が見つからない"
+    func_src = _extract_function_source(js, "applyStateFromHash")
+    assert "VIEWS.includes" in func_src, \
+        "applyStateFromHash 内に VIEWS.includes が含まれていない"
+
+
+def test_apply_state_from_hash_valid_ids_construction_in_js():
+    """applyStateFromHash 内で validIds（DATA.devices/segments/extPeers から構築）が使われていること。
+
+    DOM 依存のため実挙動は node で検証できないが、
+    DATA.segments と DATA.extPeers を使った validIds 構築が関数内にあることを確認する。
+    注意: このテストは string-presence のみ。実際の復元動作は node ロジックテストが担う。
+    """
+    func_src = _extract_function_source(assets._JS, "applyStateFromHash")
+    assert "validIds" in func_src, \
+        "applyStateFromHash 内に validIds が含まれていない"
+    assert "DATA.segments" in func_src, \
+        "applyStateFromHash 内に DATA.segments 参照が含まれていない"
+    assert "DATA.extPeers" in func_src, \
+        "applyStateFromHash 内に DATA.extPeers 参照が含まれていない"
+
+
+def test_apply_state_from_hash_view_specific_cleanup_in_js():
+    """applyStateFromHash 内に view 固有クリーンアップが含まれていること。
+
+    手細工 URL（例: #v=bgp&n=seg-...）で bgp ビューに segment id が S.sel に残る
+    不整合を解消するため、setView と同じ view 固有クリーンアップが
+    applyStateFromHash 内で実施されること。
+
+    具体的には "bgp" ビューで DATA.segments の id を S.sel から削除する処理。
+    注意: このテストは string-presence のみ。DOM 依存で実挙動を node 検証できない限界を示す。
+    DOM 上の実際の動作は E2E テストが担う。
+    """
+    func_src = _extract_function_source(assets._JS, "applyStateFromHash")
+    # bgp ビューでは segment id を S.sel から削除するクリーンアップが必要
+    assert 'DATA.segments' in func_src, \
+        "applyStateFromHash 内に DATA.segments 参照が含まれていない（view 固有クリーンアップに必要）"
+    # S.sel.delete が applyStateFromHash 内に存在すること
+    assert 'S.sel.delete' in func_src, \
+        "applyStateFromHash 内に S.sel.delete が含まれていない（view 固有クリーンアップに必要）"

@@ -26,7 +26,7 @@
 ### B. UI操作性
 - [x] B1 隣接フォーカスモード（選択ノードの N hop 隣接以外を淡色化）— S ✅反復6完了
 - [ ] B2 表ビューの列フィルタ/絞り込みチップ（vendor/area/AS）— M
-- [ ] B3 URLハッシュ状態の保存/復元（選択・ビュー・フィルタを #state= に決定的エンコード）— M
+- [x] B3 URLハッシュ状態の保存/復元（ビュー＋選択ノードを #v=&n= にエンコード）— M ✅反復10完了
 - [ ] B4 凡例からの一括レイヤー操作＋ショートカット拡充 — S（A1後）
 
 ### C. BGP/OSPF 設定管理（parse→build→schema→render の加算フィールド）
@@ -122,6 +122,14 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: schema.md・vendor-parsing.md（モデル表含む）・requirements.md §6.1/§8.5/§10.4 を同期。
 - テスト 512→551 passed（+39）。golden byte 不変・render 決定性維持。test レビュアーが「誤適用検出テストは今回有効」と確認（A1/B1/C3 の弱テスト教訓が定着）。
 
-### 観点カバレッジ: A=A1 / B=B1 / C=C2,C1,C3,C4 / D=D1,D2,D3。**C/D が厚く A/B が手薄（各1）**。
-### 次候補: 反復10 は観点バランス上 **A か B を優先**。A2 リンクラベル重なり回避（layout/JS）/ B2 表ビュー列フィルタ（vendor/area/AS チップ・render JS）。どちらも render-JS で弱テスト傾向のため、**純関数を切り出して node 実ロジックテストで検証**する設計（B1 の nHopNeighbors 方式）を必須とする。B2 は STATS/CHECKS の絞り込みに繋がり業務価値も高いので推奨。次点 A2。
-推奨順序の残り目安: B2 → A2 → D3b → A1b → C4b → C5 → C1b → 残り。
+### 反復10: B3 URLハッシュ状態保存/復元 — ✅完了（2026-06-14）
+- assets.py に純関数 `encodeState(view, selIds)`/`decodeState(hashStr)`（`#v=&n=` 形式・selIds 昇順・encodeURIComponent）＋ boot 連携 `applyStateFromHash`（VIEWS/実在ノード検証・view 固有クリーンアップ）/`syncHashToState`（history.replaceState・同値抑止）。共有可能なビュー（観点B）。
+- 生成 HTML にハッシュを焼かず実行時のみ＝決定性維持。B2(列フィルタ)は既存 vendor:/as: 検索と重複のため見送り、重複なしの B3 を選択。
+- テスト: encode/decode を node 実行で検証（ラウンドトリップ・特殊文字・不正入力・ソート・プロトタイプ汚染・上限）。壊すと赤を実証。
+- レビュー対応: Object.create(null) でプロト汚染防御、view 固有クリーンアップ、決定性テストの空振り修正、sel 上限ガード、テスト補強。
+- doc: SKILL.md・requirements.md §8.5・CLAUDE.md 索引を同期。
+- テスト 551→575 passed（+24）。golden byte 不変・render 決定性維持。
+
+### 観点カバレッジ: A=A1 / B=B1,B3 / C=C2,C1,C3,C4 / D=D1,D2,D3。Aが手薄（1）。
+### 次候補: 反復11 は観点A優先。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ A4 ノードサイズの情報量反映（degree連動・data_transformで強TDD）/ A3 階層レイアウトモード。A4 は data_transform で degree 計算が Python 強TDD 可能なので推奨（render-JS の弱テストを避けられる）。次点 A2。
+推奨順序の残り目安: A4 → A2 → D3b → A1b → C4b → C5 → C1b → D4(再検討) → 残り。
