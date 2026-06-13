@@ -289,10 +289,11 @@ interfaces: [...]
 | `l2_l3` | string \| null | ✗ | `"l2"` / `"l3"` / null |
 | `switchport` | object \| null | ✗ | IOS switchport 情報（§5.2.2） |
 | `encapsulation` | string \| null | ✗ | カプセル化種別 |
+| `ospf` | object | ✗ | OSPF interface パラメータ（サブキー `cost`/`network_type`/`passive`、存在するもののみ格納）。**設定があるときのみ出力する条件付き省略フィールド**（§6.1/§6.2）。null も空 object も出力せずキー自体を省く |
 | `source` | string | ✓ | データソース（常に `"parsed"`） |
 | `addresses` | object[] | ✓ | IP アドレス群（§5.2.2）。empty[] なら IP なし |
 
-**出力規約（重要）**: `devices[]`・`interfaces[]` の各要素は、**表中の全フィールドをキーとして常に出力する**（該当値が無い場合は `null`、`addresses`/`sections` は `[]`）。表の「必須」列は ✓＝値が常に意味を持つ、✗＝値が null になり得る、の区別であり、**キーの省略を許すものではない**（附録 B のゴールデンと一致させるため）。フィールドキーの条件付き省略を行うのは links/segments の `admin_down` / `ospf_area` / `ospf_network` のみ（§5.3）。
+**出力規約（重要）**: `devices[]`・`interfaces[]` の各要素は、**表中の全フィールドをキーとして常に出力する**（該当値が無い場合は `null`、`addresses`/`sections` は `[]`）。表の「必須」列は ✓＝値が常に意味を持つ、✗＝値が null になり得る、の区別であり、**キーの省略を許すものではない**（附録 B のゴールデンと一致させるため）。フィールドキーの条件付き省略を行うのは links/segments の `admin_down` / `ospf_area` / `ospf_network`（§5.3）、および interfaces の `ospf`（加算的拡張。設定不在の IF では既存ゴールデンと byte 一致を保つためキーを省く）のみ。
 
 ##### switchport 構造（§5.2.2）
 
@@ -537,6 +538,9 @@ CIDR の `.` と `/` を `_` に置換。
 | `network <addr> <wildcard> area <a>` | OSPF network | `network = <CIDR>` (wildcard を逆マスク化), `area = <正規化済み a>`, `af = "v4"` | area は §6.3 で正規化 |
 | `ipv6 router ospf <pid>` | OSPF v3 | process ID 宣言のみ（interface 内で確定） | |
 | `ipv6 ospf <pid> area <a>` (in interface block) | OSPF v3 | `network = <v6_subnet_of_IF_or_IF_name>`, `area = <正規化済み a>`, `af = "v6"` | v6 アドレスが無ければ IF 名 |
+| `ip ospf cost <n>` (in interface block) | OSPF if param | `interfaces[].ospf.cost = int(n)` | 加算フィールド |
+| `ip ospf network <type>` (in interface block) | OSPF if param | `interfaces[].ospf.network_type = <type>` | point-to-point / broadcast 等 |
+| `passive-interface <if>` (under router ospf) | OSPF if param | 該当 `interfaces[].ospf.passive = true` | 明示名のみ対応（`default` / `no passive-interface` は非対応） |
 | `ip route <prefix> <mask> <next_hop>` | static | `prefix = <CIDR>`, `next_hop = <next_hop>`, `af = "v4"` | `0.0.0.0 0.0.0.0` → `"0.0.0.0/0"` |
 | `ipv6 route <prefix/len> <nexthop>` | static | `prefix = <正規化済み CIDR>`, `next_hop = <v6 短縮形正規化済み>`, `af = "v6"` | §6.3 参照 |
 
@@ -584,6 +588,9 @@ CIDR の `.` と `/` を `_` に置換。
 | neighbor_ip が v6 アドレス | BGP neighbor | `af = "v6"`（neighbor_ip を v6 短縮形に正規化して格納） | |
 | `set protocols ospf area <a> interface <if>` | OSPF network | `area = <正規化済み a>`, `network = <CIDR_or_IF_name>`, `af = "v4"` | IF の v4 サブネットから CIDR；不能なら IF 名 |
 | `set protocols ospf3 area <a> interface <if>` | OSPF v3 | `area = <正規化済み a>`, `network = <IF_base_name>`, `af = "v6"`, `process = null` | ドット除去（unit 除去） |
+| `… ospf[3] area <a> interface <if> metric <n>` | OSPF if param | `interfaces[].ospf.cost = int(n)` | 加算フィールド |
+| `… ospf[3] area <a> interface <if> interface-type <t>` | OSPF if param | `interfaces[].ospf.network_type = <t>` | p2p 等 |
+| `… ospf[3] area <a> interface <if> passive` | OSPF if param | `interfaces[].ospf.passive = true` | |
 | `set routing-options static route <prefix> next-hop <ip>` | static | `prefix = <CIDR>`, `next_hop = <ip>`, `af = "v4"` | |
 | `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` | static | `prefix = <正規化済み CIDR>`, `next_hop = <v6 短縮形正規化済み>`, `af = "v6"` | ホストビット除去；無効 prefix は skip |
 

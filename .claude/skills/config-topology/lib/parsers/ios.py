@@ -4,7 +4,7 @@ import re
 from ..models import Address, BgpNeighbor, Device, Interface, OspfNetwork, StaticRoute
 from ..normalize import (mask_to_prefix, norm_cidr, norm_cidr_str, norm_ipv4,
                          norm_ipv6, norm_ospf_area, v6_scope, wildcard_to_prefix)
-from .base import is_sensitive_line
+from .base import ensure_ospf, is_sensitive_line
 
 
 def _set_l3(iface: Interface) -> None:
@@ -103,6 +103,14 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
         iface.switchport["trunk_vlans"] = m.group(1)
         _set_l2(iface)
         return
+    m = re.match(r"^ip ospf cost\s+(\d+)", s)
+    if m:
+        ensure_ospf(iface)["cost"] = int(m.group(1))
+        return
+    m = re.match(r"^ip ospf network\s+(\S+)", s)
+    if m:
+        ensure_ospf(iface)["network_type"] = m.group(1)
+        return
 
 
 def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict, warnings: list) -> None:
@@ -134,8 +142,9 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict, warnings:
         return
 
 
-def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list) -> None:
-    """router ospf ブロック内の1行を解析（§6.1）。router-id / network area。"""
+def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
+                     passive_ifaces: list) -> None:
+    """router ospf ブロック内の1行を解析（§6.1）。router-id / network area / passive-interface。"""
     m = re.match(r"^router-id\s+(\S+)", s)
     if m:
         dev.ospf_router_id = m.group(1)
@@ -149,6 +158,14 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list) -> None:
                                         norm_ospf_area(area), "v4"))
         except Exception as e:                       # noqa: BLE001
             warnings.append("ospf network parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^passive-interface\s+(\S+)", s)
+    if m:
+        ifname = m.group(1)
+        # `passive-interface default` および `no passive-interface <if>` は非対応。
+        # 明示的な `passive-interface <ifname>` のみ対応（default キーワードはスキップ）。
+        if ifname.lower() != "default":
+            passive_ifaces.append(ifname)
         return
 
 
@@ -164,6 +181,7 @@ def parse_ios(text: str, warnings: list) -> Device:
     bgp_af = "v4"
     neighbors = {}
     pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
+    passive_ifaces = []  # router ospf 配下の passive-interface 名リスト
 
     def finish_iface():
         nonlocal cur
@@ -248,10 +266,17 @@ def parse_ios(text: str, warnings: list) -> Device:
             else:
                 _parse_bgp_line(dev, s, bgp_af, neighbors, warnings)
         elif context == "ospf":
-            _parse_ospf_line(dev, s, ospf_pid, warnings)
+            _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces)
 
     finish_iface()
     for iface, pid, area in pending_ospf3:
         network = _iface_v6_network(iface) or iface.name
         dev.ospf.append(OspfNetwork(pid, network, area, "v6"))
+    # passive-interface: 収集した IF 名に対して ospf["passive"]=True を設定
+    if passive_ifaces:
+        iface_map = {i.name: i for i in dev.interfaces}
+        for ifname in passive_ifaces:
+            iface = iface_map.get(ifname)
+            if iface is not None:
+                ensure_ospf(iface)["passive"] = True
     return dev

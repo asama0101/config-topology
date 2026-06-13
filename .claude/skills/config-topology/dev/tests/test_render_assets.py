@@ -99,3 +99,27 @@ def test_link_end_label_includes_link_local():
     assert 'ifV6List(itf).filter(x=>x.ll)' in assets._JS   # リンク端ラベル固有の抽出
     assert 'faint:true' in assets._JS                       # faint 行として渡す
     assert '.iflabel.ll' in assets._CSS                     # SVG ラベル淡色
+
+
+# ---------------------------------------------------------------------------
+# 修正 1: OSPF バッジ title 属性のエスケープ正確性テスト
+# ---------------------------------------------------------------------------
+
+def test_ospf_badge_builds_from_raw_not_esc_parts():
+    """ospfBadge が生値の配列 raw[] から組み立て、title と本文を別々に esc() すること。
+
+    旧実装は esc() 済みの parts 要素を再 join して title に渡すため、
+    network_type に特殊文字が入ると二重エスケープまたは属性破壊のリスクがあった。
+    修正後は const raw = [] から生値を収集し、
+      title="OSPF: ${esc("OSPF: " + raw.join(" | "))}" の形式で一括エスケープすること。
+    """
+    # raw 配列から生値を収集するパターン
+    assert 'const raw = [];' in assets._JS
+    # title は raw.join(" | ") の生値を esc() で一括エスケープ
+    assert 'esc("OSPF: " + raw.join(" | "))' in assets._JS
+    # 本文は raw.join(" ") を esc() で一括エスケープ
+    assert 'esc(raw.join(" "))' in assets._JS
+    # cost は != null チェック（0でも表示）
+    assert 'r.ospf.cost != null' in assets._JS
+    # 旧実装の esc(String(r.ospf.cost)) が parts[] に push される形式は消えていること
+    assert 'parts.push(`cost ${esc(String(r.ospf.cost))}`' not in assets._JS

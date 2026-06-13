@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.topology_io import load_topology
-from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology
+from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if
 
 pytestmark = pytest.mark.integration
 
@@ -456,3 +456,49 @@ def test_build_stats_link_kinds_stub_golden_value():
 
     # link と segment は既存テストで確認済み。ここで stub の実値を確定
     assert stats["link_kinds"]["stub"] == 4
+
+
+# ---------------------------------------------------------------------------
+# C2: _build_if に ospf フィールドが含まれること
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_if_includes_ospf_when_present():
+    """interface dict に ospf がある場合、_build_if 結果に 'ospf' キーが出ること。"""
+    itf = {
+        "name": "GigabitEthernet0/0", "ip": "10.0.0.1/30", "ip6": None,
+        "description": "to-R2", "admin_status": "up", "mtu": None, "speed": None,
+        "addresses": [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}],
+        "ospf": {"cost": 100, "network_type": "point-to-point"},
+    }
+    result = _build_if(itf)
+    assert "ospf" in result
+    assert result["ospf"] == {"cost": 100, "network_type": "point-to-point"}
+
+
+@pytest.mark.unit
+def test_build_if_ospf_none_still_present_in_result():
+    """ospf=None の場合、_build_if 結果に ospf キーが存在し値は None であること。"""
+    itf = {
+        "name": "GigabitEthernet0/0", "ip": "10.0.0.1/30", "ip6": None,
+        "description": None, "admin_status": "up", "mtu": None, "speed": None,
+        "addresses": [],
+        "ospf": None,
+    }
+    result = _build_if(itf)
+    assert "ospf" in result
+    assert result["ospf"] is None
+
+
+@pytest.mark.unit
+def test_build_if_ospf_missing_key_handled():
+    """ospf キー自体が interface dict に無い場合 _build_if が KeyError しないこと（後方互換）。"""
+    itf = {
+        "name": "GigabitEthernet0/0", "ip": "10.0.0.1/30", "ip6": None,
+        "description": None, "admin_status": "up", "mtu": None, "speed": None,
+        "addresses": [],
+        # ospf キーなし（旧フォーマット互換）
+    }
+    result = _build_if(itf)
+    assert "ospf" in result
+    assert result["ospf"] is None

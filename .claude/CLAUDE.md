@@ -35,6 +35,7 @@ workspace/*.{cfg,conf,txt}
   どれも detect しなければ `None`（クラッシュしない＝未知ベンダーはスキップ）。
 - **IP は interface に帰属**し機器に直接持たせない（実機と同じ構造）。物理層
   （devices/interfaces/links/segments）と論理層（routing）を分離し、render がレイヤートグルで重ねる。
+  OSPF interface パラメータ（cost/network_type/passive）も IF 帰属で `interfaces[].ospf`（任意・設定時のみ出力）。
 - **結線は IP/サブネット一致のみ**で推論（v1 は CDP/LLDP 非使用）。同一サブネットの IF が
   2 = `link`、3 以上 = `segment`、1 = スタブ。link-local（fe80::/10）は結線から除外。
 - **dual-stack**: `interfaces[].addresses`（`[{af,ip,prefix,secondary?,scope?}]`）が IP の正本。

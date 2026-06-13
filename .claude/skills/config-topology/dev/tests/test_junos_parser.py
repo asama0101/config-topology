@@ -185,3 +185,140 @@ def test_b2_all_interface_details(junos_cfg_text):
     assert ge1.derived_ip() == "192.168.2.1/24" and ge1.l2_l3 == "l3"
     lo0 = dev.interfaces[2]
     assert lo0.name == "lo0" and lo0.derived_ip() == "2.2.2.2/32"
+
+
+# ---------------------------------------------------------------------------
+# C2: OSPF interface パラメータ抽出（JunOS）
+# ---------------------------------------------------------------------------
+
+def test_junos_ospf_metric_as_cost():
+    """set protocols ospf area <a> interface <if> metric <n> が ospf["cost"]=int(n) に入ること。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0 metric 100\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf["cost"] == 100
+
+
+def test_junos_ospf_interface_type_as_network_type():
+    """set protocols ospf area <a> interface <if> interface-type p2p が ospf["network_type"]="p2p" に入ること。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0 interface-type p2p\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf["network_type"] == "p2p"
+
+
+def test_junos_ospf_passive():
+    """set protocols ospf area <a> interface <if> passive が ospf["passive"]=True に入ること。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address 192.168.1.1/24\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0 passive\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf["passive"] is True
+
+
+def test_junos_ospf_all_three_subkeys():
+    """metric + interface-type + passive の3サブキーが同時に設定されること。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0 metric 50\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0 interface-type p2p\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0 passive\n")
+    dev, _ = _parse(text)
+    iface = dev.interfaces[0]
+    assert iface.ospf == {"cost": 50, "network_type": "p2p", "passive": True}
+
+
+def test_junos_ospf_no_param_leaves_ospf_none():
+    """OSPF パラメータが無い IF は ospf=None のまま。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+            "set protocols ospf area 0 interface ge-0/0/0.0\n")
+    dev, _ = _parse(text)
+    iface = dev.interfaces[0]
+    assert iface.ospf is None
+
+
+def test_junos_ospf_passive_only_targets_named_interface():
+    """passive は指定 IF のみに付き、他の IF には影響しないこと。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+            "set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24\n"
+            "set protocols ospf area 0 interface ge-0/0/1.0 passive\n")
+    dev, _ = _parse(text)
+    ge0 = [i for i in dev.interfaces if i.name == "ge-0/0/0"][0]
+    ge1 = [i for i in dev.interfaces if i.name == "ge-0/0/1"][0]
+    assert ge0.ospf is None
+    assert ge1.ospf is not None and ge1.ospf["passive"] is True
+
+
+def test_junos_ospf3_metric_also_sets_cost():
+    """ospf3 の metric も ospf["cost"] に入ること。"""
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet6 address 2001:db8::1/64\n"
+            "set protocols ospf3 area 0 interface ge-0/0/0.0 metric 200\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf["cost"] == 200
+
+
+# ---------------------------------------------------------------------------
+# 修正 2: _ensure_ospf が base.py から import されていること（DRY 解消）
+# ---------------------------------------------------------------------------
+
+def test_junos_parser_uses_ensure_ospf_from_base():
+    """junos.py が base.py の ensure_ospf を使用し、独自の _ensure_ospf を持たないこと。
+
+    DRY 解消: ios.py と junos.py の同一 _ensure_ospf 実装を base.py に集約。
+    """
+    import inspect
+    import lib.parsers.junos as junos_mod
+    import lib.parsers.base as base_mod
+    # base に ensure_ospf が存在すること
+    assert hasattr(base_mod, 'ensure_ospf'), "base.py に ensure_ospf が存在しない"
+    # junos モジュールが base から ensure_ospf を import しており、
+    # モジュールスコープで参照可能であること
+    assert hasattr(junos_mod, 'ensure_ospf'), "junos.py が base.ensure_ospf を import していない"
+    # junos.py 内でローカル定義の _ensure_ospf が無いこと
+    src = inspect.getsource(junos_mod)
+    assert 'def _ensure_ospf' not in src, "junos.py にまだ _ensure_ospf がローカル定義されている（DRY 未解消）"
+
+
+def test_ios_parser_uses_ensure_ospf_from_base():
+    """ios.py が base.py の ensure_ospf を使用し、独自の _ensure_ospf を持たないこと。"""
+    import inspect
+    import lib.parsers.ios as ios_mod
+    import lib.parsers.base as base_mod
+    assert hasattr(base_mod, 'ensure_ospf'), "base.py に ensure_ospf が存在しない"
+    assert hasattr(ios_mod, 'ensure_ospf'), "ios.py が base.ensure_ospf を import していない"
+    src = inspect.getsource(ios_mod)
+    assert 'def _ensure_ospf' not in src, "ios.py にまだ _ensure_ospf がローカル定義されている（DRY 未解消）"
+
+
+# ---------------------------------------------------------------------------
+# 修正 5: JunOS 正規表現の冗長 (.*)?$ 除去テスト
+# ---------------------------------------------------------------------------
+
+def test_junos_parser_regex_no_redundant_optional_group():
+    """junos.py の OSPF regex に冗長な (.*)?$ がないこと（修正後 (.*)$ のみ）。
+
+    (.*)?$ は `(.*)?` で量指定子が重複（`.*` は常に空文字列にマッチするため
+    末尾の `?` は無意味）。挙動は (.*)$ と同じだが冗長であり linter 警告対象。
+    """
+    import inspect
+    import lib.parsers.junos as junos_mod
+    src = inspect.getsource(junos_mod)
+    # 冗長パターンが残っていないこと
+    assert '(.*)?$' not in src, "junos.py に冗長な (.*)?$ が残っている（(.*)$ に修正すること）"

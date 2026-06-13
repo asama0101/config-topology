@@ -79,6 +79,7 @@ topology/
 | `l2_l3` | string \| null | レイヤー種別（`"l2"` / `"l3"` / null）。 |
 | `switchport` | object \| null | IOS switchport 情報（§5.2.2）。JunOS では常に null。 |
 | `encapsulation` | string \| null | カプセル化種別（`"dot1q"` など）。未設定は null。 |
+| `ospf` | object | OSPF interface パラメータ（任意・条件付き省略）。サブキー `cost`(int)・`network_type`(str: "point-to-point"/"broadcast"/"p2p" 等)・`passive`(true)。**設定があるサブキーのみ格納**し、1つも無い IF では `ospf` キー自体を省略する（null・空 object は出力しない）。設定の無い既存ゴールデン YAML は byte 完全一致のまま。新フィールド追加のため `schema_version` は据え置き（既存フィールドの意味・型は不変）。 |
 | `source` | string | データソース識別子。現行は常に `"parsed"`。 |
 
 ## links

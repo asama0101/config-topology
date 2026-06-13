@@ -16,6 +16,7 @@
 | **Interface** | `name`（str）| IF 名 |
 | | `addresses`（list[Address]）| IP アドレス群（dual-stack 正本） |
 | | `ip`（str \| None）| 派生フィールド（後方互換。§4.1） |
+| | `ospf`（dict \| None）| OSPF interface パラメータ（cost/network_type/passive。設定時のみ・None 時は dict 省略） |
 | | `description`, `shutdown`, `admin_status` etc. | 各属性 |
 | **BgpNeighbor** | `neighbor_ip`（str）| ネイバー IP |
 | | `peer_as`（int \| None）| ピア AS |
@@ -60,6 +61,8 @@
 | `address-family ipv6` + `neighbor ... activate` | BgpNeighbor.af | "v6" に更新 |
 | `router ospf <pid>` / `network ... area <a>` | OspfNetwork | (af="v4", area は§6.3で正規化) |
 | `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |
+| `ip ospf cost <n>` / `ip ospf network <type>` (IF内) | Interface.ospf | cost=int / network_type=str |
+| `passive-interface <if>` (router ospf 内) | Interface.ospf | 該当 IF の passive=True（`default`・`no passive-interface` は非対応） |
 | `ip route <prefix> <mask> <next_hop>` | StaticRoute | (af="v4") |
 | `ipv6 route <prefix/len> <nexthop>` | StaticRoute | (af="v6", prefix 正規化) |
 
@@ -87,6 +90,7 @@
 | `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BgpNeighbor | (af は IP 形式で v4/v6 判定) |
 | `set protocols ospf area <a> interface <if>` | OspfNetwork | (af="v4", area は§6.3で正規化, network は v4 CIDR または IF 名) |
 | `set protocols ospf3 area <a> interface <if>` | OspfNetwork | (af="v6", process=null, network=IF ベース名) |
+| `… ospf[3] … interface <if> {metric\|interface-type\|passive}` | Interface.ospf | metric→cost / interface-type→network_type / passive→True |
 | `set routing-options static route <prefix> next-hop <ip>` | StaticRoute | (af="v4") |
 | `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` | StaticRoute | (af="v6", prefix 正規化・ホストビット除去) |
 

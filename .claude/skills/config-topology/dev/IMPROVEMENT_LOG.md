@@ -30,7 +30,7 @@
 
 ### C. BGP/OSPF 設定管理（parse→build→schema→render の加算フィールド）
 - [ ] C1 BGP update-source / peer-group 抽出 → local_ip/iBGP判定精度向上 — M
-- [ ] C2 OSPF interface cost / passive / network-type（interfaces[].ospf 加算）— M
+- [x] C2 OSPF interface cost / passive / network-type（interfaces[].ospf 加算）— M ✅反復2完了
 - [ ] C3 OSPF area type (stub/nssa)＋area注釈（routing.ospf[].area_type）— M（C2後）
 - [ ] C4 BGP timers / next-hop-self / RR-client / community（routing.bgp[].attrs）— M（C1後）
 - [ ] C5 redistribute 抽出（sections or routing 注釈）— L（C2,C4後）
@@ -55,4 +55,14 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - テスト 257 passed（+28）。render層のみ・層別YAMLゴールデン不変。
 - 見送り(LOW・既存事象): esc() のシングルクォート未対応、norm_ospf_area フォールスルー、tbl のモジュール化、_BODY 静的nav、pytestmark分割。
 
-### 次: 反復2 B1 隣接フォーカスモード（assets.py JS のみ。選択ノードの N hop 隣接のみ強調・他を淡色化）
+### 反復2: C2 OSPF interface パラメータ抽出 — ✅完了（2026-06-14）
+- Interface に `ospf: Optional[dict]`（cost/network_type/passive）追加。None/空dict は to_dict・build で省略（golden byte 不変）。
+- IOS: `ip ospf cost`/`ip ospf network`/`passive-interface <if>` 抽出。JunOS: metric/interface-type/passive（ospf/ospf3）。
+- build 透過・data_transform._build_if 公開・assets.py INTERFACES 表に OSPF バッジ表示。
+- レビュー対応: バッジ title の二重エスケープ修正、`_ensure_ospf`→base.ensure_ospf に DRY 集約、空dict防御（`if self.ospf:`）、passive-interface default ネガティブテスト、junos 正規表現 `(.*)?$`→`(.*)$`。
+- doc: requirements.md §5.2 出力規約に interfaces[].ospf を条件付き省略の例外として加筆＋§6.1/§6.2 マッピング行、schema.md 整形、vendor-parsing.md・.claude/CLAUDE.md にフィールド/マッピング反映。
+- テスト 287 passed（+30）。golden byte 不変・render 決定性維持。
+- 非対応（明記済み）: `passive-interface default`・`no passive-interface`。
+- 見送り(LOW): `_build_if` private import、IOS/JunOS 拡張パス非対称(YAGNI)、pytestmark分割。
+
+### 次: 反復3 B1 隣接フォーカスモード（assets.py JS のみ。選択ノードの N hop 隣接のみ強調・他を淡色化）。または C1（BGP update-source）。render と parser を交互にする方針なら B1。

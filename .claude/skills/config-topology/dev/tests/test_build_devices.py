@@ -49,3 +49,27 @@ def test_interface_addresses_sorted_and_derived_ip():
     _, _, interfaces = build_devices_interfaces([_dev("R1", interfaces=[itf])])
     assert interfaces[0]["ip"] == "10.0.0.1/24"
     assert [a["af"] for a in interfaces[0]["addresses"]] == ["v4", "v6"]
+
+
+# ---------------------------------------------------------------------------
+# C2: ospf フィールドの透過テスト
+# ---------------------------------------------------------------------------
+
+def test_interface_dict_ospf_key_when_set():
+    """Interface に ospf dict があるとき interface dict に 'ospf' キーが透過されること。"""
+    itf = Interface(name="GigabitEthernet0/0",
+                    addresses=[Address("v4", "10.0.0.1", 30)],
+                    ospf={"cost": 100, "network_type": "point-to-point"})
+    d = _dev("R1", interfaces=[itf])
+    _, _, interfaces = build_devices_interfaces([d])
+    assert "ospf" in interfaces[0]
+    assert interfaces[0]["ospf"] == {"cost": 100, "network_type": "point-to-point"}
+
+
+def test_interface_dict_no_ospf_key_when_none():
+    """Interface.ospf=None のとき interface dict に 'ospf' キーが出ないこと（golden byte 不変の前提）。"""
+    itf = Interface(name="GigabitEthernet0/0",
+                    addresses=[Address("v4", "10.0.0.1", 30)])
+    d = _dev("R1", interfaces=[itf])
+    _, _, interfaces = build_devices_interfaces([d])
+    assert "ospf" not in interfaces[0]

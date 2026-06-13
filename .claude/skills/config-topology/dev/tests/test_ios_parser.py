@@ -223,3 +223,130 @@ def test_b1_all_interface_details(ios_cfg_text):
     assert gi1.derived_ip() == "192.168.1.1/24" and gi1.l2_l3 == "l3"
     lo0 = dev.interfaces[2]
     assert lo0.name == "Loopback0" and lo0.derived_ip() == "1.1.1.1/32"
+
+
+# ---------------------------------------------------------------------------
+# C2: OSPF interface パラメータ抽出（IOS）
+# ---------------------------------------------------------------------------
+
+def test_ios_ospf_cost_parsed():
+    """ip ospf cost <n> が Interface.ospf["cost"] に int で入ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n"
+            " ip ospf cost 100\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf["cost"] == 100
+
+
+def test_ios_ospf_network_type_parsed():
+    """ip ospf network point-to-point が Interface.ospf["network_type"] に入ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n"
+            " ip ospf network point-to-point\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf["network_type"] == "point-to-point"
+
+
+def test_ios_ospf_network_type_broadcast():
+    """ip ospf network broadcast が Interface.ospf["network_type"] に入ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip ospf network broadcast\n!\n")
+    dev, _ = _parse(text)
+    assert dev.interfaces[0].ospf["network_type"] == "broadcast"
+
+
+def test_ios_ospf_passive_interface_sets_passive():
+    """router ospf 配下の passive-interface <ifname> が対応 IF の ospf["passive"]=True を立てること。"""
+    text = ("hostname X\n"
+            "interface GigabitEthernet0/1\n"
+            " ip address 192.168.1.1 255.255.255.0\n!\n"
+            "router ospf 1\n"
+            " passive-interface GigabitEthernet0/1\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf.get("passive") is True
+
+
+def test_ios_ospf_cost_and_passive_combined():
+    """cost + passive-interface が同一 IF に同時に設定されること。"""
+    text = ("hostname X\n"
+            "interface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n"
+            " ip ospf cost 50\n!\n"
+            "router ospf 1\n"
+            " passive-interface GigabitEthernet0/0\n!\n")
+    dev, _ = _parse(text)
+    iface = dev.interfaces[0]
+    assert iface.ospf["cost"] == 50
+    assert iface.ospf["passive"] is True
+
+
+def test_ios_ospf_passive_only_targets_named_interface():
+    """passive-interface は指定 IF のみに passive を付け、他の IF には影響しないこと。"""
+    text = ("hostname X\n"
+            "interface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n!\n"
+            "interface GigabitEthernet0/1\n"
+            " ip address 192.168.1.1 255.255.255.0\n!\n"
+            "router ospf 1\n"
+            " passive-interface GigabitEthernet0/1\n!\n")
+    dev, _ = _parse(text)
+    gi0 = dev.interfaces[0]
+    gi1 = dev.interfaces[1]
+    assert gi0.ospf is None
+    assert gi1.ospf is not None and gi1.ospf["passive"] is True
+
+
+def test_ios_ospf_no_ospf_param_leaves_ospf_none():
+    """OSPF interface パラメータが無い IF は ospf=None のまま（既存動作維持）。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n!\n")
+    dev, _ = _parse(text)
+    assert dev.interfaces[0].ospf is None
+
+
+def test_ios_ospf_all_three_subkeys():
+    """cost + network_type + passive の3サブキーが同時に設定されること。"""
+    text = ("hostname X\n"
+            "interface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n"
+            " ip ospf cost 10\n"
+            " ip ospf network point-to-point\n!\n"
+            "router ospf 1\n"
+            " passive-interface GigabitEthernet0/0\n!\n")
+    dev, _ = _parse(text)
+    iface = dev.interfaces[0]
+    assert iface.ospf == {"cost": 10, "network_type": "point-to-point", "passive": True}
+
+
+# ---------------------------------------------------------------------------
+# 修正 4: passive-interface default ネガティブテスト
+# ---------------------------------------------------------------------------
+
+def test_ios_ospf_passive_interface_default_ignored():
+    """router ospf 配下の `passive-interface default` のみでは、どの IF にも ospf["passive"] が付かないこと。
+
+    現実装は `passive-interface default` および `no passive-interface <if>` 非対応。
+    明示的な `passive-interface <ifname>` のみを処理する（非対応を明示的にテストで記録）。
+    """
+    text = ("hostname X\n"
+            "interface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.252\n!\n"
+            "interface GigabitEthernet0/1\n"
+            " ip address 192.168.1.1 255.255.255.0\n!\n"
+            "router ospf 1\n"
+            " passive-interface default\n!\n")
+    dev, warnings = _parse(text)
+    # passive-interface default は無視され、どの IF にも passive が付かない
+    for iface in dev.interfaces:
+        assert iface.ospf is None or iface.ospf.get("passive") is not True, (
+            f"{iface.name}: ospf passive が誤って設定された（passive-interface default は非対応）"
+        )

@@ -259,6 +259,7 @@ g.node.ext rect.body { stroke-dasharray: 6 4; }
 }
 .badge.as { color: var(--accent); border-color: var(--accent); }
 .badge.rid { color: var(--search); border-color: color-mix(in srgb, var(--search) 60%, transparent); }
+.badge.ospf-b { color: var(--ink-faint); border-color: var(--panel-edge); font-size: 9px; }
 .csec { padding: 8px 12px; }
 .csec h4 { font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 6px; font-weight: normal; }
 table.dt { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -1464,7 +1465,7 @@ function renderIfsTable() {
       allRows.push({ dev:d.hostname, devId:id, ifn:i.n, ip:i.ip, ip6:i.ip6, desc:i.d, st:i.st,
                      mtu:i.mtu, sp:i.sp, vendor:d.vendor, as:String(d.as), chk: bad[`${id}:${i.n}`] || null,
                      kind: ifKind(id, i), conn: connectedTo(id, i.n),
-                     addrs: i.addrs||[], v6list: ifV6List(i) });
+                     addrs: i.addrs||[], v6list: ifV6List(i), ospf: i.ospf||null });
   /* 検索フィルタ + 種別チップフィルタ（down は st 基準 / 予約・不可 は運用状態基準 / 他は kind 基準） */
   const kf = S.ifKindFilter;
   const rows = allRows.filter(r => rowSearchHit({
@@ -1528,13 +1529,22 @@ function renderIfsTable() {
       const setCell = physical
         ? `<td><button class="portset ${eff?"set-"+eff:""}" data-portset="${esc(r.devId)}:${esc(r.ifn)}" title="クリックで − → 予約 → 使用不可 を循環（ブラウザに保存）">${eff==="reserved"?"予約":eff==="disabled"?"不可":"−"}</button></td>`
         : `<td class="dim-t">—</td>`;
+      const ospfBadge = r.ospf ? (() => {
+        const raw = [];
+        if (r.ospf.cost != null) raw.push(`cost ${r.ospf.cost}`);
+        if (r.ospf.network_type) raw.push(r.ospf.network_type);
+        if (r.ospf.passive) raw.push("passive");
+        return raw.length
+          ? `<span class="badge ospf-b" title="${esc("OSPF: " + raw.join(" | "))}">${esc(raw.join(" "))}</span>`
+          : "";
+      })() : "";
       body += `<tr class="trow" data-row="${esc(r.devId)}:${esc(r.ifn)}">
         <td>${esc(r.ifn)}</td>
         ${connCell}
         <td class="dim-t">${r.ip?esc(r.ip):"—"}</td>
         <td class="dim-t">${r.v6list.length ? r.v6list.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>") : "—"}</td>
         <td class="${r.desc?"dim-t":"no-desc"}"${r.desc?"":' title="description 未設定"'}>${r.desc?esc(r.desc):"—"}</td>
-        <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}<span class="ifk ifk-${r.kind==="connected"?"conn":r.kind==="loopback"?"loop":r.kind}">${IFK_LABEL[r.kind]}</span>${ovBadge}</td>
+        <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}<span class="ifk ifk-${r.kind==="connected"?"conn":r.kind==="loopback"?"loop":r.kind}">${IFK_LABEL[r.kind]}</span>${ovBadge}${ospfBadge}</td>
         <td class="${r.chk&&r.chk.mtu?"chk-bad":"dim-t"}"${r.chk&&r.chk.mtu?` title="${esc(r.chk.mtu)}"`:""}>${r.mtu==null?"—":r.mtu}${r.chk&&r.chk.mtu?" ⚠":""}</td>
         <td class="${r.chk&&r.chk.sp?"chk-bad":"dim-t"}"${r.chk&&r.chk.sp?` title="${esc(r.chk.sp)}"`:""}>${r.sp?esc(r.sp):"—"}${r.chk&&r.chk.sp?" ⚠":""}</td>
         ${setCell}

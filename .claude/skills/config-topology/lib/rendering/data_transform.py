@@ -16,6 +16,7 @@ def _build_if(itf):
         "d": itf["description"], "st": itf["admin_status"],
         "mtu": itf["mtu"], "sp": itf["speed"],
         "addrs": itf["addresses"],
+        "ospf": itf.get("ospf"),
     }
 
 

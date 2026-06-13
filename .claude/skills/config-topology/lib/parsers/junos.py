@@ -3,7 +3,7 @@ import re
 
 from ..models import Address, BgpNeighbor, Device, Interface, OspfNetwork, StaticRoute
 from ..normalize import norm_cidr_str, norm_ipv4, norm_ipv6, norm_ospf_area, v6_scope
-from .base import is_sensitive_line
+from .base import ensure_ospf, is_sensitive_line
 
 
 def _set_l3(iface: Interface) -> None:
@@ -22,6 +22,27 @@ def _base_if(ifname: str) -> str:
     JunOS は unit N を base IF に集約するため、unit 番号を除去する。
     """
     return ifname.split(".")[0]
+
+
+def _apply_ospf_if_param(iface: Interface, rest: str) -> None:
+    """protocols ospf(3) area <a> interface <if> <rest> の <rest> を解析し iface.ospf をミューテート。
+
+    対応パラメータ:
+      metric <n>          → ospf["cost"] = int(n)
+      interface-type <t>  → ospf["network_type"] = t
+      passive             → ospf["passive"] = True
+    """
+    m = re.match(r"^metric\s+(\d+)", rest)
+    if m:
+        ensure_ospf(iface)["cost"] = int(m.group(1))
+        return
+    m = re.match(r"^interface-type\s+(\S+)", rest)
+    if m:
+        ensure_ospf(iface)["network_type"] = m.group(1)
+        return
+    if rest == "passive":
+        ensure_ospf(iface)["passive"] = True
+        return
 
 
 def _ospf_v4_network(iface: Interface) -> str | None:
@@ -162,16 +183,24 @@ def parse_junos(text: str, warnings: list) -> Device:
                 warnings.append("junos bgp neighbor parse failed: %s (%s)" % (body, e))
             continue
 
-        # OSPFv2: protocols ospf area <a> interface <if>
-        m = re.match(r"^protocols ospf area\s+(\S+)\s+interface\s+(\S+)", body)
+        # OSPFv2: protocols ospf area <a> interface <if> [metric <n> | interface-type <t> | passive]
+        m = re.match(r"^protocols ospf area\s+(\S+)\s+interface\s+(\S+)(.*)$", body)
         if m:
-            ospf_decls.append((m.group(1), _base_if(m.group(2)), "v4"))
+            area_raw, ifname_raw, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
+            base_if = _base_if(ifname_raw)
+            ospf_decls.append((area_raw, base_if, "v4"))
+            if rest:
+                _apply_ospf_if_param(get_if(base_if), rest)
             continue
 
-        # OSPFv3: protocols ospf3 area <a> interface <if>
-        m = re.match(r"^protocols ospf3 area\s+(\S+)\s+interface\s+(\S+)", body)
+        # OSPFv3: protocols ospf3 area <a> interface <if> [metric <n> | interface-type <t> | passive]
+        m = re.match(r"^protocols ospf3 area\s+(\S+)\s+interface\s+(\S+)(.*)$", body)
         if m:
-            ospf_decls.append((m.group(1), _base_if(m.group(2)), "v6"))
+            area_raw, ifname_raw, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
+            base_if = _base_if(ifname_raw)
+            ospf_decls.append((area_raw, base_if, "v6"))
+            if rest:
+                _apply_ospf_if_param(get_if(base_if), rest)
             continue
 
         # v6 static route: routing-options rib inet6.0 static route <pfx> next-hop <nh>

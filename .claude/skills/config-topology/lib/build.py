@@ -17,7 +17,7 @@ def build_devices_interfaces(parsed):
             "bgp_router_id": dev.bgp_router_id, "sections": [],
         })
         for itf in dev.interfaces:                       # config 記述順を保持
-            interfaces.append({
+            itf_dict = {
                 "id": interface_id(dev_id, itf.name), "device": dev_id, "name": itf.name,
                 "ip": itf.derived_ip(), "vlan": itf.vlan, "description": itf.description,
                 "shutdown": itf.shutdown, "admin_status": itf.admin_status,
@@ -25,7 +25,12 @@ def build_devices_interfaces(parsed):
                 "duplex": itf.duplex, "l2_l3": itf.l2_l3, "switchport": itf.switchport,
                 "encapsulation": itf.encapsulation, "source": "parsed",
                 "addresses": [a.to_dict() for a in itf.sorted_addresses()],
-            })
+            }
+            # ospf は値があるときのみ出力。None も空 dict {} も省略してゴールデン YAML の byte 不変を保つ
+            # （他 None フィールドとの意図的な非対称。requirements.md §5.2 の例外）
+            if itf.ospf:
+                itf_dict["ospf"] = itf.ospf
+            interfaces.append(itf_dict)
     devices_sorted = sorted(devices, key=lambda d: d["id"])   # 出力は id 昇順（§7.5）
     return device_ids, devices_sorted, interfaces
 

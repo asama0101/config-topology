@@ -55,3 +55,53 @@ def test_device_as_key_mapping():
     dev = Device(hostname="R1", vendor="cisco_ios", as_=65001)
     assert dev.to_dict()["as"] == 65001
     assert dev.to_dict()["hostname"] == "R1"
+
+
+# ---------------------------------------------------------------------------
+# Interface.ospf フィールドテスト（C2 OSPF interface パラメータ）
+# ---------------------------------------------------------------------------
+
+def test_interface_ospf_none_omits_key_from_dict():
+    """ospf=None（デフォルト）のとき to_dict() に 'ospf' キーが出ないこと。"""
+    iface = Interface(name="GigabitEthernet0/0")
+    d = iface.to_dict()
+    assert "ospf" not in d
+
+
+def test_interface_ospf_value_appears_in_dict():
+    """ospf が dict 値のとき to_dict() に 'ospf' キーが出ること。"""
+    iface = Interface(name="GigabitEthernet0/0", ospf={"cost": 100})
+    d = iface.to_dict()
+    assert "ospf" in d
+    assert d["ospf"] == {"cost": 100}
+
+
+def test_interface_ospf_subkeys_cost_network_type_passive():
+    """ospf サブキーは cost(int)/network_type(str)/passive(True) の組み合わせで出せること。"""
+    iface = Interface(name="Gi0/0", ospf={"cost": 10, "network_type": "point-to-point", "passive": True})
+    d = iface.to_dict()
+    assert d["ospf"] == {"cost": 10, "network_type": "point-to-point", "passive": True}
+
+
+def test_interface_ospf_partial_subkeys():
+    """サブキーは不在のものは含まない（cost のみ等）。"""
+    iface = Interface(name="Gi0/0", ospf={"cost": 200})
+    d = iface.to_dict()
+    assert d["ospf"] == {"cost": 200}
+    assert "network_type" not in d["ospf"]
+    assert "passive" not in d["ospf"]
+
+
+# ---------------------------------------------------------------------------
+# 修正 3: ospf={} 空 dict の to_dict 防御テスト
+# ---------------------------------------------------------------------------
+
+def test_interface_ospf_empty_dict_omits_key_from_dict():
+    """ospf={} 空 dict のとき to_dict() に 'ospf' キーが出ないこと。
+
+    None も空 dict {} も値なし扱いとしてキーを省略し、ゴールデン YAML の byte 不変を保つ
+    （requirements.md §5.2 の例外的フィールド: 他 None フィールドと意図的に非対称）。
+    """
+    iface = Interface(name="Gi0/0", ospf={})
+    d = iface.to_dict()
+    assert "ospf" not in d

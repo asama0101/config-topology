@@ -72,6 +72,7 @@ class Interface:
     switchport: Optional[dict] = None
     encapsulation: Optional[str] = None
     vlan: Optional[int] = None
+    ospf: Optional[dict] = None
 
     def sorted_addresses(self):
         return sorted(self.addresses, key=lambda a: a.sort_key())
@@ -84,7 +85,7 @@ class Interface:
         return None
 
     def to_dict(self):
-        return {
+        d = {
             "name": self.name,
             "addresses": [a.to_dict() for a in self.sorted_addresses()],
             "ip": self.derived_ip(),
@@ -100,6 +101,11 @@ class Interface:
             "encapsulation": self.encapsulation,
             "vlan": self.vlan,
         }
+        # ospf は値があるときのみ出力。None も空 dict {} も省略してゴールデン YAML の byte 不変を保つ
+        # （他 None フィールドとの意図的な非対称。requirements.md §5.2 の例外）
+        if self.ospf:
+            d["ospf"] = self.ospf
+        return d
 
 
 @dataclass
