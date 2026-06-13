@@ -165,6 +165,21 @@ network 宣言 1 件につき 1 エントリ。
 以下は **render 層の `build_data()` が topology dict から生成する JS 用 DATA オブジェクト** のフィールドであり、
 **層別 YAML スキーマには含まれない**（YAML ファイルへの出力・schema_version への影響なし）。
 
+### DATA.devices[].degree（A4 degree 連動ノードサイズ）
+
+`lib/rendering/data_transform.build_devices(topo)` が各デバイスに追加するフィールド。
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| `degree` | int | 物理接続数。その device に隣接する**相異なるノード数**（set で重複排除）。links の端点として接続している device 数 ＋ そのデバイスが member の segment における他メンバー device 数の合計。link-local アドレスによる影響なし（結線は IP/サブネット一致ベース）。リンク・セグメントのない孤立機器は 0 |
+
+`degree` は `build_data()` 経由で `DATA.devices[id].degree` として HTML に埋め込まれ、
+ブラウザ側の `nodeScale(d.degree||0)` が `{w, h}` を算出してデバイスノードの描画サイズを決定する。
+
+**決定的**: 同一 topology dict から常に同一の degree 値を算出する。dual-stack（同一端点ペアの v4/v6 リンク 2 行）は set により 1 接続として計上。
+
+**加算的**: 既存 `DATA.devices[id]` フィールドの意味・型は不変。`degree` キーを追加するのみ。
+
 ### DATA.checks（D2 設計検証パネル）
 
 `lib/rendering/data_transform.build_checks(topo)` が返すリスト。各要素の型:

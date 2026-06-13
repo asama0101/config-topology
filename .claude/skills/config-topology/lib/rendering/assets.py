@@ -532,6 +532,17 @@ _JS = """\
 const _SVG_NS = "http" + "://www.w3.org/2000/svg";  /* assembled to avoid literal URL */
 
 const NODE_W = 148, NODE_H = 56;
+/* degree 連動ノードサイズ: 接続数の多い機器ほどノードをやや大きく描く（拡大のみ・上限あり）。
+   座標はレイアウト点ベースのまま（layout.py は変更しない）。サイズは視覚的目安。
+   仕様: extra = min(max(0, degree-1), CAP)
+         w = NODE_W + extra * STEP_W, h = NODE_H + extra * STEP_H
+         degree ≤ 1 は extra=0 で基準サイズ（縮小しない）。CAP=6 → degree=CAP+1=7 で頭打ち → 最大 196×68。*/
+function nodeScale(degree) {
+  const CAP = 6, STEP_W = 8, STEP_H = 2;
+  const d = Math.max(0, (degree || 0) - 1);  /* degree ≤ 1 は 0 扱い（基準サイズ） */
+  const extra = Math.min(d, CAP);
+  return { w: NODE_W + extra * STEP_W, h: NODE_H + extra * STEP_H };
+}
 const AS_PALETTE = ["#5b8def","#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f"];
 const AREA_PALETTE = ["#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f","#5b8def"];
 const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
@@ -1001,11 +1012,12 @@ function render() {
     const vbarColor = S.view === "bgp" ? asColor(d.as) : (d.vendor === "cisco_ios" ? "#5b8def" : "#43b97f");
     const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
       : S.view === "bgp" ? `AS ${d.as}${d.bgp_rid ? ` · rid ${d.bgp_rid}` : ""}` : d.vendor;
+    const {w, h} = nodeScale(d.degree||0);
     parts.push(`<g class="${cls.join(" ")}" data-elem="dev" data-id="${id}">
-      <rect class="body" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}" rx="9"/>
-      <rect class="vbar" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="5" height="${NODE_H}" rx="2.5" fill="${vbarColor}"/>
-      <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(d.hostname)}</text>
-      <text class="sub" x="${p.x-NODE_W/2+16}" y="${p.y+15}">${esc(sub)}</text>
+      <rect class="body" x="${p.x-w/2}" y="${p.y-h/2}" width="${w}" height="${h}" rx="9"/>
+      <rect class="vbar" x="${p.x-w/2}" y="${p.y-h/2}" width="5" height="${h}" rx="2.5" fill="${vbarColor}"/>
+      <text class="hn" x="${p.x-w/2+16}" y="${p.y-3}">${esc(d.hostname)}</text>
+      <text class="sub" x="${p.x-w/2+16}" y="${p.y+15}">${esc(sub)}</text>
     </g>`);
   }
 

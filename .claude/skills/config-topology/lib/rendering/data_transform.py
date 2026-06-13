@@ -25,6 +25,45 @@ def _build_if(itf):
     }
 
 
+def _compute_degrees(topo):
+    """各 device の物理接続数（degree）を決定的に算出する。
+
+    degree = その device に隣接する**相異なるノード数**。
+    - links: 端点ペアから対向 device を取得し、set で重複排除（dual-stack 対応）。
+    - segments: メンバー IF の device から自分以外のメンバー device を set で収集。
+
+    返り値: {device_id: int}（全 device を含む。リンクなし孤立機器は 0）
+    """
+    # 全 device_id を初期化
+    degrees = {d["id"]: set() for d in topo["devices"]}
+
+    # interface id → device id の逆引き（segment 解決用）
+    if_to_dev = {itf["id"]: itf["device"] for itf in topo["interfaces"]}
+
+    # links: a_device の隣接に b_device を追加（逆も同様）
+    for ln in topo["links"]:
+        a, b = ln["a_device"], ln["b_device"]
+        if a in degrees and b in degrees:
+            degrees[a].add(b)
+            degrees[b].add(a)
+
+    # segments: メンバー全員が互いに隣接（自分以外全員）
+    for seg in topo["segments"]:
+        # メンバー IF id → device id を解決
+        member_devs = []
+        for mid in seg.get("members", []):
+            dev = if_to_dev.get(mid)
+            if dev is not None:
+                member_devs.append(dev)
+        # 重複排除（同一 device の複数 IF が 1 セグメントに参加する場合）
+        member_dev_set = set(member_devs)
+        for dev in member_dev_set:
+            if dev in degrees:
+                degrees[dev] |= (member_dev_set - {dev})
+
+    return {dev_id: len(adj_set) for dev_id, adj_set in degrees.items()}
+
+
 def build_devices(topo):
     """DATA.devices（id キーのオブジェクト）を構築。ifs は config 順。routing は device 別。"""
     by_dev_if = {}
@@ -47,6 +86,9 @@ def build_devices(topo):
         static_by_dev.setdefault(e["device"], []).append(
             {"p": e["prefix"], "nh": e["next_hop"]})
 
+    # 物理接続数（degree）を決定的に算出
+    degrees = _compute_degrees(topo)
+
     out = {}
     for d in topo["devices"]:
         out[d["id"]] = {
@@ -56,6 +98,7 @@ def build_devices(topo):
             "bgp": bgp_by_dev.get(d["id"], []),
             "ospf": ospf_by_dev.get(d["id"], []),
             "static": static_by_dev.get(d["id"], []),
+            "degree": degrees.get(d["id"], 0),
         }
     return out
 

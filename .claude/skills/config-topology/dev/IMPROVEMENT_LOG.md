@@ -20,7 +20,7 @@
 - [x] A1 AS でのノードクラスタリング（layout.py 初期円周配置を AS グループ順に）— M ✅反復5完了
 - [ ] A1b area でのノードクラスタリング（device 単位 area 集約が必要・cluster_order 拡張）— M
 - [ ] A2 リンクラベル重なり回避（決定的法線オフセット）— M
-- [ ] A4 ノードサイズの情報量反映（degree 連動・決定的）— S
+- [x] A4 ノードサイズの degree 連動（拡大のみ・上限・決定的）— S ✅反復11完了
 - [ ] A3 階層/直交レイアウトモード切替 — L（A1後）
 
 ### B. UI操作性
@@ -130,6 +130,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: SKILL.md・requirements.md §8.5・CLAUDE.md 索引を同期。
 - テスト 551→575 passed（+24）。golden byte 不変・render 決定性維持。
 
-### 観点カバレッジ: A=A1 / B=B1,B3 / C=C2,C1,C3,C4 / D=D1,D2,D3。Aが手薄（1）。
-### 次候補: 反復11 は観点A優先。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ A4 ノードサイズの情報量反映（degree連動・data_transformで強TDD）/ A3 階層レイアウトモード。A4 は data_transform で degree 計算が Python 強TDD 可能なので推奨（render-JS の弱テストを避けられる）。次点 A2。
-推奨順序の残り目安: A4 → A2 → D3b → A1b → C4b → C5 → C1b → D4(再検討) → 残り。
+### 反復11: A4 degree 連動ノードサイズ — ✅完了（2026-06-14）
+- data_transform に `_compute_degrees(topo)`（物理接続数=隣接相異なるデバイス数・set 重複排除・dual-stack 1計上）→ DATA.devices[id].degree（Python 強TDD）。
+- assets に純関数 `nodeScale(degree)`（degree≤1 基準148×56・拡大のみ・CAP6・STEP_W8/H2・最大196×68）。device ノードを per-node サイズ化。ext/AS枠・layout は据え置き。
+- レビュー対応: JSDoc 式修正、hybrid(link+segment) degree テスト、CAP マジックナンバーコメント、単調性テスト精度。AS枠はみ出し許容を §8.3.1 明記。
+- doc: schema.md（DATA.devices[].degree）・requirements.md §8.3.1・CLAUDE.md 索引を同期。
+- テスト 575→594 passed（+19）。golden byte 不変・render 決定性維持。correctness/test 承認。
+
+### 観点カバレッジ: A=A1,A4 / B=B1,B3 / C=C2,C1,C3,C4 / D=D1,D2,D3。**A/B 各2・C 4・D 3** とバランス改善。
+### 次候補: 反復12。観点バランスでは D（業務支援）が価値高め。D3b 差分の HTML 表示（diff を新ビュー/パネルに）/ D4 サブネット使用率の集計ビュー（STATS拡張で既存ADDRESSESと差別化）/ C4b BGP timers/community（parser 強TDD）/ A2 リンクラベル重なり回避。推奨は D3b（D3基盤活用・変更管理の可視化で業務価値高）または C4b（強TDD）。
+推奨順序の残り目安: D3b → C4b → A2 → A1b → C5 → C1b → 残り。

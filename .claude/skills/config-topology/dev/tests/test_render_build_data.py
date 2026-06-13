@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.topology_io import load_topology
-from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if, build_checks
+from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if, build_checks, build_devices
 
 pytestmark = pytest.mark.integration
 
@@ -1646,3 +1646,311 @@ def test_build_devices_bgp_row_nhs_absent_falsy():
     devices = build_devices(topo)
     row = devices["r1"]["bgp"][0]
     assert not row.get("nhs")
+
+
+# ===========================================================================
+# A4: degree 連動ノードサイズ — build_devices degree テスト
+# ===========================================================================
+
+def _make_link_entry(a_dev, a_if, b_dev, b_if, subnet):
+    """最小 links エントリを生成するヘルパー。"""
+    return {"a_device": a_dev, "a_if": a_if, "b_device": b_dev, "b_if": b_if,
+            "subnet": subnet, "kind": "inferred-subnet"}
+
+
+def _make_seg_entry(seg_id, subnet, member_ids):
+    """最小 segments エントリを生成するヘルパー。"""
+    return {"id": seg_id, "subnet": subnet, "members": member_ids}
+
+
+@pytest.mark.unit
+def test_build_devices_degree_isolated_is_zero():
+    """リンク・セグメントに参加しない孤立機器の degree が 0 であること。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),
+        ],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert
+    assert devices["r1"]["degree"] == 0, (
+        f"孤立機器の degree は 0 のはずだが {devices['r1']['degree']} だった"
+    )
+
+
+@pytest.mark.unit
+def test_build_devices_degree_linear_topology():
+    """線形トポロジー（R1—R2—R3）で端点 degree=1・中間 degree=2 になること。
+
+    対照値: 誤った実装（重複計上）なら中間ノードが 4 になる。
+    """
+    # Arrange: R1—R2—R3 の線形リンク
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+            _make_if("r2", "Gi1", [{"af": "v4", "ip": "10.0.1.1", "prefix": 30}]),
+            _make_if("r3", "Gi0", [{"af": "v4", "ip": "10.0.1.2", "prefix": 30}]),
+        ],
+        links=[
+            _make_link_entry("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30"),
+            _make_link_entry("r2", "Gi1", "r3", "Gi0", "10.0.1.0/30"),
+        ],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert: 端点 degree=1、中間 degree=2
+    assert devices["r1"]["degree"] == 1, f"端点 r1 の degree は 1 のはずだが {devices['r1']['degree']}"
+    assert devices["r3"]["degree"] == 1, f"端点 r3 の degree は 1 のはずだが {devices['r3']['degree']}"
+    assert devices["r2"]["degree"] == 2, (
+        f"中間 r2 の degree は 2 のはずだが {devices['r2']['degree']} "
+        "(重複計上なら 4 になる誤り。set で排除されていること)"
+    )
+
+
+@pytest.mark.unit
+def test_build_devices_degree_hub_multiple_links():
+    """ハブ（1機器が 3 台の別機器に接続）の degree が 3 になること。
+
+    対照値: 誤った実装なら 6（リンク端点を重複計上）。
+    """
+    # Arrange: hub—r1, hub—r2, hub—r3
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("hub", hostname="HUB"),
+            _make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3"),
+        ],
+        interfaces=[
+            _make_if("hub", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("hub", "Gi1", [{"af": "v4", "ip": "10.0.1.1", "prefix": 30}]),
+            _make_if("hub", "Gi2", [{"af": "v4", "ip": "10.0.2.1", "prefix": 30}]),
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.1.2", "prefix": 30}]),
+            _make_if("r3", "Gi0", [{"af": "v4", "ip": "10.0.2.2", "prefix": 30}]),
+        ],
+        links=[
+            _make_link_entry("hub", "Gi0", "r1", "Gi0", "10.0.0.0/30"),
+            _make_link_entry("hub", "Gi1", "r2", "Gi0", "10.0.1.0/30"),
+            _make_link_entry("hub", "Gi2", "r3", "Gi0", "10.0.2.0/30"),
+        ],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert
+    assert devices["hub"]["degree"] == 3, (
+        f"hub の degree は 3 のはずだが {devices['hub']['degree']} "
+        "(重複計上なら 6 になる誤り)"
+    )
+    assert devices["r1"]["degree"] == 1
+    assert devices["r2"]["degree"] == 1
+    assert devices["r3"]["degree"] == 1
+
+
+@pytest.mark.unit
+def test_build_devices_degree_segment_member():
+    """セグメント（3 機器以上共有サブネット）メンバーの degree が正しいこと。
+
+    セグメント R1/R2/R3 → 各機器は隣接 2 機器（他メンバー）で degree=2。
+    対照値: セグメントメンバー数を直接使う誤実装は 3 になる（自分自身を含めてしまう）。
+    """
+    # Arrange: R1/R2/R3 が同一セグメントに参加
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3"),
+        ],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "192.168.1.1", "prefix": 24}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "192.168.1.2", "prefix": 24}]),
+            _make_if("r3", "Gi0", [{"af": "v4", "ip": "192.168.1.3", "prefix": 24}]),
+        ],
+        segments=[
+            _make_seg_entry("seg-1", "192.168.1.0/24",
+                            ["r1::Gi0", "r2::Gi0", "r3::Gi0"]),
+        ],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert: 各機器は他 2 メンバーに隣接 → degree=2
+    for dev_id in ("r1", "r2", "r3"):
+        assert devices[dev_id]["degree"] == 2, (
+            f"{dev_id} の degree は 2 のはずだが {devices[dev_id]['degree']}"
+        )
+
+
+@pytest.mark.unit
+def test_build_devices_degree_dualstack_same_pair_counted_once():
+    """dual-stack（同一端点ペアの v4/v6 リンク 2 行）は 1 接続としてカウントされること。
+
+    対照値: 誤実装（set を使わず links を直接走査）は 2 になる。
+    """
+    # Arrange: r1—r2 の dual-stack（v4 + v6 の 2 raw リンク行）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.1", "prefix": 30},
+                {"af": "v6", "ip": "2001:db8::1", "prefix": 64},
+            ]),
+            _make_if("r2", "Gi0", [
+                {"af": "v4", "ip": "10.0.0.2", "prefix": 30},
+                {"af": "v6", "ip": "2001:db8::2", "prefix": 64},
+            ]),
+        ],
+        links=[
+            # dual-stack: 同一端点ペアに v4 と v6 の 2 行
+            _make_link_entry("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30"),
+            _make_link_entry("r1", "Gi0", "r2", "Gi0", "2001:db8::/64"),
+        ],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert: dual-stack でも相手は 1 機器なので degree=1
+    assert devices["r1"]["degree"] == 1, (
+        f"dual-stack でも degree は 1 のはずだが {devices['r1']['degree']} "
+        "(raw リンク数を数えた誤実装は 2 になる)"
+    )
+    assert devices["r2"]["degree"] == 1
+
+
+@pytest.mark.unit
+def test_build_devices_degree_deterministic():
+    """build_devices を 2 回呼んで degree が同一結果になること（決定性）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+        links=[_make_link_entry("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30")],
+    )
+
+    # Act: 2 回呼ぶ
+    devices_a = build_devices(topo)
+    devices_b = build_devices(topo)
+
+    # Assert: degree が一致
+    assert devices_a["r1"]["degree"] == devices_b["r1"]["degree"]
+    assert devices_a["r2"]["degree"] == devices_b["r2"]["degree"]
+
+
+@pytest.mark.unit
+def test_build_devices_degree_key_present_always():
+    """リンクが 0 本のトポロジーでも degree キーが存在すること（後方互換のない新フィールド確認）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert: degree キーが存在し値は整数
+    assert "degree" in devices["r1"], "degree キーが存在しない"
+    assert isinstance(devices["r1"]["degree"], int)
+
+
+@pytest.mark.integration
+def test_build_data_devices_have_degree_golden():
+    """build_data(golden) の各デバイスに degree が含まれること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+
+    for dev_id, dev in data["devices"].items():
+        assert "degree" in dev, f"DATA.devices['{dev_id}'] に degree キーがない"
+        assert isinstance(dev["degree"], int), f"DATA.devices['{dev_id}'].degree が int でない"
+        assert dev["degree"] >= 0, f"DATA.devices['{dev_id}'].degree が負"
+
+
+@pytest.mark.integration
+def test_build_data_golden_degree_values():
+    """golden (r1—r2 の 1 リンク) で r1.degree=1, r2.degree=1 であること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+
+    assert data["devices"]["r1"]["degree"] == 1, (
+        f"golden r1.degree は 1 のはずだが {data['devices']['r1']['degree']}"
+    )
+    assert data["devices"]["r2"]["degree"] == 1, (
+        f"golden r2.degree は 1 のはずだが {data['devices']['r2']['degree']}"
+    )
+
+
+@pytest.mark.unit
+def test_build_devices_degree_hybrid_link_and_segment():
+    """同一機器が link で 1 台と接続しつつ segment にも参加する混在トポロジーで
+    degree が両方の隣接の和（set マージ）になること。
+
+    対照値（誤実装）:
+    - link 分しか数えない: hub.degree=1（segment 隣接を見落とし）
+    - segment 分しか数えない: hub.degree=2（link 隣接を見落とし）
+    - 重複計上（set を使わない): r_seg と hub が segment 経由でも link 経由でも
+      数えられ、hub.degree=4 のような誤値になる可能性
+
+    正しい実装: hub は link で r_link に接続し、segment で r_seg1・r_seg2 に接続。
+    hub.degree = |{r_link, r_seg1, r_seg2}| = 3。
+    r_link.degree = 1（hub のみ隣接）。
+    r_seg1/r_seg2.degree = 2（hub と互いに隣接）。
+    """
+    # Arrange:
+    # - hub—r_link: 通常の /30 link
+    # - hub / r_seg1 / r_seg2: 3 機器で /24 segment に参加
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("hub", hostname="HUB"),
+            _make_dev("r_link", hostname="RLINK"),
+            _make_dev("r_seg1", hostname="RSEG1"),
+            _make_dev("r_seg2", hostname="RSEG2"),
+        ],
+        interfaces=[
+            # link 用 IF
+            _make_if("hub", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r_link", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+            # segment 用 IF
+            _make_if("hub", "Gi1", [{"af": "v4", "ip": "192.168.1.1", "prefix": 24}]),
+            _make_if("r_seg1", "Gi0", [{"af": "v4", "ip": "192.168.1.2", "prefix": 24}]),
+            _make_if("r_seg2", "Gi0", [{"af": "v4", "ip": "192.168.1.3", "prefix": 24}]),
+        ],
+        links=[
+            _make_link_entry("hub", "Gi0", "r_link", "Gi0", "10.0.0.0/30"),
+        ],
+        segments=[
+            _make_seg_entry(
+                "seg-192.168.1.0/24",
+                "192.168.1.0/24",
+                ["hub::Gi1", "r_seg1::Gi0", "r_seg2::Gi0"],
+            ),
+        ],
+    )
+
+    # Act
+    devices = build_devices(topo)
+
+    # Assert: hub は link 隣接(r_link) + segment 隣接(r_seg1, r_seg2) = 3
+    assert devices["hub"]["degree"] == 3, (
+        f"hub.degree は 3 のはずだが {devices['hub']['degree']} — "
+        "link 分のみ(=1)か segment 分のみ(=2)しか数えていない誤実装か、重複計上の誤実装を示す"
+    )
+    # r_link は hub のみと接続（link 経由・segment 非参加）→ degree=1
+    assert devices["r_link"]["degree"] == 1, (
+        f"r_link.degree は 1 のはずだが {devices['r_link']['degree']}"
+    )
+    # r_seg1/r_seg2 は segment で hub・互いに隣接 → degree=2
+    assert devices["r_seg1"]["degree"] == 2, (
+        f"r_seg1.degree は 2 のはずだが {devices['r_seg1']['degree']}"
+    )
+    assert devices["r_seg2"]["degree"] == 2, (
+        f"r_seg2.degree は 2 のはずだが {devices['r_seg2']['degree']}"
+    )

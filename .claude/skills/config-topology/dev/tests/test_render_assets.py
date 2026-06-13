@@ -860,3 +860,287 @@ def test_apply_state_from_hash_view_specific_cleanup_in_js():
     # S.sel.delete が applyStateFromHash 内に存在すること
     assert 'S.sel.delete' in func_src, \
         "applyStateFromHash 内に S.sel.delete が含まれていない（view 固有クリーンアップに必要）"
+
+
+# ===========================================================================
+# A4: degree 連動ノードサイズ — nodeScale 純関数テスト
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# string-presence テスト: nodeScale が _JS に含まれること
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_nodescale_function_present_in_js():
+    """nodeScale 関数が _JS に定義されていること。"""
+    assert "function nodeScale" in assets._JS, \
+        "_JS に function nodeScale が見当たらない"
+
+
+@pytest.mark.unit
+def test_device_node_rect_uses_nodescale():
+    """device ノード描画 rect が nodeScale 由来の幅（変数 w）を使うこと。
+
+    固定値 NODE_W ではなく nodeScale(d.degree||0).w を経由した変数を使っていること。
+    """
+    # device ノードセクション（"device nodes" コメント付近）
+    assert "nodeScale(d.degree" in assets._JS, \
+        "device ノード rect が nodeScale を参照していない"
+
+
+@pytest.mark.unit
+def test_device_node_rect_width_is_variable_not_constant():
+    """device ノード描画で rect.body の width が固定 NODE_W でなく変数であること。
+
+    width="${NODE_W}" が device ノードの rect.body に残っていないことを確認。
+    ext ノードは基準サイズのまま（NODE_W）なので、device ノード専用でチェックする。
+    """
+    # device nodes セクション（"/* --- device nodes ---" 以降）を抽出
+    device_nodes_start = assets._JS.find("/* --- device nodes ---")
+    assert device_nodes_start != -1, "device nodes セクションが見つからない"
+    device_section = assets._JS[device_nodes_start:device_nodes_start + 1000]
+    # 固定 NODE_W が rect.body width に直接使われていないこと
+    assert 'width="${NODE_W}"' not in device_section, \
+        "device ノード rect.body の width が固定 NODE_W のまま（nodeScale 未適用）"
+
+
+# ---------------------------------------------------------------------------
+# node 実行ロジックテスト: nodeScale 純関数の動作検証
+# ---------------------------------------------------------------------------
+
+def _extract_nodescale_js(js_src):
+    """_JS から nodeScale 関数本体を抽出し、node で実行可能な JS を返す。"""
+    # NODE_W/NODE_H 定数 + nodeScale 関数を抽出
+    # nodeScale の定義はブレースで終わる関数として抽出
+    lines = js_src.split("\n")
+    # NODE_W/NODE_H の行を見つける
+    const_line = next((l for l in lines if "NODE_W" in l and "NODE_H" in l), "")
+    # nodeScale 関数の開始行を見つける
+    start_idx = next((i for i, l in enumerate(lines) if "function nodeScale" in l), None)
+    if start_idx is None:
+        return None, None
+    # 関数のブレースを追跡して終了行を見つける
+    depth = 0
+    end_idx = start_idx
+    for i in range(start_idx, len(lines)):
+        depth += lines[i].count("{") - lines[i].count("}")
+        if i > start_idx and depth <= 0:
+            end_idx = i
+            break
+    func_src = "\n".join(lines[start_idx:end_idx + 1])
+    return const_line, func_src
+
+
+@pytest.mark.unit
+def test_nodescale_degree_zero_is_base_size():
+    """nodeScale(0) が基準サイズ（NODE_W=148, NODE_H=56）を返すこと。"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため nodeScale ロジックテストをスキップ")
+
+    const_line, func_src = _extract_nodescale_js(assets._JS)
+    assert func_src is not None, "_JS から nodeScale 関数を抽出できなかった"
+
+    test_js = f"""\
+"use strict";
+{const_line}
+{func_src}
+const r = nodeScale(0);
+if (r.w !== 148) process.exit(1);
+if (r.h !== 56)  process.exit(2);
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"nodeScale(0) が基準サイズを返さない: {result.stderr or result.stdout}"
+        )
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.unit
+def test_nodescale_degree_one_is_base_size():
+    """nodeScale(1) が基準サイズ（縮小しない・degree≤1 は基準）を返すこと。"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため nodeScale ロジックテストをスキップ")
+
+    const_line, func_src = _extract_nodescale_js(assets._JS)
+    assert func_src is not None
+
+    test_js = f"""\
+"use strict";
+{const_line}
+{func_src}
+const r = nodeScale(1);
+if (r.w !== 148) process.exit(1);
+if (r.h !== 56)  process.exit(2);
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"nodeScale(1) が基準サイズを返さない: {result.stderr or result.stdout}"
+        )
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.unit
+def test_nodescale_monotone_nondecreasing():
+    """nodeScale は degree 増加に対して単調非減少（w も h も縮小しない）であること。
+
+    壊すと赤になる: 縮小する実装（degree が大きいほど小さくなる）を入れると失敗する。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため nodeScale ロジックテストをスキップ")
+
+    const_line, func_src = _extract_nodescale_js(assets._JS)
+    assert func_src is not None
+
+    # degree 0〜10 を試し、前の値より小さくなっていないか確認
+    test_js = f"""\
+"use strict";
+{const_line}
+{func_src}
+let prev = nodeScale(0);
+for (let d = 1; d <= 10; d++) {{
+  const cur = nodeScale(d);
+  if (cur.w < prev.w) {{ process.stdout.write("w shrank at degree " + d); process.exit(1); }}
+  if (cur.h < prev.h) {{ process.stdout.write("h shrank at degree " + d); process.exit(2); }}
+  prev = cur;
+}}
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"nodeScale が単調非減少でない: {result.stdout or result.stderr}"
+        )
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.unit
+def test_nodescale_cap_limits_growth():
+    """nodeScale は CAP 以上の degree でサイズが頭打ちになること（上限あり）。
+
+    壊すと赤になる: CAP なしの実装では degree=100 が degree=7 より大きくなり、
+    アサートの「同一値」が通らなくなる。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため nodeScale ロジックテストをスキップ")
+
+    const_line, func_src = _extract_nodescale_js(assets._JS)
+    assert func_src is not None
+
+    # CAP=6 前提（CAP+1=7 で頭打ち）。CAP 定数変更時はこの値も合わせる
+    # CAP 超えの degree(100) と CAP 相当の degree(7) が同一サイズになること
+    test_js = f"""\
+"use strict";
+{const_line}
+{func_src}
+const at_cap = nodeScale(7);
+const over_cap = nodeScale(100);
+if (at_cap.w !== over_cap.w) {{
+  process.stdout.write("w not capped: at7=" + at_cap.w + " at100=" + over_cap.w);
+  process.exit(1);
+}}
+if (at_cap.h !== over_cap.h) {{
+  process.stdout.write("h not capped: at7=" + at_cap.h + " at100=" + over_cap.h);
+  process.exit(2);
+}}
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"nodeScale が CAP で頭打ちになっていない: {result.stdout or result.stderr}"
+        )
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.unit
+def test_nodescale_never_shrinks_below_base():
+    """nodeScale の返り値が常に基準サイズ以上であること（縮小しない）。
+
+    壊すと赤になる: w < NODE_W または h < NODE_H を返す実装を入れると失敗する。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため nodeScale ロジックテストをスキップ")
+
+    const_line, func_src = _extract_nodescale_js(assets._JS)
+    assert func_src is not None
+
+    test_js = f"""\
+"use strict";
+{const_line}
+{func_src}
+for (let d = 0; d <= 20; d++) {{
+  const r = nodeScale(d);
+  if (r.w < 148) {{ process.stdout.write("w<148 at degree " + d); process.exit(1); }}
+  if (r.h < 56)  {{ process.stdout.write("h<56 at degree " + d);  process.exit(2); }}
+}}
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"nodeScale が基準サイズを下回る: {result.stdout or result.stderr}"
+        )
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.unit
+def test_nodescale_degree2_larger_than_degree1():
+    """nodeScale(2) が nodeScale(1) より大きいこと（degree>1 で拡大が始まること）。
+
+    壊すと赤になる: 全 degree で基準サイズ固定の実装は失敗する。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため nodeScale ロジックテストをスキップ")
+
+    const_line, func_src = _extract_nodescale_js(assets._JS)
+    assert func_src is not None
+
+    test_js = f"""\
+"use strict";
+{const_line}
+{func_src}
+const r1 = nodeScale(1);
+const r2 = nodeScale(2);
+/* w は degree=2 で厳密に増加すること（STEP_W > 0 の保証）。
+   h は単調非減少を monotone テストがカバーするため、ここでは w のみ厳密増加を確認。
+   r2.w <= r1.w のみで失敗させる（h が増加しなくても degree2>degree1 が保たれなければ赤） */
+if (r2.w <= r1.w) {{
+  process.stdout.write("degree2.w not strictly greater than degree1.w: r1.w=" + r1.w + " r2.w=" + r2.w);
+  process.exit(1);
+}}
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"nodeScale(2) が nodeScale(1) より大きくない: {result.stdout or result.stderr}"
+        )
+    finally:
+        os.unlink(path)
