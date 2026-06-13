@@ -43,7 +43,7 @@ workspace/*.{cfg,conf,txt}
 - **render の実体は `lib/rendering/`**（`render_topology.py` は薄い CLI）。CSS/JS 定数 `_CSS`/`_BODY`/`_JS`
   は `assets.py`（stats ビュー描画 `renderStatsView`・設計検証パネル描画 `renderChecksView` 含む）、
   データ変換・構成統計集計（`build_stats`→`DATA.stats`）・設計検証（`build_checks`→`DATA.checks`）は
-  `data_transform.py`、決定的レイアウトは `layout.py`、ビューロジックは `tabs.py`、
+  `data_transform.py`、決定的レイアウトは `layout.py`（AS クラスタリング初期配置 `cluster_order` 含む）、ビューロジックは `tabs.py`、
   テンプレート組立は `template.py` にそれぞれ分離。CSS/JS や色を直すときは `assets.py` を見る。
 
 ## 不変条件（変更時に壊さないこと）

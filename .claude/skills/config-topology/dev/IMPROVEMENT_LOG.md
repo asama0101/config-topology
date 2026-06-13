@@ -17,7 +17,8 @@
 ## バックログ（優先度順・適宜更新）
 
 ### A. レイアウト視認性
-- [ ] A1 area/AS でのノードクラスタリング（layout.py 初期座標にグループ重心）— M
+- [x] A1 AS でのノードクラスタリング（layout.py 初期円周配置を AS グループ順に）— M ✅反復5完了
+- [ ] A1b area でのノードクラスタリング（device 単位 area 集約が必要・cluster_order 拡張）— M
 - [ ] A2 リンクラベル重なり回避（決定的法線オフセット）— M
 - [ ] A4 ノードサイズの情報量反映（degree 連動・決定的）— S
 - [ ] A3 階層/直交レイアウトモード切替 — L（A1後）
@@ -83,4 +84,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - テスト 366 passed（+30）。golden byte 不変・render 決定性維持。
 - 見送り(LOW): pending dict命名非対称、フィールドdocstringスタイル、型ヒント具体化。
 
-### 次候補: 反復5 A1 area-ASクラスタリング（layout.py 初期座標にグループ重心・決定的）/ B1 隣接フォーカス（render JS）/ C3 OSPF area type（parser、C2後で可）。parser(C2,C1)とrender(D1,D2)が続いたので layout系 A1 を推奨（観点A 視認性・未着手領域）。
+### 反復5: A1 AS ノードクラスタリング初期配置 — ✅完了（2026-06-14）
+- layout.py に `cluster_order()` 追加。初期円周配置を AS 昇順→同一AS内 id 昇順に並べ同一 AS を隣接配置。force 本体は無変更。
+- 発動ガード: 2台以上の AS グループがある時のみ発動。AS 未設定・全 singleton・1台は現行 ID 昇順に厳密 no-op（既存テスト・golden 不変）。
+- `_initial_circle` は `_initial_circle_ordered(sorted())` のラッパーに一本化（DRY）。AS ソートは `(asn is None, asn)` タプルキーで型安全・数値昇順。
+- レビュー対応(ブロッカー含む): 近接テストが stub で確実にREDになるよう fixture を sorted≠cluster＋links無しに作り直し実証、AS型ロバスト性、docstring修正、A1b 拡張コメント。
+- doc: requirements.md §8.3/§9.1/用語集の「機器 ID 昇順」を AS クラスタリング反映に更新、CLAUDE.md 索引に cluster_order。
+- テスト 366→385 passed（+19）。golden byte 不変・render 決定性維持。観点A(視認性)に初進出。
+
+### 次候補: 反復6 B1 隣接フォーカスモード（render JS・観点B 未着手）/ C3 OSPF area type（parser）/ D4 サブネット使用率ビュー（render）/ A2 リンクラベル重なり回避（layout/JS）。観点B(操作性)が未着手なので B1 を推奨。または観点C継続で C3。
+推奨順序の残り目安: B1 → C3 → D4 → A2 → C4 → B2 → A1b → D3 → C5 → 残り。
