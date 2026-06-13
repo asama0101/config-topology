@@ -74,3 +74,13 @@ def test_cli_no_retention_when_no_existing(tmp_path):
         capture_output=True, text=True, cwd=str(tmp_path))
     assert proc.returncode == 0, proc.stderr
     assert not (tmp_path / "history").exists()                 # 退避対象なし
+
+
+def test_cli_output_error_exits_1(tmp_path):
+    # 出力先の親パスが既存ファイル → makedirs/書込が OSError → exit 1（§10.2）
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    out = blocker / "topology"          # blocker はファイルなので配下にディレクトリ作成不可
+    proc = _run([str(CONFIG_DIR / "sample-ios-r1.cfg"), "-o", str(out)])
+    assert proc.returncode == 1
+    assert "[ERROR]" in proc.stderr
