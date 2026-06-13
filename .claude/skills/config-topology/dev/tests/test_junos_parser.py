@@ -375,3 +375,182 @@ def test_junos_bgp_update_source_none_when_no_local_address():
     assert warnings == []
     nb = dev.bgp[0]
     assert nb.update_source is None
+
+
+# ---------------------------------------------------------------------------
+# C3: OSPF area type 抽出（JunOS）
+# ---------------------------------------------------------------------------
+
+def test_junos_ospf_area_stub_extracted():
+    """set protocols ospf area <a> stub が area_type='stub' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.1.0.1/24\n"
+        "set protocols ospf area 1 interface ge-0/0/0.0\n"
+        "set protocols ospf area 1 stub\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area1 = [o for o in dev.ospf if o.area == "1" and o.af == "v4"]
+    assert len(area1) == 1
+    assert area1[0].area_type == "stub"
+
+
+def test_junos_ospf_area_stub_no_summaries_extracted():
+    """set protocols ospf area <a> stub no-summaries が area_type='totally-stubby' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.2.0.1/24\n"
+        "set protocols ospf area 2 interface ge-0/0/0.0\n"
+        "set protocols ospf area 2 stub no-summaries\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area2 = [o for o in dev.ospf if o.area == "2"]
+    assert len(area2) == 1
+    assert area2[0].area_type == "totally-stubby"
+
+
+def test_junos_ospf_area_nssa_extracted():
+    """set protocols ospf area <a> nssa が area_type='nssa' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.3.0.1/24\n"
+        "set protocols ospf area 3 interface ge-0/0/0.0\n"
+        "set protocols ospf area 3 nssa\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area3 = [o for o in dev.ospf if o.area == "3"]
+    assert len(area3) == 1
+    assert area3[0].area_type == "nssa"
+
+
+def test_junos_ospf_area_nssa_no_summaries_extracted():
+    """set protocols ospf area <a> nssa no-summaries が area_type='totally-nssa' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.4.0.1/24\n"
+        "set protocols ospf area 4 interface ge-0/0/0.0\n"
+        "set protocols ospf area 4 nssa no-summaries\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area4 = [o for o in dev.ospf if o.area == "4"]
+    assert len(area4) == 1
+    assert area4[0].area_type == "totally-nssa"
+
+
+def test_junos_ospf3_area_stub_extracted():
+    """set protocols ospf3 area <a> stub が v6 OspfNetwork の area_type='stub' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set protocols ospf3 area 5 interface ge-0/0/0.0\n"
+        "set protocols ospf3 area 5 stub\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area5 = [o for o in dev.ospf if o.area == "5" and o.af == "v6"]
+    assert len(area5) == 1
+    assert area5[0].area_type == "stub"
+
+
+def test_junos_ospf_area_type_no_network_no_ospf_entry():
+    """area-type 宣言だけで interface 宣言が無い area では OspfNetwork が生成されないこと（例外なし）。"""
+    text = (
+        "set system host-name X\n"
+        "set protocols ospf area 99 stub\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert all(o.area != "99" for o in dev.ospf)
+
+
+def test_junos_ospf_area_type_does_not_affect_other_areas():
+    """area-type 宣言が他 area のエントリに影響しないこと。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/24\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 10.6.0.1/24\n"
+        "set protocols ospf area 0 interface ge-0/0/0.0\n"
+        "set protocols ospf area 6 interface ge-0/0/1.0\n"
+        "set protocols ospf area 6 nssa\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area0 = [o for o in dev.ospf if o.area == "0"]
+    area6 = [o for o in dev.ospf if o.area == "6"]
+    assert area0[0].area_type is None
+    assert area6[0].area_type == "nssa"
+
+
+def test_junos_ospf3_area_stub_no_summaries_extracted():
+    """set protocols ospf3 area <a> stub no-summaries が area_type='totally-stubby' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set protocols ospf3 area 10 interface ge-0/0/0.0\n"
+        "set protocols ospf3 area 10 stub no-summaries\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area10 = [o for o in dev.ospf if o.area == "10" and o.af == "v6"]
+    assert len(area10) == 1
+    assert area10[0].area_type == "totally-stubby"
+
+
+def test_junos_ospf3_area_nssa_no_summaries_extracted():
+    """set protocols ospf3 area <a> nssa no-summaries が area_type='totally-nssa' として設定されること。"""
+    text = (
+        "set system host-name X\n"
+        "set protocols ospf3 area 11 interface ge-0/0/0.0\n"
+        "set protocols ospf3 area 11 nssa no-summaries\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area11 = [o for o in dev.ospf if o.area == "11" and o.af == "v6"]
+    assert len(area11) == 1
+    assert area11[0].area_type == "totally-nssa"
+
+
+def test_junos_ospf_area_type_order_independent():
+    """area-type 宣言が interface 宣言より前に来ても正しく適用されること（順不同保証）。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.12.0.1/24\n"
+        "set protocols ospf area 12 stub\n"
+        "set protocols ospf area 12 interface ge-0/0/0.0\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area12 = [o for o in dev.ospf if o.area == "12" and o.af == "v4"]
+    assert len(area12) == 1
+    assert area12[0].area_type == "stub"
+
+
+def test_junos_ospf_stub_default_metric_no_match():
+    """set protocols ospf area 1 stub-default-metric 10 が area_type に誤マッチしないこと。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.1.0.1/24\n"
+        "set protocols ospf area 1 interface ge-0/0/0.0\n"
+        "set protocols ospf area 1 stub-default-metric 10\n"
+    )
+    dev, warnings = _parse(text)
+    area1 = [o for o in dev.ospf if o.area == "1" and o.af == "v4"]
+    assert len(area1) == 1
+    assert area1[0].area_type is None
+
+
+def test_junos_ospf_area_type_last_declaration_wins():
+    """同一 area に stub → nssa と再宣言した場合、後者 (nssa) が有効になること（後勝ち決定性）。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.13.0.1/24\n"
+        "set protocols ospf area 13 interface ge-0/0/0.0\n"
+        "set protocols ospf area 13 stub\n"
+        "set protocols ospf area 13 nssa\n"
+    )
+    dev, warnings = _parse(text)
+    area13 = [o for o in dev.ospf if o.area == "13" and o.af == "v4"]
+    assert len(area13) == 1
+    assert area13[0].area_type == "nssa"

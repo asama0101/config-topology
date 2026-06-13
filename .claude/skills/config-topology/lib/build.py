@@ -166,12 +166,18 @@ def build_bgp(id_dev):
 
 
 def build_ospf(id_dev):
-    """id_dev: [(device_id, Device)] → routing.ospf エントリ列（§5.4）。"""
+    """id_dev: [(device_id, Device)] → routing.ospf エントリ列（§5.4）。
+
+    area_type は値があるときのみ出力（None は省略 → golden byte 不変）。
+    """
     out = []
     for dev_id, dev in id_dev:
         for o in dev.ospf:
-            out.append({"device": dev_id, "process": o.process,
-                        "network": o.network, "area": o.area, "af": o.af})
+            entry = {"device": dev_id, "process": o.process,
+                     "network": o.network, "area": o.area, "af": o.af}
+            if o.area_type is not None:
+                entry["area_type"] = o.area_type
+            out.append(entry)
     return out
 
 

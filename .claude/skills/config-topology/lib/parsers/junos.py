@@ -134,6 +134,7 @@ def parse_junos(text: str, warnings: list) -> Device:
     ospf_decls: list[tuple] = []        # (area, base_if, af) — 全 IF 確定後に解決
     bgp_neighbors: dict[str, BgpNeighbor] = {}  # nip → BgpNeighbor（update_source 後付け用）
     pending_local_address: dict[str, str] = {}   # nip → local-address（peer-as より先に来た場合）
+    area_types: dict[tuple[str, str], str] = {}  # {(norm_area, af): area_type_str} — 末尾で適用
 
     def get_if(name: str) -> Interface:
         """ifaces dict から取得、未登録なら新規 Interface を作成する。"""
@@ -219,6 +220,19 @@ def parse_junos(text: str, warnings: list) -> Device:
                 _apply_ospf_if_param(get_if(base_if), rest)
             continue
 
+        # OSPFv2 area type: protocols ospf area <a> stub [no-summaries] / nssa [no-summaries]
+        # 語境界付き: (stub|nssa) の直後は空白か行末のみ（stub-default-metric 等の誤マッチを防ぐ）
+        m = re.match(r"^protocols ospf area\s+(\S+)\s+(stub|nssa)(\s.*|$)", body)
+        if m:
+            area_raw, kind, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
+            norm_area = norm_ospf_area(area_raw)
+            no_summaries = "no-summaries" in rest
+            if kind == "stub":
+                area_types[(norm_area, "v4")] = "totally-stubby" if no_summaries else "stub"
+            else:  # nssa
+                area_types[(norm_area, "v4")] = "totally-nssa" if no_summaries else "nssa"
+            continue
+
         # OSPFv3: protocols ospf3 area <a> interface <if> [metric <n> | interface-type <t> | passive]
         m = re.match(r"^protocols ospf3 area\s+(\S+)\s+interface\s+(\S+)(.*)$", body)
         if m:
@@ -227,6 +241,19 @@ def parse_junos(text: str, warnings: list) -> Device:
             ospf_decls.append((area_raw, base_if, "v6"))
             if rest:
                 _apply_ospf_if_param(get_if(base_if), rest)
+            continue
+
+        # OSPFv3 area type: protocols ospf3 area <a> stub [no-summaries] / nssa [no-summaries]
+        # 語境界付き: (stub|nssa) の直後は空白か行末のみ（stub-default-metric 等の誤マッチを防ぐ）
+        m = re.match(r"^protocols ospf3 area\s+(\S+)\s+(stub|nssa)(\s.*|$)", body)
+        if m:
+            area_raw, kind, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
+            norm_area = norm_ospf_area(area_raw)
+            no_summaries = "no-summaries" in rest
+            if kind == "stub":
+                area_types[(norm_area, "v6")] = "totally-stubby" if no_summaries else "stub"
+            else:  # nssa
+                area_types[(norm_area, "v6")] = "totally-nssa" if no_summaries else "nssa"
             continue
 
         # v6 static route: routing-options rib inet6.0 static route <pfx> next-hop <nh>
@@ -258,6 +285,12 @@ def parse_junos(text: str, warnings: list) -> Device:
         else:
             network = base_if
         dev.ospf.append(OspfNetwork(None, network, norm_ospf_area(area), af))
+    # area_types: 収集した (norm_area, af)→type を同一 area+af の OspfNetwork に適用
+    if area_types:
+        for o in dev.ospf:
+            key = (o.area, o.af)
+            if key in area_types:
+                o.area_type = area_types[key]
 
     # admin_status 確定・出現順で interfaces 確定
     for iface in ifaces.values():

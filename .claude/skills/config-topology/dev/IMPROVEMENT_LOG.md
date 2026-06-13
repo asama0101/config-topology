@@ -33,7 +33,7 @@
 - [x] C1 BGP update-source 抽出 → local_ip 解決フォールバック — M ✅反復4完了（peer-group は C1b に分割・未着手）
 - [ ] C1b BGP peer-group のメンバー継承（remote-as/update-source をグループから継承）— M
 - [x] C2 OSPF interface cost / passive / network-type（interfaces[].ospf 加算）— M ✅反復2完了
-- [ ] C3 OSPF area type (stub/nssa)＋area注釈（routing.ospf[].area_type）— M（C2後）
+- [x] C3 OSPF area type (stub/nssa/totally)（routing.ospf[].area_type）— M ✅反復7完了
 - [ ] C4 BGP timers / next-hop-self / RR-client / community（routing.bgp[].attrs）— M（C1後）
 - [ ] C5 redistribute 抽出（sections or routing 注釈）— L（C2,C4後）
 
@@ -100,6 +100,12 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: SKILL.md・requirements.md §8.5・CLAUDE.md 索引を同期。
 - テスト 385→398 passed（+13）。golden byte 不変・render 決定性維持。
 
-### 観点カバレッジ: A(視認性)=A1 / B(操作性)=B1 / C(設定管理)=C2,C1 / D(業務支援)=D1,D2 — **4観点すべて着手済み**。
-### 次候補: 反復7 C3 OSPF area type stub/nssa（parser・観点C）/ D4 サブネット使用率ビュー（render・観点D）/ A2 リンクラベル重なり回避（layout/JS・観点A）/ B2 表ビュー列フィルタ（render・観点B）。バランス重視なら未深掘りの観点を回す。parser系で強TDD可能な C3 か、業務支援の D4 を推奨。
-推奨順序の残り目安: C3 → D4 → A2 → B2 → C4 → A1b → D3 → C5 → C1b → 残り。
+### 反復7: C3 OSPF area type (stub/nssa/totally) — ✅完了（2026-06-14）
+- OspfNetwork に area_type（"stub"/"totally-stubby"/"nssa"/"totally-nssa"、omit-when-None）追加。IOS `area <a> stub|nssa [no-summary]` / JunOS `protocols ospf[3] area <a> stub|nssa [no-summaries]` を area→type map で収集し末尾適用。build 透過・render で `area N (stub)` 表示。
+- レビュー対応(実バグ2件): 正規表現を語境界化(`stub-default-metric`等の誤マッチ防止)、IOS area_types を (process,area) キー化＋v4スコープ化(マルチプロセス汚染・v6漏れ防止)。JunOS 型アノテ修正。ospf3/順不同/後勝ち/非汚染テスト追加。
+- doc: schema.md・vendor-parsing.md・requirements.md §6.1/§6.2 を同期（IOS v4スコープ・ospf3 totally系反映）。
+- テスト 398→435 passed（+37）。golden byte 不変・render 決定性維持。
+
+### 観点カバレッジ: A=A1 / B=B1 / C=C2,C1,C3 / D=D1,D2 — 4観点すべて着手済み。
+### 次候補: 反復8 D4 サブネット使用率ビュー（render・観点D 業務支援）/ A2 リンクラベル重なり回避（layout/JS・観点A）/ B2 表ビュー列フィルタ（render・観点B）/ C4 BGP timers/RR-client（parser・観点C）。観点バランスでは D4 か A2。D4 は IPAM 的価値が高く data_transform で強TDD可能なので推奨。
+推奨順序の残り目安: D4 → A2 → B2 → C4 → A1b → D3 → C5 → C1b → 残り。

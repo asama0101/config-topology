@@ -130,6 +130,7 @@ network 宣言 1 件につき 1 エントリ。
 | `network` | string | CIDR（§6.3 正規化）またはインターフェース名。IPv4 / IPv6 どちらも取り得る。 |
 | `area` | string | エリア（正規化済み文字列。§6.3 参照。例: `"0"`、`"16909060"`） |
 | `af` | string | アドレスファミリ（`"v4"` = OSPFv2 / `"v6"` = OSPFv3） |
+| `area_type` | string \| null | **任意・設定時のみ出力**。OSPF エリアタイプ。正規化値: `"stub"` / `"totally-stubby"`（stub + no-summary）/ `"nssa"` / `"totally-nssa"`（nssa + no-summary）。通常エリア（backbone/regular）の場合はキー自体を省略する（null 値は出力しない。golden byte 不変を保つ）。 |
 
 ### `static`（object[]）
 | フィールド | 型 | 説明 |

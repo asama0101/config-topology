@@ -65,6 +65,10 @@
 | `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |
 | `ip ospf cost <n>` / `ip ospf network <type>` (IF内) | Interface.ospf | cost=int / network_type=str |
 | `passive-interface <if>` (router ospf 内) | Interface.ospf | 該当 IF の passive=True（`default`・`no passive-interface` は非対応） |
+| `area <a> stub` (router ospf 内) | OspfNetwork.area_type | "stub"（同一 (process, area)・af="v4" の OspfNetwork に末尾適用。プロセス/v6 に漏れない） |
+| `area <a> stub no-summary` (router ospf 内) | OspfNetwork.area_type | "totally-stubby" |
+| `area <a> nssa` (router ospf 内) | OspfNetwork.area_type | "nssa" |
+| `area <a> nssa no-summary` (router ospf 内) | OspfNetwork.area_type | "totally-nssa" |
 | `ip route <prefix> <mask> <next_hop>` | StaticRoute | (af="v4") |
 | `ipv6 route <prefix/len> <nexthop>` | StaticRoute | (af="v6", prefix 正規化) |
 
@@ -94,6 +98,14 @@
 | `set protocols ospf area <a> interface <if>` | OspfNetwork | (af="v4", area は§6.3で正規化, network は v4 CIDR または IF 名) |
 | `set protocols ospf3 area <a> interface <if>` | OspfNetwork | (af="v6", process=null, network=IF ベース名) |
 | `… ospf[3] … interface <if> {metric\|interface-type\|passive}` | Interface.ospf | metric→cost / interface-type→network_type / passive→True |
+| `set protocols ospf area <a> stub` | OspfNetwork.area_type | "stub"（v4 限定） |
+| `set protocols ospf area <a> stub no-summaries` | OspfNetwork.area_type | "totally-stubby" |
+| `set protocols ospf area <a> nssa` | OspfNetwork.area_type | "nssa" |
+| `set protocols ospf area <a> nssa no-summaries` | OspfNetwork.area_type | "totally-nssa" |
+| `set protocols ospf3 area <a> stub` | OspfNetwork.area_type | "stub"（v6 限定） |
+| `set protocols ospf3 area <a> stub no-summaries` | OspfNetwork.area_type | "totally-stubby"（v6 限定） |
+| `set protocols ospf3 area <a> nssa` | OspfNetwork.area_type | "nssa"（v6 限定） |
+| `set protocols ospf3 area <a> nssa no-summaries` | OspfNetwork.area_type | "totally-nssa"（v6 限定） |
 | `set routing-options static route <prefix> next-hop <ip>` | StaticRoute | (af="v4") |
 | `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` | StaticRoute | (af="v6", prefix 正規化・ホストビット除去) |
 

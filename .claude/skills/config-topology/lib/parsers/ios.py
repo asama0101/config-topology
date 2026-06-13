@@ -167,8 +167,15 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
 
 
 def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
-                     passive_ifaces: list) -> None:
-    """router ospf ブロック内の1行を解析（§6.1）。router-id / network area / passive-interface。"""
+                     passive_ifaces: list, area_types: dict) -> None:
+    """router ospf ブロック内の1行を解析（§6.1）。router-id / network area / passive-interface /
+    area <a> stub|nssa [no-summary]。
+
+    area_types: {(ospf_pid, norm_area): area_type_str} — 収集した (process, area)→type マップ。
+                パース末尾で af=='v4' かつ (o.process, o.area) が area_types にある
+                OspfNetwork エントリのみに適用する（OSPFv2 スコープ限定）。
+                異なるプロセスや OSPFv3 エントリには適用しない（§6.1 仕様）。
+    """
     m = re.match(r"^router-id\s+(\S+)", s)
     if m:
         dev.ospf_router_id = m.group(1)
@@ -191,6 +198,18 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
         if ifname.lower() != "default":
             passive_ifaces.append(ifname)
         return
+    # area <a> stub [no-summary] / area <a> nssa [no-summary]
+    # 語境界付き: (stub|nssa) の直後は空白か行末のみ（stub-default-metric 等の誤マッチを防ぐ）
+    m = re.match(r"^area\s+(\S+)\s+(stub|nssa)(\s.*|$)", s)
+    if m:
+        area_raw, kind, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
+        norm_area = norm_ospf_area(area_raw)
+        no_summary = "no-summary" in rest
+        if kind == "stub":
+            area_types[(ospf_pid, norm_area)] = "totally-stubby" if no_summary else "stub"
+        else:  # nssa
+            area_types[(ospf_pid, norm_area)] = "totally-nssa" if no_summary else "nssa"
+        return
 
 
 def parse_ios(text: str, warnings: list) -> Device:
@@ -207,6 +226,7 @@ def parse_ios(text: str, warnings: list) -> Device:
     pending_update_source = {}  # {nip: ifname} — remote-as より先に update-source が来たとき一時保持
     pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
     passive_ifaces = []  # router ospf 配下の passive-interface 名リスト
+    area_types = {}      # {(ospf_pid, norm_area): area_type_str} — area stub/nssa 宣言を収集し末尾で適用
 
     def finish_iface():
         nonlocal cur
@@ -291,7 +311,7 @@ def parse_ios(text: str, warnings: list) -> Device:
             else:
                 _parse_bgp_line(dev, s, bgp_af, neighbors, pending_update_source, warnings)
         elif context == "ospf":
-            _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces)
+            _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces, area_types)
 
     finish_iface()
     for iface, pid, area in pending_ospf3:
@@ -304,4 +324,11 @@ def parse_ios(text: str, warnings: list) -> Device:
             iface = iface_map.get(ifname)
             if iface is not None:
                 ensure_ospf(iface)["passive"] = True
+    # area_types: 収集した (pid, area)→type を af=='v4' かつ同一 (process, area) の
+    # OspfNetwork エントリのみに適用（OSPFv2 スコープ限定。v6 エントリや他プロセスには漏らさない）
+    # network 宣言と area-type 宣言は順不同のため末尾で一括適用（passive_ifaces と同方式）
+    if area_types:
+        for o in dev.ospf:
+            if o.af == "v4" and (o.process, o.area) in area_types:
+                o.area_type = area_types[(o.process, o.area)]
     return dev

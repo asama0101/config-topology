@@ -79,3 +79,41 @@ def test_build_topology_orders_and_routing_keys():
     assert len(topo["links"]) == 1
     assert [e["device"] for e in topo["routing"]["bgp"]] == ["r1", "r2"]
     assert topo["routing"]["ospf"] == [] and topo["routing"]["static"] == []
+
+
+# ---------------------------------------------------------------------------
+# C3: build_ospf に area_type が透過すること（omit-when-None）
+# ---------------------------------------------------------------------------
+
+def test_build_ospf_area_type_transparent_when_set():
+    """OspfNetwork.area_type が 'stub' のとき build_ospf エントリに 'area_type' キーが出ること。"""
+    d = Device(hostname="R1", vendor="cisco_ios")
+    d.ospf = [OspfNetwork(1, "10.1.0.0/24", "1", "v4", area_type="stub")]
+    result = build_ospf([("r1", d)])
+    assert len(result) == 1
+    assert result[0]["area_type"] == "stub"
+
+
+def test_build_ospf_area_type_omitted_when_none():
+    """OspfNetwork.area_type が None のとき build_ospf エントリに 'area_type' キーが出ないこと
+    （golden byte 不変を保証）。"""
+    d = Device(hostname="R1", vendor="cisco_ios")
+    d.ospf = [OspfNetwork(1, "192.168.1.0/24", "0", "v4")]
+    result = build_ospf([("r1", d)])
+    assert len(result) == 1
+    assert "area_type" not in result[0]
+    assert set(result[0].keys()) == {"device", "process", "network", "area", "af"}
+
+
+def test_build_ospf_area_type_all_normalized_values():
+    """stub/totally-stubby/nssa/totally-nssa の4値すべてが透過されること。"""
+    d = Device(hostname="R1", vendor="cisco_ios")
+    d.ospf = [
+        OspfNetwork(1, "10.1.0.0/24", "1", "v4", area_type="stub"),
+        OspfNetwork(1, "10.2.0.0/24", "2", "v4", area_type="totally-stubby"),
+        OspfNetwork(1, "10.3.0.0/24", "3", "v4", area_type="nssa"),
+        OspfNetwork(1, "10.4.0.0/24", "4", "v4", area_type="totally-nssa"),
+    ]
+    result = build_ospf([("r1", d)])
+    types = {e["area"]: e.get("area_type") for e in result}
+    assert types == {"1": "stub", "2": "totally-stubby", "3": "nssa", "4": "totally-nssa"}

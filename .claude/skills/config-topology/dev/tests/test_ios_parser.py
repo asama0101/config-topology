@@ -444,3 +444,251 @@ def test_ios_bgp_update_source_v6_neighbor_under_af_ipv6():
     nb = [n for n in dev.bgp if n.neighbor_ip == "2001:db8::2"][0]
     assert nb.af == "v6"
     assert nb.update_source == "Loopback0"
+
+
+# ---------------------------------------------------------------------------
+# C3: OSPF area type 抽出（IOS）
+# ---------------------------------------------------------------------------
+
+def test_ios_ospf_area_stub_extracted():
+    """area <a> stub が area_type='stub' として対応 OspfNetwork に設定されること。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.1.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.1.0.0 0.0.0.255 area 1\n"
+        " area 1 stub\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ospf_area1 = [o for o in dev.ospf if o.area == "1"]
+    assert len(ospf_area1) == 1
+    assert ospf_area1[0].area_type == "stub"
+
+
+def test_ios_ospf_area_stub_no_summary_extracted():
+    """area <a> stub no-summary が area_type='totally-stubby' として設定されること。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.2.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.2.0.0 0.0.0.255 area 2\n"
+        " area 2 stub no-summary\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ospf_area2 = [o for o in dev.ospf if o.area == "2"]
+    assert len(ospf_area2) == 1
+    assert ospf_area2[0].area_type == "totally-stubby"
+
+
+def test_ios_ospf_area_nssa_extracted():
+    """area <a> nssa が area_type='nssa' として設定されること。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.3.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.3.0.0 0.0.0.255 area 3\n"
+        " area 3 nssa\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ospf_area3 = [o for o in dev.ospf if o.area == "3"]
+    assert len(ospf_area3) == 1
+    assert ospf_area3[0].area_type == "nssa"
+
+
+def test_ios_ospf_area_nssa_no_summary_extracted():
+    """area <a> nssa no-summary が area_type='totally-nssa' として設定されること。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.4.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.4.0.0 0.0.0.255 area 4\n"
+        " area 4 nssa no-summary\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ospf_area4 = [o for o in dev.ospf if o.area == "4"]
+    assert len(ospf_area4) == 1
+    assert ospf_area4[0].area_type == "totally-nssa"
+
+
+def test_ios_ospf_area_type_order_independent():
+    """network 宣言より area-type 宣言が先に来ても正しく適用されること（順不同保証）。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.5.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " area 5 stub\n"
+        " network 10.5.0.0 0.0.0.255 area 5\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ospf_area5 = [o for o in dev.ospf if o.area == "5"]
+    assert len(ospf_area5) == 1
+    assert ospf_area5[0].area_type == "stub"
+
+
+def test_ios_ospf_area_type_no_network_no_ospf_entry():
+    """area-type 宣言だけで network 宣言が無い area では OspfNetwork が生成されないこと（例外なし）。"""
+    text = (
+        "hostname X\n"
+        "router ospf 1\n"
+        " area 99 stub\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    # area 99 の OspfNetwork は存在しない（例外も起きない）
+    assert all(o.area != "99" for o in dev.ospf)
+
+
+def test_ios_ospf_area_type_does_not_affect_other_areas():
+    """area-type 宣言が同一 process 内の他 area のエントリに影響しないこと。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.0.1 255.255.255.0\n!\n"
+        "interface GigabitEthernet0/1\n"
+        " ip address 10.6.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.0.0.0 0.0.0.255 area 0\n"
+        " network 10.6.0.0 0.0.0.255 area 6\n"
+        " area 6 nssa\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area0 = [o for o in dev.ospf if o.area == "0"]
+    area6 = [o for o in dev.ospf if o.area == "6"]
+    assert area0[0].area_type is None
+    assert area6[0].area_type == "nssa"
+
+
+def test_ios_ospf_area_type_dotted_area_normalized():
+    """area 0.0.0.1 stub のように dotted 表記の area も norm_ospf_area で正規化されること。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.7.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.7.0.0 0.0.0.255 area 0.0.0.1\n"
+        " area 0.0.0.1 stub\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ospf_area = [o for o in dev.ospf if o.area == "1"]
+    assert len(ospf_area) == 1
+    assert ospf_area[0].area_type == "stub"
+
+
+def test_ios_ospf_area_type_does_not_apply_to_v6():
+    """IOS router ospf の area-type (OSPFv2) は v6 (OSPFv3) エントリには適用されないこと。
+
+    IOS の `router ospf <pid>` ブロックの area-type 宣言は OSPFv2 (af=='v4') スコープ。
+    同じ area の OSPFv3 エントリ (af=='v6') に area_type が漏れ込んではならない。
+    """
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.8.0.1 255.255.255.0\n"
+        " ipv6 address 2001:db8:8::1/64\n"
+        " ipv6 ospf 1 area 8\n!\n"
+        "router ospf 1\n"
+        " network 10.8.0.0 0.0.0.255 area 8\n"
+        " area 8 stub\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    area8 = [o for o in dev.ospf if o.area == "8"]
+    assert len(area8) == 2  # v4 + v6
+    v4_entries = [o for o in area8 if o.af == "v4"]
+    v6_entries = [o for o in area8 if o.af == "v6"]
+    # v4 には area_type が付く
+    assert v4_entries[0].area_type == "stub"
+    # v6 (OSPFv3) には IOS router ospf の area-type は漏れない
+    assert v6_entries[0].area_type is None
+
+
+def test_ios_ospf_area_type_no_cross_process_contamination():
+    """異なる OSPF プロセスの同一 area 番号に area-type が漏れないこと（クロス汚染防止）。
+
+    `router ospf 1 / area 1 stub` の area-type が `router ospf 2` の area 1 エントリに
+    適用されてはならない。
+    """
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.1.0.1 255.255.255.0\n!\n"
+        "interface GigabitEthernet0/1\n"
+        " ip address 10.11.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.1.0.0 0.0.0.255 area 1\n"
+        " area 1 stub\n!\n"
+        "router ospf 2\n"
+        " network 10.11.0.0 0.0.0.255 area 1\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    pid1_area1 = [o for o in dev.ospf if o.area == "1" and o.process == 1]
+    pid2_area1 = [o for o in dev.ospf if o.area == "1" and o.process == 2]
+    assert len(pid1_area1) == 1
+    assert len(pid2_area1) == 1
+    # process=1 の area 1 には stub が付く
+    assert pid1_area1[0].area_type == "stub"
+    # process=2 の area 1 には area_type が付かない（クロス汚染防止）
+    assert pid2_area1[0].area_type is None
+
+
+def test_ios_ospf_area_stub_default_metric_no_match():
+    """area 1 stub-default-metric 10 のような非標準キーワードが area_type に誤マッチしないこと。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.1.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.1.0.0 0.0.0.255 area 1\n"
+        " area 1 stub-default-metric 10\n!\n"
+    )
+    dev, warnings = _parse(text)
+    # stub-default-metric は area_type を設定しない
+    area1 = [o for o in dev.ospf if o.area == "1"]
+    assert len(area1) == 1
+    assert area1[0].area_type is None
+
+
+def test_ios_ospf_area_stubby_no_match():
+    """area 1 stubby のような非標準語が area_type='stub' に誤マッチしないこと。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.1.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.1.0.0 0.0.0.255 area 1\n"
+        " area 1 stubby\n!\n"
+    )
+    dev, warnings = _parse(text)
+    area1 = [o for o in dev.ospf if o.area == "1"]
+    assert len(area1) == 1
+    assert area1[0].area_type is None
+
+
+def test_ios_ospf_area_type_last_declaration_wins():
+    """同一 area に stub → nssa と再宣言した場合、後者 (nssa) が有効になること（後勝ち決定性）。"""
+    text = (
+        "hostname X\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.9.0.1 255.255.255.0\n!\n"
+        "router ospf 1\n"
+        " network 10.9.0.0 0.0.0.255 area 9\n"
+        " area 9 stub\n"
+        " area 9 nssa\n!\n"
+    )
+    dev, warnings = _parse(text)
+    area9 = [o for o in dev.ospf if o.area == "9"]
+    assert len(area9) == 1
+    assert area9[0].area_type == "nssa"

@@ -1119,7 +1119,7 @@ function renderDetails() {
         ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td><td class="dim-t">${b.src?esc(b.src):"—"}</td></tr>`).join("")}</table></div>`:""}
       ${d.ospf.length?`<div class="csec"><h4>OSPF NETWORKS</h4>
         <table class="dt"><tr><th>network</th><th>area</th></tr>
-        ${d.ospf.map(o=>{const on=netDrawn(o.net);return `<tr class="ospfrow${on&&netHot(o.net)?" hot":""}"${on?` data-net="${esc(o.net)}"`:""}><td>${esc(o.net)}</td><td class="dim-t">${esc(o.area)}</td></tr>`;}).join("")}</table></div>`:""}
+        ${d.ospf.map(o=>{const on=netDrawn(o.net);const areaLabel=o.at?`${esc(o.area)} (${esc(o.at)})`:esc(o.area);return `<tr class="ospfrow${on&&netHot(o.net)?" hot":""}"${on?` data-net="${esc(o.net)}"`:""}><td>${esc(o.net)}</td><td class="dim-t">${areaLabel}</td></tr>`;}).join("")}</table></div>`:""}
       ${d.static.length?`<div class="csec"><h4>STATIC ROUTES</h4>
         <table class="dt"><tr><th>prefix</th><th>next hop</th></tr>
         ${d.static.map(s=>`<tr><td>${esc(s.p)}</td><td class="dim-t">${esc(s.nh)}</td></tr>`).join("")}</table></div>`:""}

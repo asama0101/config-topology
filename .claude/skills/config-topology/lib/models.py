@@ -49,10 +49,17 @@ class OspfNetwork:
     network: str
     area: str
     af: str
+    area_type: Optional[str] = None
+    """OSPF area タイプ: "stub" / "totally-stubby" / "nssa" / "totally-nssa"。
+    設定時のみ to_dict() に出力（None は省略 → golden byte 不変）。§6.1/§6.2 参照。
+    """
 
     def to_dict(self):
-        return {"process": self.process, "network": self.network,
-                "area": self.area, "af": self.af}
+        d = {"process": self.process, "network": self.network,
+             "area": self.area, "af": self.af}
+        if self.area_type is not None:
+            d["area_type"] = self.area_type
+        return d
 
 
 @dataclass

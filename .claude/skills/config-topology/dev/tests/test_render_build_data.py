@@ -1464,3 +1464,83 @@ def test_build_devices_bgp_row_no_src_when_update_source_absent():
     assert len(bgp_rows) == 1
     # update_source なし → src は None（or キーなし）
     assert bgp_rows[0].get("src") is None
+
+
+# ---------------------------------------------------------------------------
+# C3: build_devices の ospf 行に area_type が透過されること
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_devices_ospf_row_includes_at_when_area_type_present():
+    """routing.ospf エントリに area_type がある場合、build_devices の ospf 行に 'at' キーが含まれること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.1.0.0/24",
+                 "area": "1", "af": "v4", "area_type": "stub"},
+            ],
+            "static": [],
+        },
+    )
+
+    from lib.rendering.data_transform import build_devices
+    devices = build_devices(topo)
+    ospf_rows = devices["r1"]["ospf"]
+    assert len(ospf_rows) == 1
+    assert ospf_rows[0].get("at") == "stub"
+
+
+@pytest.mark.unit
+def test_build_devices_ospf_row_no_at_when_area_type_absent():
+    """routing.ospf エントリに area_type がない場合、build_devices の ospf 行に 'at' キーが None であること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "192.168.1.0/24",
+                 "area": "0", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    from lib.rendering.data_transform import build_devices
+    devices = build_devices(topo)
+    ospf_rows = devices["r1"]["ospf"]
+    assert len(ospf_rows) == 1
+    assert ospf_rows[0].get("at") is None
+
+
+@pytest.mark.unit
+def test_build_devices_ospf_row_all_area_type_values():
+    """stub/totally-stubby/nssa/totally-nssa の4値が ospf 行の 'at' に正しく透過されること。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.1.0.0/24",
+                 "area": "1", "af": "v4", "area_type": "stub"},
+                {"device": "r1", "process": 1, "network": "10.2.0.0/24",
+                 "area": "2", "af": "v4", "area_type": "totally-stubby"},
+                {"device": "r1", "process": 1, "network": "10.3.0.0/24",
+                 "area": "3", "af": "v4", "area_type": "nssa"},
+                {"device": "r1", "process": 1, "network": "10.4.0.0/24",
+                 "area": "4", "af": "v4", "area_type": "totally-nssa"},
+            ],
+            "static": [],
+        },
+    )
+
+    from lib.rendering.data_transform import build_devices
+    devices = build_devices(topo)
+    ospf_rows = {row["area"]: row["at"] for row in devices["r1"]["ospf"]}
+    assert ospf_rows == {
+        "1": "stub",
+        "2": "totally-stubby",
+        "3": "nssa",
+        "4": "totally-nssa",
+    }

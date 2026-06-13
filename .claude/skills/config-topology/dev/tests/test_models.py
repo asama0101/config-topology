@@ -1,7 +1,7 @@
 """§4.1 データモデル: addresses 並び順・派生 ip・to_dict のテスト。"""
 import pytest
 
-from lib.models import Address, BgpNeighbor, Interface, Device
+from lib.models import Address, BgpNeighbor, Interface, Device, OspfNetwork
 
 pytestmark = pytest.mark.unit
 
@@ -142,3 +142,56 @@ def test_bgpneighbor_default_fields_unchanged():
     assert d["peer_as"] == 65002
     assert d["af"] == "v6"
     assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}  # update_source なし → 3キーのみ
+
+
+# ---------------------------------------------------------------------------
+# C3: OspfNetwork.area_type フィールドテスト
+# ---------------------------------------------------------------------------
+
+def test_ospfnetwork_area_type_none_omits_key_from_dict():
+    """area_type=None（デフォルト）のとき to_dict() に 'area_type' キーが出ないこと。"""
+    o = OspfNetwork(process=1, network="10.0.0.0/24", area="1", af="v4")
+    d = o.to_dict()
+    assert "area_type" not in d
+    assert set(d.keys()) == {"process", "network", "area", "af"}
+
+
+def test_ospfnetwork_area_type_stub_appears_in_dict():
+    """area_type='stub' のとき to_dict() に 'area_type' キーが出ること。"""
+    o = OspfNetwork(process=1, network="10.0.0.0/24", area="1", af="v4", area_type="stub")
+    d = o.to_dict()
+    assert "area_type" in d
+    assert d["area_type"] == "stub"
+
+
+def test_ospfnetwork_area_type_totally_stubby_appears_in_dict():
+    """area_type='totally-stubby' のとき to_dict() に出ること。"""
+    o = OspfNetwork(process=1, network="10.0.0.0/24", area="2", af="v4", area_type="totally-stubby")
+    d = o.to_dict()
+    assert d["area_type"] == "totally-stubby"
+
+
+def test_ospfnetwork_area_type_nssa_appears_in_dict():
+    """area_type='nssa' のとき to_dict() に出ること。"""
+    o = OspfNetwork(process=1, network="10.0.0.0/24", area="3", af="v4", area_type="nssa")
+    d = o.to_dict()
+    assert d["area_type"] == "nssa"
+
+
+def test_ospfnetwork_area_type_totally_nssa_appears_in_dict():
+    """area_type='totally-nssa' のとき to_dict() に出ること。"""
+    o = OspfNetwork(process=None, network="10.0.0.0/24", area="3", af="v6",
+                    area_type="totally-nssa")
+    d = o.to_dict()
+    assert d["area_type"] == "totally-nssa"
+
+
+def test_ospfnetwork_existing_fields_unchanged():
+    """area_type 追加後も既存フィールド（process/network/area/af）の型・意味が変わらないこと。"""
+    o = OspfNetwork(process=10, network="192.168.0.0/24", area="0", af="v4")
+    d = o.to_dict()
+    assert d["process"] == 10
+    assert d["network"] == "192.168.0.0/24"
+    assert d["area"] == "0"
+    assert d["af"] == "v4"
+    assert set(d.keys()) == {"process", "network", "area", "af"}  # area_type なし → 4キーのみ

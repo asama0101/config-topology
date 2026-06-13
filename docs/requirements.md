@@ -546,6 +546,10 @@ CIDR の `.` と `/` を `_` に置換。
 | `ip ospf cost <n>` (in interface block) | OSPF if param | `interfaces[].ospf.cost = int(n)` | 加算フィールド |
 | `ip ospf network <type>` (in interface block) | OSPF if param | `interfaces[].ospf.network_type = <type>` | point-to-point / broadcast 等 |
 | `passive-interface <if>` (under router ospf) | OSPF if param | 該当 `interfaces[].ospf.passive = true` | 明示名のみ対応（`default` / `no passive-interface` は非対応） |
+| `area <a> stub` (under router ospf) | OSPF area type | 同一 `(process, area)`・af="v4" の OspfNetwork に `area_type = "stub"` を設定（末尾一括適用。別プロセス・OSPFv3 には漏れない） | network 宣言と順不同可 |
+| `area <a> stub no-summary` (under router ospf) | OSPF area type | `area_type = "totally-stubby"` | no-summary は ABR でのみ有意 |
+| `area <a> nssa` (under router ospf) | OSPF area type | `area_type = "nssa"` | |
+| `area <a> nssa no-summary` (under router ospf) | OSPF area type | `area_type = "totally-nssa"` | |
 | `ip route <prefix> <mask> <next_hop>` | static | `prefix = <CIDR>`, `next_hop = <next_hop>`, `af = "v4"` | `0.0.0.0 0.0.0.0` → `"0.0.0.0/0"` |
 | `ipv6 route <prefix/len> <nexthop>` | static | `prefix = <正規化済み CIDR>`, `next_hop = <v6 短縮形正規化済み>`, `af = "v6"` | §6.3 参照 |
 
@@ -597,6 +601,14 @@ CIDR の `.` と `/` を `_` に置換。
 | `… ospf[3] area <a> interface <if> metric <n>` | OSPF if param | `interfaces[].ospf.cost = int(n)` | 加算フィールド |
 | `… ospf[3] area <a> interface <if> interface-type <t>` | OSPF if param | `interfaces[].ospf.network_type = <t>` | p2p 等 |
 | `… ospf[3] area <a> interface <if> passive` | OSPF if param | `interfaces[].ospf.passive = true` | |
+| `set protocols ospf area <a> stub` | OSPF area type | 同一 area・af="v4" の OspfNetwork に `area_type = "stub"` を設定（末尾一括適用） | |
+| `set protocols ospf area <a> stub no-summaries` | OSPF area type | `area_type = "totally-stubby"` | JunOS は no-summaries |
+| `set protocols ospf area <a> nssa` | OSPF area type | `area_type = "nssa"` | |
+| `set protocols ospf area <a> nssa no-summaries` | OSPF area type | `area_type = "totally-nssa"` | |
+| `set protocols ospf3 area <a> stub` | OSPF area type | af="v6" の OspfNetwork に `area_type = "stub"` | |
+| `set protocols ospf3 area <a> stub no-summaries` | OSPF area type | `area_type = "totally-stubby"`（af="v6"） | |
+| `set protocols ospf3 area <a> nssa` | OSPF area type | af="v6" の OspfNetwork に `area_type = "nssa"` | |
+| `set protocols ospf3 area <a> nssa no-summaries` | OSPF area type | `area_type = "totally-nssa"`（af="v6"） | |
 | `set routing-options static route <prefix> next-hop <ip>` | static | `prefix = <CIDR>`, `next_hop = <ip>`, `af = "v4"` | |
 | `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` | static | `prefix = <正規化済み CIDR>`, `next_hop = <v6 短縮形正規化済み>`, `af = "v6"` | ホストビット除去；無効 prefix は skip |
 
