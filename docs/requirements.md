@@ -851,6 +851,16 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - **実装**: degree は `DATA.devices[id].degree`（render 層派生・YAML 非収録）。ノード描画は `nodeScale(d.degree||0)` が返す `{w, h}` を使用。ext ノード・AS 枠は基準サイズのまま（スコープは device ノードに限定）。**AS 枠の境界計算は NODE_W/NODE_H 固定値ベースのため、degree 拡大したハブ機器が AS 枠から多少はみ出す場合がある（許容範囲・座標の点ベース維持を優先）。**
 - **layer YAML 非影響**: degree は render 層 DATA の派生値であり、層別 YAML スキーマ（§4）には含まれない。
 
+#### 8.3.2 長いホスト名ラベルの省略表示（A5）
+
+ノード幅に対して長いホスト名（例 `core-router-dc1-rack5-unit12`）は、ノード矩形からはみ出し視認性が低下する。
+
+- **省略**: device ノード・ext ノードの hostname/label ラベルは、ノード幅 `w` に基づく概算最大文字数（`nodeLabelMaxChars(w)`）で省略し、末尾に「…」（U+2026）を付加する。副ラベル（vendor / AS・router-id 等）も同じ `maxChars` で省略する。
+- **full text ホバー表示**: 各ノード `<g>` の最初の子として `<title>${esc(hostname)}</title>` を追加する。ブラウザネイティブの SVG ツールチップで full hostname がホバー時に表示される。
+- **省略は表示テキストのみ**: 検索 corpus・data-id・選択判定・クリック/ホバー判定等の内部ロジックは full 値のまま変更しない。検索が省略形に影響されないこと。
+- **純関数・決定的**: `nodeLabelMaxChars(w)` と `truncateLabel(text, maxChars)` は DOM 非依存の純関数。同一入力 → 同一出力（§9.1 の決定性維持）。
+- **実装式**: `nodeLabelMaxChars(w) = Math.max(1, Math.floor((w - 22) / 8))`（左16+右パディング ≈22px、14px bold で約8px/文字）。`truncateLabel(text, maxChars)` は `text.length <= maxChars` なら原文、超過なら先頭 `(maxChars-1)` 文字 + "…"。`maxChars<=0` は空文字を返す（`nodeLabelMaxChars` が常に1以上を返すため実用上未到達）。対象は ASCII のホスト名識別子を想定（slice は UTF-16 単位）。
+
 ### 8.4 要素の可視化
 
 | 要素 | 可視化要件 |

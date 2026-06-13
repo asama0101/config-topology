@@ -21,6 +21,7 @@
 - [ ] A1b area でのノードクラスタリング（device 単位 area 集約が必要・cluster_order 拡張）— M
 - [x] A2 リンクラベル重なり回避（決定的法線オフセット）— M ✅反復15完了
 - [x] A4 ノードサイズの degree 連動（拡大のみ・上限・決定的）— S ✅反復11完了
+- [x] A5 長いホスト名ラベルの省略表示（truncateLabel＋<title> full）— S ✅反復17完了
 - [ ] A3 階層/直交レイアウトモード切替 — L（A1後）
 
 ### B. UI操作性
@@ -174,6 +175,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: SKILL.md・requirements.md §10.1/§10.6（§10.5 誤参照修正）・CLAUDE.md を同期。
 - テスト 749→771 passed（+22）。golden byte 不変・render 決定性維持。未指定時は従来挙動完全不変。
 
-### 観点カバレッジ: A=A1,A4,A2 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b,D3c。**A3・B3・C5・D5**。
-### 次候補: 反復17。A/B がやや手薄。A1b area クラスタリング（cluster_order を area 単位に拡張・A1基盤・layout 強化）/ A3 階層レイアウトモード（L）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ B2 表ビュー列フィルタ（既存検索と差別化要）。layout 強化＋A1 基盤活用で A1b 推奨。次点 C4b（強TDD）。
-推奨順序の残り目安: A1b → C4b → A3 → C1b → B2(差別化要) → 残り。
+### 反復17: A5 長いホスト名ラベルの省略表示 — ✅完了（2026-06-14）
+- 純関数 `truncateLabel(text, maxChars)`（≤maxChars はそのまま・超過は (maxChars-1)+"…"・境界/空/null 安全）/ `nodeLabelMaxChars(w)`（`max(1, floor((w-22)/8))`）を node 実検証。
+- device/ext ノードの hostname/sub をノード幅基準で省略表示し、ノード `<g>` 最初の子に `<title>full</title>`（full hostname/label）でホバー表示。省略は表示のみ（検索 corpus/data-id は full 値・非影響をテストで担保）。
+- レビュー対応: truncateLabel コメント整合（maxChars≤0 は ""・ASCII 注記）、maxChars=0 返り値検証、検索非影響テスト、extMaxc ループ外移動。correctness 承認。
+- doc: requirements.md §8.3.2・CLAUDE.md 索引を同期。
+- テスト 771→796 passed（+25）。golden byte 不変・render 決定性維持。
+
+### 観点カバレッジ: A=A1,A4,A2,A5 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b,D3c。**A4・B3・C5・D5**（全観点バランス良好）。
+### 次候補: 反復18。観点はほぼ均衡（B が最少3）。C4b BGP timers/community（parser強TDD・pending増殖注意）/ B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化要＝種別/area の即時チップ）/ A3 階層レイアウトモード（L）/ A1b area クラスタリング（multi-area で曖昧・要設計）。強TDD志向なら C4b、観点B 補強なら B2（差別化設計が要）。推奨は C4b（parser 強TDD）。
+推奨順序の残り目安: C4b → B2(差別化要) → A3 → A1b(要設計) → C1b → 残り。

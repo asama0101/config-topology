@@ -543,6 +543,21 @@ function nodeScale(degree) {
   const extra = Math.min(d, CAP);
   return { w: NODE_W + extra * STEP_W, h: NODE_H + extra * STEP_H };
 }
+/* ノード幅 w(px) から hostname ラベルの概算最大文字数を返す整数（純関数・決定的）。
+   左16+右パディング ≈22px、14px bold で約8px/文字の概算。w 増で単調非減少、最小1。 */
+function nodeLabelMaxChars(w) {
+  return Math.max(1, Math.floor((w - 22) / 8));
+}
+/* ラベル省略: text が maxChars 以下ならそのまま返す。超過なら (maxChars-1)文字+"…" を返す。
+   maxChars=1 のとき "…"、maxChars<=0 のとき ""（空文字。ただし nodeLabelMaxChars が常に1以上を返すため実用上未到達）。
+   null/空文字は空文字を返す。DOM 非依存・決定的純関数。
+   対象は config 由来のホスト名（ASCII 識別子想定）。slice は UTF-16 単位。*/
+function truncateLabel(text, maxChars) {
+  const t = text == null ? "" : String(text);
+  if (maxChars <= 1) return t.length === 0 ? "" : (maxChars <= 0 ? "" : "…");
+  if (t.length <= maxChars) return t;
+  return t.slice(0, maxChars - 1) + "…";
+}
 const AS_PALETTE = ["#5b8def","#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f"];
 const AREA_PALETTE = ["#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f","#5b8def"];
 const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
@@ -1032,6 +1047,7 @@ function render() {
 
   /* --- external peers (BGP)。機器と同じノード描画（vbar は AS 色） --- */
   if (showBgp) {
+    const extMaxc = nodeLabelMaxChars(NODE_W);
     for (const e of DATA.extPeers) {
       const p = POS[e.id];
       const ecls = ["node", "ext"];
@@ -1039,10 +1055,11 @@ function render() {
       else if (hoverNode === e.id) ecls.push("hovered");
       if (S.matches.includes(e.id)) ecls.push("search-hit");
       parts.push(`<g class="${ecls.join(" ")}" data-elem="ext" data-id="${e.id}">
+        <title>${esc(e.label)}</title>
         <rect class="body" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}" rx="9"/>
         <rect class="vbar" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="5" height="${NODE_H}" rx="2.5" fill="${asColor(e.as)}"/>
-        <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(e.label)}</text>
-        <text class="sub" x="${p.x-NODE_W/2+16}" y="${p.y+15}">${esc(e.sub)}</text>
+        <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(truncateLabel(e.label, extMaxc))}</text>
+        <text class="sub" x="${p.x-NODE_W/2+16}" y="${p.y+15}">${esc(truncateLabel(e.sub, extMaxc))}</text>
       </g>`);
     }
   }
@@ -1058,11 +1075,13 @@ function render() {
     const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
       : S.view === "bgp" ? `AS ${d.as}${d.bgp_rid ? ` · rid ${d.bgp_rid}` : ""}` : d.vendor;
     const {w, h} = nodeScale(d.degree||0);
+    const maxc = nodeLabelMaxChars(w);
     parts.push(`<g class="${cls.join(" ")}" data-elem="dev" data-id="${id}">
+      <title>${esc(d.hostname)}</title>
       <rect class="body" x="${p.x-w/2}" y="${p.y-h/2}" width="${w}" height="${h}" rx="9"/>
       <rect class="vbar" x="${p.x-w/2}" y="${p.y-h/2}" width="5" height="${h}" rx="2.5" fill="${vbarColor}"/>
-      <text class="hn" x="${p.x-w/2+16}" y="${p.y-3}">${esc(d.hostname)}</text>
-      <text class="sub" x="${p.x-w/2+16}" y="${p.y+15}">${esc(sub)}</text>
+      <text class="hn" x="${p.x-w/2+16}" y="${p.y-3}">${esc(truncateLabel(d.hostname, maxc))}</text>
+      <text class="sub" x="${p.x-w/2+16}" y="${p.y+15}">${esc(truncateLabel(sub, maxc))}</text>
     </g>`);
   }
 

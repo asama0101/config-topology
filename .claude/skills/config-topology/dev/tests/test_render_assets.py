@@ -2171,3 +2171,577 @@ def test_a2_render_html_determinism():
     h1 = template.render_html(minimal_topology)
     h2 = template.render_html(minimal_topology)
     assert h1 == h2, "A2 実装後に render_html が決定的でなくなった"
+
+
+# ===========================================================================
+# A5: 長いホスト名ラベルの省略表示
+#     truncateLabel / nodeLabelMaxChars 純関数テスト
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# string-presence テスト（RED: 実装前は必ず失敗する）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a5_truncate_label_function_in_js():
+    """truncateLabel 関数が _JS に定義されていること。"""
+    assert "function truncateLabel" in assets._JS, \
+        "_JS に function truncateLabel が見当たらない"
+
+
+@pytest.mark.unit
+def test_a5_node_label_max_chars_function_in_js():
+    """nodeLabelMaxChars 関数が _JS に定義されていること。"""
+    assert "function nodeLabelMaxChars" in assets._JS, \
+        "_JS に function nodeLabelMaxChars が見当たらない"
+
+
+@pytest.mark.unit
+def test_a5_device_node_uses_truncate_label():
+    """device ノード描画が truncateLabel を使って hostname を省略すること。
+
+    device nodes セクションで truncateLabel(d.hostname, ...) が呼ばれていること。
+    """
+    device_nodes_start = assets._JS.find("/* --- device nodes ---")
+    assert device_nodes_start != -1, "device nodes セクションが見つからない"
+    device_section = assets._JS[device_nodes_start:device_nodes_start + 1500]
+    assert "truncateLabel(d.hostname," in device_section, \
+        "device ノード描画で truncateLabel(d.hostname, ...) が呼ばれていない"
+
+
+@pytest.mark.unit
+def test_a5_device_node_has_title_element():
+    """device ノード描画に <title> 要素（full hostname）が含まれること。
+
+    SVG <title> はネイティブツールチップ。full hostname を esc() でエスケープして出す。
+    """
+    device_nodes_start = assets._JS.find("/* --- device nodes ---")
+    assert device_nodes_start != -1, "device nodes セクションが見つからない"
+    device_section = assets._JS[device_nodes_start:device_nodes_start + 1500]
+    assert "<title>" in device_section, \
+        "device ノード描画に <title> 要素が含まれていない"
+    assert "esc(d.hostname)" in device_section, \
+        "device ノードの <title> に esc(d.hostname) が含まれていない"
+
+
+@pytest.mark.unit
+def test_a5_device_node_title_before_rect():
+    """device ノード <g> の最初の子に <title> が置かれていること（文字列位置で検証）。
+
+    <title>${esc(d.hostname)}</title> は <rect class="body" ... より前にあること。
+    """
+    device_nodes_start = assets._JS.find("/* --- device nodes ---")
+    assert device_nodes_start != -1
+    device_section = assets._JS[device_nodes_start:device_nodes_start + 1500]
+    title_pos = device_section.find("<title>")
+    rect_pos = device_section.find('<rect class="body"')
+    assert title_pos != -1, "<title> が見つからない"
+    assert rect_pos != -1, '<rect class="body" が見つからない'
+    assert title_pos < rect_pos, \
+        "<title> が <rect class=\"body\" より後にある（<title> は最初の子に置くこと）"
+
+
+@pytest.mark.unit
+def test_a5_ext_node_uses_truncate_label():
+    """ext ノード（外部ピア）描画が truncateLabel を使って e.label を省略すること。
+
+    external peers セクションで truncateLabel(e.label, ...) が呼ばれていること。
+    """
+    ext_peers_start = assets._JS.find("/* --- external peers")
+    assert ext_peers_start != -1, "external peers セクションが見つからない"
+    ext_section = assets._JS[ext_peers_start:ext_peers_start + 1000]
+    assert "truncateLabel(e.label," in ext_section, \
+        "ext ノード描画で truncateLabel(e.label, ...) が呼ばれていない"
+
+
+@pytest.mark.unit
+def test_a5_ext_node_has_title_element():
+    """ext ノード描画に <title> 要素（full label）が含まれること。"""
+    ext_peers_start = assets._JS.find("/* --- external peers")
+    assert ext_peers_start != -1
+    ext_section = assets._JS[ext_peers_start:ext_peers_start + 1000]
+    assert "<title>" in ext_section, \
+        "ext ノード描画に <title> 要素が含まれていない"
+    assert "esc(e.label)" in ext_section, \
+        "ext ノードの <title> に esc(e.label) が含まれていない"
+
+
+# ---------------------------------------------------------------------------
+# node 実行ロジックテスト: truncateLabel 純関数の動作検証（必須）
+# ---------------------------------------------------------------------------
+
+def _extract_truncate_label_source(js: str) -> str:
+    """_JS から truncateLabel 関数ブロックをバランス中括弧で切り出す。"""
+    start_marker = "function truncateLabel"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError("truncateLabel not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError("truncateLabel: unbalanced braces")
+
+
+def _extract_node_label_max_chars_source(js: str) -> str:
+    """_JS から nodeLabelMaxChars 関数ブロックをバランス中括弧で切り出す。"""
+    start_marker = "function nodeLabelMaxChars"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError("nodeLabelMaxChars not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError("nodeLabelMaxChars: unbalanced braces")
+
+
+def _run_truncate_label(node_bin: str, text_js: str, max_chars: int) -> str:
+    """node を使って truncateLabel(text, maxChars) を実行して結果文字列を返す。"""
+    func_src = _extract_truncate_label_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        f"const result = truncateLabel({text_js}, {max_chars});\n"
+        "process.stdout.write(JSON.stringify(result));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def _run_node_label_max_chars(node_bin: str, w: int) -> int:
+    """node を使って nodeLabelMaxChars(w) を実行して整数を返す。"""
+    func_src = _extract_node_label_max_chars_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        f"const result = nodeLabelMaxChars({w});\n"
+        "process.stdout.write(JSON.stringify(result));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_short_returns_as_is(node_bin):
+    """短いテキストはそのまま返ること（省略しない）。
+
+    text.length <= maxChars なら text を unchanged で返す。
+    壊すと赤: 常に省略する実装で "short" が "shor…" になり失敗する。
+    """
+    result = _run_truncate_label(node_bin, '"short"', 10)
+    assert result == "short", f"短いテキストが変更された: {result!r}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_exact_max_chars_returns_as_is(node_bin):
+    """text.length == maxChars のとき省略しないこと（境界値: 等しい場合は省略不要）。
+
+    壊すと赤: text.length < maxChars のみ通す実装で "12345" (len=5, maxChars=5) が省略される。
+    """
+    result = _run_truncate_label(node_bin, '"12345"', 5)
+    assert result == "12345", f"length==maxChars で省略されてしまった: {result!r}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_long_appends_ellipsis(node_bin):
+    """長いテキストは (maxChars-1) 文字 + '…' になること。
+
+    壊すと赤: 省略しない実装で末尾が '…' にならず失敗する。
+    """
+    result = _run_truncate_label(node_bin, '"core-router-dc1-rack5-unit12"', 10)
+    assert result.endswith("…"), f"省略形の末尾が '…' でない: {result!r}"
+    assert len(result) == 10, f"省略後の長さが maxChars(10) でない: len={len(result)}, {result!r}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_result_length_le_max_chars(node_bin):
+    """truncateLabel の結果長が常に maxChars 以下であること。
+
+    壊すと赤: 省略後に maxChars を超える実装で失敗する（省略の本質的要件）。
+    """
+    for max_chars in [5, 10, 15, 20]:
+        result = _run_truncate_label(node_bin, '"abcdefghijklmnopqrstuvwxyz"', max_chars)
+        assert len(result) <= max_chars, \
+            f"maxChars={max_chars} で結果長 {len(result)} が maxChars 超: {result!r}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_maxchars_1_boundary(node_bin):
+    """maxChars=1 の境界安全: 例外を投げず '…' を返すこと。
+
+    maxChars=1 → maxChars-1=0 文字 + '…' = '…'（長さ1）。
+    壊すと赤: text[0:-1] のような実装は 'a' など元文字を返す誤り。
+    """
+    result = _run_truncate_label(node_bin, '"core-router"', 1)
+    assert result == "…", f"maxChars=1 で '…' が返らなかった: {result!r}"
+    assert len(result) == 1, f"maxChars=1 で長さが 1 でない: len={len(result)}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_maxchars_0_boundary_safe(node_bin):
+    """maxChars=0/負 の境界安全: 例外を投げないこと。
+
+    maxChars <= 0 の境界では例外なく安全な値（空文字または '…'）を返すこと。
+    壊すと赤: slice で -1 が発生しクラッシュする実装を弾く。
+    """
+    caught = None
+    for max_chars in [0, -1]:
+        func_src = _extract_truncate_label_source(assets._JS)
+        driver = (
+            f"{func_src}\n"
+            "let caught = null, result = null;\n"
+            f"try {{ result = truncateLabel('core-router', {max_chars}); }}"
+            "catch(e) {{ caught = e.message; }}\n"
+            "process.stdout.write(JSON.stringify({caught, result}));\n"
+        )
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node 不在のためスキップ")
+        r = subprocess.run([node, "--input-type=module"], input=driver,
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            r = subprocess.run([node], input=driver,
+                               capture_output=True, text=True, timeout=10)
+        assert r.returncode == 0, f"node が非ゼロ終了: {r.stderr}"
+        out = json.loads(r.stdout)
+        assert out["caught"] is None, \
+            f"maxChars={max_chars} で例外が投げられた: {out['caught']}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_empty_string_safe(node_bin):
+    """空文字入力が安全に処理されること（例外なし・空文字を返す）。
+
+    壊すと赤: text.length アクセスや slice が null/undefined でクラッシュする実装を弾く。
+    """
+    result = _run_truncate_label(node_bin, '""', 10)
+    assert result == "", f"空文字が空文字で返らなかった: {result!r}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_null_safe(node_bin):
+    """null 入力が安全に処理されること（例外なし・空文字を返す）。
+
+    壊すと赤: null.length でクラッシュする実装を弾く。
+    """
+    func_src = _extract_truncate_label_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        "let caught = null, result = null;\n"
+        "try { result = truncateLabel(null, 10); }"
+        "catch(e) { caught = e.message; }\n"
+        "process.stdout.write(JSON.stringify({caught, result}));\n"
+    )
+    node = shutil.which("node")
+    r = subprocess.run([node, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node が非ゼロ終了: {r.stderr}"
+    out = json.loads(r.stdout)
+    assert out["caught"] is None, f"null 入力で例外が投げられた: {out['caught']}"
+    assert out["result"] == "", f"null 入力が空文字を返さなかった: {out['result']!r}"
+
+
+@pytest.mark.unit
+def test_a5_truncate_label_deterministic(node_bin):
+    """同じ引数で2回呼んで同一結果が返ること（決定性）。
+
+    壊すと赤: 乱数や副作用に依存する実装を弾く。
+    """
+    func_src = _extract_truncate_label_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        "const r1 = truncateLabel('core-router-dc1-rack5-unit12', 10);\n"
+        "const r2 = truncateLabel('core-router-dc1-rack5-unit12', 10);\n"
+        "process.stdout.write(JSON.stringify({r1, r2, same: r1 === r2}));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    result = json.loads(r.stdout)
+    assert result["same"] is True, \
+        f"truncateLabel が決定的でない（2回呼んで異なる結果）: {result}"
+
+
+# ---------------------------------------------------------------------------
+# node 実行ロジックテスト: nodeLabelMaxChars 純関数の動作検証（必須）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a5_node_label_max_chars_monotone_nondecreasing(node_bin):
+    """nodeLabelMaxChars は w 増加に対して単調非減少であること。
+
+    壊すと赤: w が増えるほど max_chars が減る実装で失敗する。
+    """
+    func_src = _extract_node_label_max_chars_source(assets._JS)
+    test_js = f"""\
+"use strict";
+{func_src}
+let prev = nodeLabelMaxChars(100);
+for (let w = 110; w <= 300; w += 10) {{
+  const cur = nodeLabelMaxChars(w);
+  if (cur < prev) {{
+    process.stdout.write("maxChars shrank at w=" + w + ": prev=" + prev + " cur=" + cur);
+    process.exit(1);
+  }}
+  prev = cur;
+}}
+"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のためスキップ")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(test_js)
+        path = f.name
+    try:
+        result = subprocess.run([node, path], capture_output=True, text=True)
+        assert result.returncode == 0, \
+            f"nodeLabelMaxChars が単調非減少でない: {result.stdout or result.stderr}"
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.unit
+def test_a5_node_label_max_chars_w148_reasonable(node_bin):
+    """nodeLabelMaxChars(148) が妥当な値（1以上かつ画面幅を超えない）を返すこと。
+
+    基準幅 NODE_W=148 で max_chars >= 1 かつ <= 50 程度。
+    例 Math.max(1, Math.floor((148 - 22) / 8)) = Math.floor(126/8) = 15。
+    壊すと赤: 0 や 200 を返す実装で失敗する。
+    """
+    result = _run_node_label_max_chars(node_bin, 148)
+    assert result >= 1, f"nodeLabelMaxChars(148) が 1 未満: {result}"
+    assert result <= 50, f"nodeLabelMaxChars(148) が 50 超（非現実的）: {result}"
+
+
+@pytest.mark.unit
+def test_a5_node_label_max_chars_w196_larger_than_w148(node_bin):
+    """nodeLabelMaxChars(196) >= nodeLabelMaxChars(148) であること（単調性）。
+
+    degree 拡大で w が 148→196 に増えたとき max_chars も増えること。
+    壊すと赤: w 依存なし（固定値）の実装では w=148 と w=196 が同じ値になるが
+    「>=」なのでその場合は PASS。より厳格な「>」でテストする。
+    """
+    r148 = _run_node_label_max_chars(node_bin, 148)
+    r196 = _run_node_label_max_chars(node_bin, 196)
+    assert r196 >= r148, \
+        f"nodeLabelMaxChars(196)={r196} < nodeLabelMaxChars(148)={r148}（単調性違反）"
+    # 196 > 148 なので maxChars(196) > maxChars(148) が期待される
+    assert r196 > r148, \
+        f"nodeLabelMaxChars(196)={r196} が nodeLabelMaxChars(148)={r148} より大きくない（w 依存してない？）"
+
+
+@pytest.mark.unit
+def test_a5_node_label_max_chars_minimum_1(node_bin):
+    """nodeLabelMaxChars の返り値が常に最小 1 であること。
+
+    w が非常に小さくても 0 や負にならないこと。
+    壊すと赤: Math.floor((w - 22) / 8) のみで w < 30 なら 0 以下になる実装を弾く。
+    """
+    for w in [1, 10, 20, 30]:
+        result = _run_node_label_max_chars(node_bin, w)
+        assert result >= 1, \
+            f"nodeLabelMaxChars({w}) が 1 未満（{result}）: Math.max(1,...) が無い？"
+
+
+# ---------------------------------------------------------------------------
+# render 決定性テスト（A5 実装後も維持されること）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a5_render_html_determinism():
+    """A5 実装後も render_html が決定的であること（2回バイト一致）。
+
+    truncateLabel/nodeLabelMaxChars が純粋関数のため HTML 出力は決定的なはず。
+    """
+    from lib.rendering import template
+    minimal_topology = {
+        "devices": {},
+        "interfaces": [],
+        "links": [],
+        "segments": [],
+        "routing": {"bgp": [], "ospf": [], "static": []},
+        "meta": {"generated_from": [], "schema_version": "2.0"},
+    }
+    h1 = template.render_html(minimal_topology)
+    h2 = template.render_html(minimal_topology)
+    assert h1 == h2, "A5 実装後に render_html が決定的でなくなった"
+
+
+@pytest.mark.unit
+def test_a5_node_check_syntax_with_truncate_label():
+    """truncateLabel / nodeLabelMaxChars を含む _JS で node --check が通ること。"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため構文チェックをスキップ")
+    stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
+            "meta:{generated_from:[]},"
+            "stats:{devices:0,interfaces:0,links:0,segments:0,"
+            "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
+            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
+            "checks:[]};"
+            "const POS={};"
+            "const VIEWS=['physical','diff','stats','checks','addr','ifs'];"
+            "const DIFF=null;\n")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(stub + assets._JS)
+        path = f.name
+    try:
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        assert r.returncode == 0, f"node --check 失敗（A5 追加後）: {r.stderr}"
+    finally:
+        os.unlink(path)
+
+
+# ===========================================================================
+# A5 レビュー確定修正
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 修正 #2 [test MED]: maxChars=0 / maxChars=-1 の戻り値検証強化
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a5_truncate_label_maxchars_0_returns_empty(node_bin):
+    """maxChars=0 のとき truncateLabel が空文字 "" を返すこと。
+
+    既存の test_a5_truncate_label_maxchars_0_boundary_safe は例外なし（caught is None）だけを
+    検証していたが、戻り値まで assert する形に強化する。
+    実装: maxChars<=1 かつ maxChars<=0 → "" を返す（コメントと実装の一致）。
+    壊すと赤: maxChars=0 で "…" を返す実装（maxChars=1 との分岐が無い）で失敗する。
+    """
+    func_src = _extract_truncate_label_source(assets._JS)
+    for max_chars in [0, -1]:
+        driver = (
+            f"{func_src}\n"
+            "let caught = null, result = null;\n"
+            f"try {{ result = truncateLabel('core-router', {max_chars}); }}"
+            "catch(e) { caught = e.message; }\n"
+            "process.stdout.write(JSON.stringify({caught, result}));\n"
+        )
+        r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            r = subprocess.run([node_bin], input=driver,
+                               capture_output=True, text=True, timeout=10)
+        assert r.returncode == 0, f"node が非ゼロ終了 (maxChars={max_chars}): {r.stderr}"
+        out = json.loads(r.stdout)
+        assert out["caught"] is None, \
+            f"maxChars={max_chars} で例外が投げられた: {out['caught']}"
+        assert out["result"] == "", \
+            f"maxChars={max_chars} で空文字が返らなかった: {out['result']!r}"
+
+
+# ---------------------------------------------------------------------------
+# 修正 #3 [test LOW]: 検索 corpus 構築に truncateLabel が適用されていないこと
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a5_corpus_assignment_uses_full_hostname():
+    """検索 corpus / fcorpus の構築が d.hostname / e.label の full 値を使うこと。
+
+    §8.3.2「省略は表示のみ・検索は full」の担保。
+    corpus[id] / fcorpus[id].host へ代入する行には truncateLabel が適用されて
+    いないことを string-presence で検証する。
+    検索 corpus 代入行の付近: 'corpus[id] = [...d.hostname...' または
+    'fcorpus[id] = { host: d.hostname.toLowerCase()' の形式で、
+    truncateLabel 呼び出しが混入していないこと。
+    """
+    js = assets._JS
+    # corpus / fcorpus の構築ブロック（DATA.devices ループ）を切り出す。
+    # 開始位置: "const corpus = {}, fcorpus = {};" 付近
+    corpus_start = js.find("const corpus = {}, fcorpus = {};")
+    assert corpus_start != -1, "_JS に 'const corpus = {}, fcorpus = {};' が見つからない"
+
+    # corpus/fcorpus ブロックの終端: "/* IP（ホスト部）→" コメントまで
+    corpus_end_marker = "/* IP（ホスト部）"  # "/* IP（ホスト部）"
+    corpus_end = js.find(corpus_end_marker, corpus_start)
+    if corpus_end == -1:
+        # フォールバック: IP2NET 定数の初期化まで
+        corpus_end = js.find("const IP2NET = {};", corpus_start)
+    assert corpus_end != -1, "corpus ブロックの終端マーカーが見つからない"
+
+    corpus_block = js[corpus_start:corpus_end]
+
+    # corpus ブロック内に truncateLabel が存在しないこと
+    assert "truncateLabel" not in corpus_block, (
+        "検索 corpus 構築ブロック内に truncateLabel が含まれている。"
+        "§8.3.2「省略は表示のみ・検索は full」に違反する。"
+    )
+
+    # fcorpus[id].host に d.hostname.toLowerCase() が直接代入されていること（full 値の確認）
+    assert "d.hostname.toLowerCase()" in corpus_block, (
+        "fcorpus[id].host に d.hostname.toLowerCase() が直接代入されていない。"
+        "検索 corpus は full hostname を使うこと（§8.3.2）。"
+    )
+
+    # extPeers の corpus 代入でも e.label の full 値を使うこと
+    assert "e.label.toLowerCase()" in corpus_block, (
+        "extPeers の fcorpus[e.id].host に e.label.toLowerCase() が直接代入されていない。"
+        "検索 corpus は full label を使うこと（§8.3.2）。"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 修正 #4 [maint MED]: extMaxc がループ外に移動されていること
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_a5_extmaxc_outside_ext_for_loop():
+    """extMaxc = nodeLabelMaxChars(NODE_W) が ext ノードの for ループ外に定義されていること。
+
+    NODE_W は定数のため毎ループ同値。ループ外（'if (showBgp) {' 直後等）に移動することで
+    不要な再評価を排除する（挙動・決定性は不変）。
+    検証: ext peers for ループ開始より前に extMaxc の定義があること。
+    壊すと赤: extMaxc をループ内に戻すと、for ループ開始より後に extMaxc 定義が現れる。
+    """
+    js = assets._JS
+    ext_section_start = js.find("/* --- external peers")
+    assert ext_section_start != -1, "external peers セクションが見つからない"
+
+    # "if (showBgp)" の位置（ext peers ブロックの先頭ガード）
+    show_bgp_pos = js.find("if (showBgp)", ext_section_start)
+    assert show_bgp_pos != -1, "ext peers セクション内に 'if (showBgp)' が見つからない"
+
+    # for ループ開始位置（DATA.extPeers を使う for）
+    ext_for_pos = js.find("for (const e of DATA.extPeers)", show_bgp_pos)
+    assert ext_for_pos != -1, "ext peers ループ 'for (const e of DATA.extPeers)' が見つからない"
+
+    # extMaxc の定義位置
+    extmaxc_pos = js.find("const extMaxc = nodeLabelMaxChars(NODE_W)", show_bgp_pos)
+    assert extmaxc_pos != -1, \
+        "'const extMaxc = nodeLabelMaxChars(NODE_W)' が ext peers ブロック内に見つからない"
+
+    # extMaxc の定義が for ループ開始より前にあること
+    assert extmaxc_pos < ext_for_pos, (
+        f"extMaxc の定義がループ内にある（extMaxc_pos={extmaxc_pos} >= ext_for_pos={ext_for_pos}）。"
+        "ループ外（if (showBgp) 直後等）に移動すること。"
+    )
