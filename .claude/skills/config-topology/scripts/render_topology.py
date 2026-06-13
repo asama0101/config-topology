@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import yaml  # noqa: E402
 from lib.topology_io import load_topology       # noqa: E402
 from lib.rendering.template import render_html   # noqa: E402
-from lib.history import retain_for_render, current_timestamp  # noqa: E402
+from lib.history import retain_for_render, current_timestamp, latest_history_topology  # noqa: E402
 from lib.diff import diff_topology              # noqa: E402
 
 
@@ -19,7 +19,11 @@ def main(argv=None):
     p.add_argument("-o", "--output", default="./topology.html",
                    help="出力 HTML（既定 ./topology.html）")
     p.add_argument("--diff-against", metavar="PREV_DIR",
-                   help="前回トポロジーのディレクトリ（指定時は DIFF ビューを生成）")
+                   help="前回トポロジーのディレクトリ（指定時は DIFF ビューを生成）。"
+                        "--diff-against-history より優先される。")
+    p.add_argument("--diff-against-history", action="store_true",
+                   help="直近 history スナップショットとの差分を自動表示する。"
+                        "--diff-against が明示されている場合はそちらを優先する。")
     args = p.parse_args(argv)
 
     try:
@@ -33,6 +37,14 @@ def main(argv=None):
     except yaml.YAMLError as e:
         print("[ERROR] YAML パースエラー: %s" % e, file=sys.stderr)
         return 1
+
+    # --diff-against-history が指定されていて --diff-against が未指定の場合に history を自動解決する
+    if not args.diff_against and args.diff_against_history:
+        found = latest_history_topology()
+        if found is None:
+            print("[INFO] 比較対象の history が見つかりません（差分なしで描画）", file=sys.stderr)
+        else:
+            args.diff_against = str(found)
 
     diff = None
     if args.diff_against:

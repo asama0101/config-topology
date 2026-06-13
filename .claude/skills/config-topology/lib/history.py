@@ -4,6 +4,7 @@
 退避ディレクトリ名のタイムスタンプのみ実行時刻に依存する（§9.1 決定性の唯一の例外）。
 退避処理本体は now_str を引数で受け取るため決定的でテスト可能。
 """
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +52,57 @@ def retain_for_build(output_dir, html_pair, now_str, history_root="history"):
     for t in targets:
         shutil.move(str(t), str(dest / t.name))
     return dest
+
+
+def _ts_sort_key(name):
+    """history ディレクトリ名 <ts>[_N] のソートキーを返す。
+
+    末尾の `_<数値>` 連番を数値として比較し、同一 base（タイムスタンプ）内で
+    _10 > _9 となるよう保証する（lexical だと '_9' > '_10' になりバグになる）。
+
+    ソートキー = (base 名（連番を除いた部分）, 連番の int 値（無ければ 0）)
+
+    reverse=True と組み合わせることで:
+    - base 名（タイムスタンプ）は降順（新しい日時が先）
+    - 同一 base 内は連番が大きい方（最新衝突）が先
+    """
+    m = re.match(r'^(.+?)_(\d+)$', name)
+    if m:
+        return (m.group(1), int(m.group(2)))
+    return (name, 0)
+
+
+def latest_history_topology(history_root="history"):
+    """直近 history の層別 YAML inner ディレクトリを返す（D3c §10.x）。
+
+    history_root 直下の <ts> サブディレクトリを**名前の降順**で走査し、
+    各 <ts>/ の直下サブディレクトリに _meta.yaml を持つものを探す。
+    見つかった場合、その inner ディレクトリ（例: history/<ts>/topology/）の Path を返す。
+
+    ソートは末尾連番 `_N` を数値として比較する（_ts_sort_key を参照）。
+    同一 base（タイムスタンプ）内で _10 > _9 となり、lexical より衝突が正しく解決される。
+
+    返り値:
+        Path: 最新の inner dir（_meta.yaml を含む）
+        None: history_root 不在・空・層別 YAML を含む history が無い場合
+
+    決定性: 同一 FS 状態 → 同一選択（数値降順 max が決定的）。
+    """
+    history_root = Path(history_root)
+    if not history_root.is_dir():
+        return None
+    # <ts> サブディレクトリを降順ソート（末尾 _N 連番を数値として比較）
+    ts_dirs = sorted(
+        (d for d in history_root.iterdir() if d.is_dir()),
+        key=lambda d: _ts_sort_key(d.name),
+        reverse=True,
+    )
+    for ts_dir in ts_dirs:
+        # <ts>/ 直下のサブディレクトリを検索し _meta.yaml を持つものを探す
+        for inner in sorted(ts_dir.iterdir(), key=lambda d: d.name):
+            if inner.is_dir() and (inner / "_meta.yaml").exists():
+                return inner
+    return None
 
 
 def retain_for_render(output_html, now_str, history_root="history"):

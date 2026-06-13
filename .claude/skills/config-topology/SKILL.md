@@ -81,8 +81,14 @@ python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html
 # 入力は層別YAMLディレクトリ（topology_io.load_topology が参照整合を検証して dict 復元）
 # 構成図は常に ./topology.html に出力する
 
-# 差分表示（DIFF ビュー）: 前回の topology/ を指定すると HTML に DIFF タブが追加される
+# 差分表示（DIFF ビュー）: 前回の topology/ を明示指定すると HTML に DIFF タブが追加される
 python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html --diff-against ./history/<YYYY-MM-DD_HHMM>/topology/
+
+# --diff-against-history: 直近 history スナップショットとの差分を自動表示（パス指定不要）
+# history/ 直下の最新タイムスタンプディレクトリを自動選択して --diff-against 相当を実行する
+# history が存在しない場合は差分なし（INFO を stderr に出力）で通常描画する
+# --diff-against が明示されている場合は --diff-against が優先される
+python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html --diff-against-history
 ```
 - **図ビュー**（上部タブ）: `PHYSICAL`（L1物理＝機器+リンク+セグメント）＋プロトコル別（`BGP`・`OSPF` … `routing` キーから動的生成。例: BGP ネイバー隣接・OSPF エリア別）。
 - **表ビュー**（上部タブ）: `ADDRESSES`（インターフェース集約・IP 一覧）・`INTERFACES`（インターフェース詳細・状態・速度・description）・`STATS`（構成統計ダッシュボード：機器/IF/リンク/セグメント数・ベンダー別・AS 別・OSPF area 別・dual-stack 率・BGP/OSPF/static 件数の集計）・`CHECKS`（設計検証パネル：重複 IP・MTU 不一致・BGP local_ip 未解決・到達不可 next_hop 等の設計上の注意点を severity / kind / message / refs でリスト表示。0 件なら「問題は検出されませんでした」）。`DIFF`（条件付き：`--diff-against` 指定時のみ表示 — 前回との差分を devices/interfaces/links/segments/routing_bgp/routing_ospf/routing_static の固定順で added(+)/removed(-)/changed(~) のセクションと件数サマリで表示。差分ゼロなら「差分なし」を明示）。

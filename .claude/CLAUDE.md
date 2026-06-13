@@ -82,13 +82,14 @@ python3 "$SKILL/scripts/parse_configs.py" <path1> [path2...]   # 正規化 Devic
 python3 "$SKILL/scripts/build_topology.py" <path1> [path2...] -o ./topology   # paths 指定時、または省略で workspace/ を走査
 python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html
 # --diff-against <prev_dir> を付けると前回トポロジーとの差分を HTML の DIFF ビューに表示（diff_topology を埋め込み）
+# --diff-against-history は直近 history/<ts>/ の層別YAMLを自動選択して差分表示（latest_history_topology。--diff-against 優先）
 
 # 差分レポート（パイプライン外の独立ツール。2つの層別 YAML を比較し Markdown 出力。決定的・時刻非依存）
 python3 "$SKILL/scripts/diff_topology.py" old_topology/ new_topology/ [-o diff.md]   # lib/diff.py が本体
 ```
 `$SKILL/dev/examples/topology/` は 2 サンプル config から生成される期待出力（ゴールデン）。
 `scripts/diff_topology.py`（→ `lib/diff.py`）は 3層パイプライン外の独立ツールで、`load_topology` で読んだ2つの topology dict を比較する（build/render に非依存・出力本文は時刻非依存）。
-実装では rebuild により `lib/history.py`（history 退避）・`lib/run_summary.py`（実行サマリー集約）が追加。
+実装では rebuild により `lib/history.py`（history 退避・`latest_history_topology` で直近 history 解決）・`lib/run_summary.py`（実行サマリー集約）が追加。
 
 ## 機密情報の注意
 config の `interface description` 等の自由記述はそのまま層別 YAML・`topology.html` に出力される

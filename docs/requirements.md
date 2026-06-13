@@ -1062,7 +1062,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 |---------|------|------|
 | `parse_configs.py` | 正規化 Device リストの JSON 出力（デバッグ・ベンダー判定確認用） | `[paths...]` |
 | `build_topology.py` | パース＋推論を実行し層別 YAML を生成 | `[paths...] [-o DIR]` |
-| `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE] [--diff-against PREV_DIR]` |
+| `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE] [--diff-against PREV_DIR] [--diff-against-history]` |
 | `diff_topology.py` | 2 つの層別 YAML を比較し差分レポート（Markdown）を生成（§10.4・パイプライン外の独立ツール） | `<old_dir> <new_dir> [-o FILE]` |
 
 **共通の入力解決**（parse / build）:
@@ -1073,6 +1073,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - `build_topology.py -o` の既定値: `topology`（カレント配下 `./topology/`）。
 - `render_topology.py -o` 省略時: `./topology.html`（カレント直下。§1.2・§3.1 の出力②と一致させる）。
 - `render_topology.py --diff-against` 省略時: DIFF ビューなし（従来通り・加算的拡張）。指定時は `load_topology(PREV_DIR)` で前回トポロジーを読み、`diff_topology(prev, topo)` を計算して HTML に DIFF タブを追加する。PREV_DIR の読込失敗（OSError / ValueError / yaml.YAMLError）は終了コード 1。
+- `render_topology.py --diff-against-history`: 直近 history スナップショットとの差分を自動表示する（§10.6）。
 
 ### 10.2 終了コード・出力規約
 
@@ -1136,6 +1137,28 @@ diff dict のセクションキーはアンダースコア区切り（`routing_b
 4. **注意喚起**: スキップまたは警告が 1 件以上ある場合、サマリー末尾に「結果が不完全な可能性がある」旨の注意行を出力する。
 
 目的: 未知ベンダーのサイレントスキップや多数の警告に利用者が気づき、生成結果の信頼性を判断できるようにする。
+
+### 10.6 render_topology.py --diff-against-history（D3c）
+
+直近 history スナップショットとの差分を自動表示するオプション。パスを手動指定する `--diff-against` を補完する利便性フラグ。
+
+**フラグ**: `--diff-against-history`（store_true・省略可）
+
+**解決順（優先度）**:
+1. `--diff-against <dir>` が明示されている場合は **そちらを優先**（`--diff-against-history` は無視）。
+2. `--diff-against` が未指定かつ `--diff-against-history` が指定されている場合:
+   - `lib/history.latest_history_topology()` を呼び、直近 history の層別 YAML inner ディレクトリを取得する。
+   - 見つかれば `--diff-against <inner_dir>` を指定した場合と同等の DIFF 描画を行う。
+   - 見つからなければ `[INFO] 比較対象の history が見つかりません（差分なしで描画）` を stderr に出力し、差分なし（従来通り）で描画する。終了コードは 0（正常）。
+
+**`latest_history_topology()` の選択ルール**:
+- `history/` 直下の各 `<ts>` サブディレクトリを**名前の降順**（lexical sort）で走査する。タイムスタンプ文字列は ISO 風（`YYYY-MM-DD_HHMM`）のため、新しいものが辞書順で大きい。衝突連番（`_2`/`_3` 等）は base の後にソートされ、最新の衝突が選ばれる。
+- 各 `<ts>/` の直下サブディレクトリに `_meta.yaml` を持つものがあれば、その inner ディレクトリの Path を返す。
+- `render_only` 退避（`topology.html` のみ、`_meta.yaml` なし）はスキップする。
+- `history/` 不在・空・層別 YAML を含む history が無い場合は `None` を返す。
+- **決定性**: ファイルシステム状態が同一であれば常に同一の inner dir を返す（§9.1 の範囲内）。なお history 退避ディレクトリ名のタイムスタンプ自体は実行時刻依存（§9.1 の既存例外）。
+
+**prev の load_topology 失敗時**: `--diff-against` 指定時と同じ例外処理（OSError / ValueError / yaml.YAMLError）を行い、終了コード 1。
 
 ---
 

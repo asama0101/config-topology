@@ -43,7 +43,7 @@
 - [x] D2 設計検証警告の集約パネル（重複IP・MTU不一致・未解決BGP local_ip・dangling next_hop）— M ✅反復3完了
 - [x] D3 トポロジー差分レポート（コア: lib/diff.py + scripts/diff_topology.py）— M ✅反復8完了（HTML表示は D3b に分割）
 - [x] D3b 差分の HTML 表示（render --diff-against で DIFF ビュー）— M ✅反復12完了
-- [ ] D3c history 自動連携（直近 history/ との差分を自動ビュー化）— S
+- [x] D3c history 自動連携（--diff-against-history で直近 history との差分を自動ビュー化）— S ✅反復16完了
 - [ ] D4 IPアドレス計画/サブネット使用率ビュー — M（D1後）
 
 ## 推奨順序
@@ -167,6 +167,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: requirements.md §8.4・CLAUDE.md を同期。
 - テスト 738→749 passed（+11）。golden byte 不変・render 決定性維持。
 
-### 観点カバレッジ: A=A1,A4,A2 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b。**A3・B3・C5・D4**（全観点3+）。
-### 次候補: 反復16。観点はほぼ均衡。C4b BGP timers/community（parser強TDD・pending増殖注意）/ D3c history自動連携（直近history/との差分を自動ビュー化・D3b活用）/ A1b area クラスタリング（cluster_order拡張・A1基盤）/ A3 階層レイアウト（L）。業務価値＋実装容易性で D3c 推奨（render --diff-against を history 自動選択に拡張）。次点 A1b（layout強化）。
-推奨順序の残り目安: D3c → A1b → C4b → C1b → A3 → B2(差別化要) → 残り。
+### 反復16: D3c history 自動連携 — ✅完了（2026-06-14）
+- lib/history.py に `latest_history_topology(history_root)`（history/<ts>/ を**連番数値対応の降順ソート**で走査し直下に _meta.yaml を持つ inner dir を返す・無ければ None。Python 強TDD）。
+- render_topology.py に `--diff-against-history`（--diff-against 優先・無ければ直近 history を自動選択し diff・無ければ INFO＋diffなし）。D3b の diff 表示を再利用。
+- レビュー対応: 連番 `_10`>`_9` の数値ソート修正（lexical 崩れ）、--diff-against 優先テストの識別力強化（内容で区別）、history-diff を実差分化、非ゼロ差分の決定性・_meta.yaml無しサブディレクトリ スキップ補強。
+- doc: SKILL.md・requirements.md §10.1/§10.6（§10.5 誤参照修正）・CLAUDE.md を同期。
+- テスト 749→771 passed（+22）。golden byte 不変・render 決定性維持。未指定時は従来挙動完全不変。
+
+### 観点カバレッジ: A=A1,A4,A2 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b,D3c。**A3・B3・C5・D5**。
+### 次候補: 反復17。A/B がやや手薄。A1b area クラスタリング（cluster_order を area 単位に拡張・A1基盤・layout 強化）/ A3 階層レイアウトモード（L）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ B2 表ビュー列フィルタ（既存検索と差別化要）。layout 強化＋A1 基盤活用で A1b 推奨。次点 C4b（強TDD）。
+推奨順序の残り目安: A1b → C4b → A3 → C1b → B2(差別化要) → 残り。
