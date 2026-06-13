@@ -45,6 +45,7 @@ def main(argv=None):
             verdicts.append((name, None))
             continue
         if dev is None:
+            print("[WARN] %s: skipped (parse returned None)" % name, file=sys.stderr)
             verdicts.append((name, None))
             continue
         parsed.append(dev)
