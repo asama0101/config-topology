@@ -38,3 +38,17 @@ def detect_vendor(text):
     if ratio <= 0.4 and _has_ios_features(lines):    # IOS: 40% ガードを通過し特徴行あり
         return "cisco_ios"
     return None
+
+
+def parse_config(text, warnings=None):
+    """ベンダー判定 → 対応パーサへ dispatch。未知は None（§2.3）。"""
+    if warnings is None:
+        warnings = []
+    vendor = detect_vendor(text)
+    if vendor == "juniper_junos":
+        from .junos import parse_junos
+        return parse_junos(text, warnings)
+    if vendor == "cisco_ios":
+        from .ios import parse_ios
+        return parse_ios(text, warnings)
+    return None
