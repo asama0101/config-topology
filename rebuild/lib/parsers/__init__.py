@@ -13,7 +13,7 @@ def _nonempty_lines(text):
 def _set_ratio(lines):
     if not lines:
         return 0.0
-    n = sum(1 for ln in lines if ln.lstrip().startswith("set "))
+    n = sum(1 for ln in lines if ln.startswith("set "))
     return n / len(lines)
 
 

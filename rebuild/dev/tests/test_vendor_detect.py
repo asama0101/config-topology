@@ -42,3 +42,24 @@ def test_is_sensitive_line():
     assert is_sensitive_line("snmp-server community public RO")
     assert not is_sensitive_line(" description to-R2")
     assert not is_sensitive_line(" ip address 10.0.0.1 255.255.255.252")
+
+
+def test_detect_set_exactly_50pct_with_ios_features_is_none():
+    # set ちょうど 50%（>0.5 不成立）かつ IOS 特徴あり（50%>40% で IOS 除外）→ None
+    lines = ["hostname R1", "interface GigabitEthernet0/0", "set a", "set b"]  # 2/4 = 50%
+    from lib.parsers import detect_vendor
+    assert detect_vendor("\n".join(lines)) is None
+
+
+def test_detect_set_exactly_40pct_with_ios_features_is_ios():
+    # set ちょうど 40%（<=0.4 成立）かつ IOS 特徴あり → cisco_ios
+    lines = ["hostname R1", "interface GigabitEthernet0/0", "x1", "set a", "set b"]  # 2/5 = 40%
+    from lib.parsers import detect_vendor
+    assert detect_vendor("\n".join(lines)) == "cisco_ios"
+
+
+def test_set_ratio_ignores_indented_ios_route_map_set():
+    # インデント付き route-map `set` は JunOS set としてカウントしない → cisco_ios のまま
+    from lib.parsers import detect_vendor
+    text = "hostname R1\ninterface GigabitEthernet0/0\nroute-map RM permit 10\n set community 65001:100\n set local-preference 200\n!\n"
+    assert detect_vendor(text) == "cisco_ios"
