@@ -28,3 +28,26 @@ def unique_history_dir(history_root, now_str):
         if not cand.exists():
             return cand
         n += 1
+
+
+def retain_for_build(output_dir, html_pair, now_str, history_root="history"):
+    """build 再生成前の退避（§10.3）。
+
+    - output_dir に層別 YAML(*.yaml) があれば history/<now_str>/<output_dir名>/ へ移動。
+    - html_pair（既定パス運用時のみ Path('topology.html')。非既定時は None）が存在すれば
+      同一退避ディレクトリへ一緒に移動（成果物ペアの整合維持）。
+    退避対象が無ければ何もせず None を返す。退避したら退避先 Path を返す。
+    """
+    output_dir = Path(output_dir)
+    targets = []
+    if output_dir.is_dir() and any(output_dir.glob("*.yaml")):
+        targets.append(output_dir)
+    if html_pair is not None and Path(html_pair).exists():
+        targets.append(Path(html_pair))
+    if not targets:
+        return None
+    dest = unique_history_dir(history_root, now_str)
+    dest.mkdir(parents=True)
+    for t in targets:
+        shutil.move(str(t), str(dest / t.name))
+    return dest
