@@ -1,123 +1,109 @@
 # ベンダー別パース要点と新ベンダー追加手順
 
-各パーサは config テキストを受け取り、ベンダー中立な**正規化モデル**（`lib/parsers/base.py` の `Device`）を返す。`build_topology.py` はこのモデルだけを見るので、パーサが差異を吸収する。
+各パーサは config テキストを受け取り、ベンダー中立な**正規化モデル**（`lib/models.py` の dataclass）を返す。`lib/build.py` はこのモデルだけを見るので、パーサが構文差異を吸収する。
 
-## 正規化モデル（base.py）
-```python
-# モジュール定数（マジック文字列を一元管理）
-ADMIN_UP: str = "up"
-ADMIN_DOWN: str = "down"
-L2: str = "l2"
-L3: str = "l3"
-SOURCE_PARSED: str = "parsed"
+## 正規化モデル（lib/models.py）
 
-@dataclass
-class Interface:
-    name: str
-    ip: str | None          # "a.b.c.d/prefixlen"（CIDR 正規化済み）
-    description: str | None
-    shutdown: bool = False
-    vlan: int | None = None
-    admin_status: str | None = None   # ADMIN_UP / ADMIN_DOWN（shutdown 由来）
-    oper_status: str | None = None    # None（config 取得不可・将来 SNMP 拡張で string | null）
-    mtu: int | None = None            # int | None
-    speed: str | None = None          # 文字列（"1000", "1g" 等。ベンダー表記のまま）
-    duplex: str | None = None         # "full" / "half" / None（JunOS set では通常 None）
-    l2_l3: str | None = None          # L2 / L3 / None
-    switchport: dict | None = None    # {mode, access_vlan?, trunk_vlans?} | None（IOS 専用）
-    encapsulation: str | None = None  # "dot1q", "flexible-ethernet-services" 等
-    source: str = SOURCE_PARSED       # 常に "parsed"
+以下の dataclass を定義（要件書 §4.1）:
 
-@dataclass
-class BgpNeighbor:
-    neighbor_ip: str
-    peer_as: int | None
+| クラス | フィールド | 説明 |
+|--------|-----------|------|
+| **Address** | `af`（str）| `"v4"` / `"v6"` |
+| | `ip`（str）| ホストアドレス（プレフィックスなし・正規化済み） |
+| | `prefix`（int）| プレフィックス長 |
+| | `secondary`（bool）| IOS secondary フラグ（既定 False） |
+| | `scope`（str \| None）| `"link-local"` / None（既定） |
+| **Interface** | `name`（str）| IF 名 |
+| | `addresses`（list[Address]）| IP アドレス群（dual-stack 正本） |
+| | `ip`（str \| None）| 派生フィールド（後方互換。§4.1） |
+| | `description`, `shutdown`, `admin_status` etc. | 各属性 |
+| **BgpNeighbor** | `neighbor_ip`（str）| ネイバー IP |
+| | `peer_as`（int \| None）| ピア AS |
+| | `af`（str）| `"v4"` / `"v6"` |
+| **OspfNetwork** | `process`（int \| None）| プロセス ID |
+| | `network`（str）| CIDR またはインターフェース名 |
+| | `area`（str）| エリア（正規化前） |
+| | `af`（str）| `"v4"` / `"v6"` |
+| **StaticRoute** | `prefix`（str）| 宛先 CIDR |
+| | `next_hop`（str）| ネクストホップ IP |
+| | `af`（str）| `"v4"` / `"v6"` |
+| **Device** | `hostname`（str）| ホスト名 |
+| | `vendor`（str）| `"cisco_ios"` / `"juniper_junos"` |
+| | `as_`（int \| None）| ローカル AS |
+| | `ospf_router_id`, `bgp_router_id` | router-id（§5.2.1） |
+| | `interfaces`（list[Interface]）| インターフェース群 |
+| | `bgp`, `ospf`, `static` | ルーティング情報 |
 
-@dataclass
-class OspfNetwork:
-    process: int | None
-    network: str            # CIDR
-    area: str
+## パーサ共通インターフェース（lib/parsers/__init__.py）
 
-@dataclass
-class StaticRoute:
-    prefix: str             # CIDR
-    next_hop: str
+- `detect_vendor(text: str) -> str | None` — ベンダー ID を返す（JunOS → IOS の順で特異度高い順に判定。一元管理）
+- `parse_config(text: str, warnings) -> Device | None` — ベンダー判定 → 対応パーサへ dispatch・正規化モデルを返す
 
-@dataclass
-class Device:
-    hostname: str
-    vendor: str             # "cisco_ios" / "juniper_junos"
-    asn: int | None
-    interfaces: list[Interface]
-    bgp: list[BgpNeighbor]
-    ospf: list[OspfNetwork]
-    static: list[StaticRoute]
-```
+`lib/inputs.py` / `scripts/parse_configs.py` はファイルごとに `parse_config()` を呼び、`Device` または `None` を受け取る。
 
-## パーサ共通インターフェース
-各ベンダーモジュールは 2 つの関数を公開する（`lib/parsers/__init__.py` の registry が利用）:
-- `detect(text: str) -> bool` — その config が当該ベンダーか判定
-- `parse(text: str) -> Device` — 正規化モデルを返す
+## Cisco IOS / IOS-XE（lib/parsers/ios.py）
 
-`parse_configs.py` はファイルごとに registry を回し、`detect` が真の最初のパーサを使う。
+**構文 → 正規化マッピング（要件書 §6.1）**:
 
-## Cisco IOS / IOS-XE（cisco_ios.py）
-- 行指向・`!` 区切り。`interface <name>` ブロック内をインデントで把握。
-- `hostname X` → hostname。
-- `ip address A.B.C.D MASK` → addresses に `{af:"v4", ip:"...", prefix:n}` エントリを追加。secondary あり → `secondary:True` で収録（無視せず全アドレスを保持）。
-  - **`ip` フィールド**: addresses 中の最初の非 secondary v4 から派生（後方互換）。
-  - **l2_l3 判定**: `ip address`（v4）**または** `ipv6 address`（v6）の存在 → L3。`switchport` → L2。
-- `ipv6 address X:Y:Z/PL` → addresses に `{af:"v6", ip:"正規化済みアドレス", prefix:n}` エントリを追加（ipaddress 正規化済み）。
-- `ipv6 address FE80::X link-local` → addresses に `{af:"v6", ip:"fe80::...", prefix:64, scope:"link-local"}` エントリを追加。
-- **link-local アドレスは `addresses` には保持されるが結線推論（`_infer_links_and_segments`）から除外**される。
-- `no ip address` は「IP 未設定」の明示構文だが、ip address コマンドがなければ ip=None になるため特別対応しない設計判断。
-- `shutdown`（ブロック内・`no` なし）→ `shutdown=True`。
-- `description X` → description。
-- `mtu <val>` → `mtu`（int）。`\d+` マッチ後のため ValueError は不発生。
-- `speed <val>` → `speed`（文字列のまま格納。例: `"1000"`, `"auto"`）。
-- `duplex <val>` → `duplex`（例: `"full"`, `"half"`）。
-- `switchport mode access|trunk` → `switchport.mode`。`switchport access vlan <id>` → `switchport.access_vlan`（int）。`switchport trunk allowed vlan <range>` → `switchport.trunk_vlans`（文字列）。`no switchport` フラグを検知して L3 と判定する。
-- `encapsulation dot1Q|DOT1Q <vlan>` → `encapsulation="dot1q"`（IGNORECASE で DOT1Q 等も許容）。
-- **l2_l3 判定（IOS）**: `ip address` あり または `no switchport` あり → L3。`switchport` あり → L2。それ以外 None。
-  - IOS は ip あり／no switchport が L3 判定で優先され（switchport より先に評価）、switchport は L2 の根拠となる。
-- **admin_status 導出**: `shutdown` = True → `ADMIN_DOWN`、それ以外 → `ADMIN_UP`。
-- `router bgp <asn>` → asn。配下 `neighbor <ip> remote-as <peer>` → BgpNeighbor（v4/v6 仮登録）。
-  - **Phase 3G**: `address-family ipv6` 配下 `neighbor <v6ip> activate` → BgpNeighbor(af="v6")。グローバルスコープの `neighbor <ip> remote-as <peer>` のみで `activate` されていないネイバーは af="v4" として確定する。
-- `router ospf <pid>` 配下 `network <addr> <wildcard> area <a>` → OspfNetwork（af="v4"。wildcard を逆マスクして CIDR 化）。
-- **Phase 3G**: `ipv6 router ospf <pid>` ブロック: **PID 宣言のみ**。配下行（`router-id` 等）は無視する。OSPFv3 の確定は interface ブロック内の `ipv6 ospf <pid> area <a>` で行う（IOS の `_ospfv3_if_buf` で仮収集し、パース後処理で OspfNetwork(af="v6") に変換）。インターフェースブロック内の `ipv6 ospf <pid> area <a>` → OspfNetwork(af="v6", network=当該 IF の v6 GUA サブネット CIDR, process=pid, area=a)。v6 アドレスが不明な場合は IF 名を network に格納（JunOS fallback と同様）。
-- `ip route <prefix> <mask> <next_hop>` → StaticRoute(af="v4"。`0.0.0.0 0.0.0.0` → `0.0.0.0/0`）。
-- **Phase 3G**: `ipv6 route <prefix/len> <nexthop>` → StaticRoute(af="v6", prefix=ipaddress 正規化済み CIDR, next_hop=normalize_v6(nexthop))。
-- **detect**: `^hostname `・`^interface .*Ethernet`・`^!` 等の IOS 特徴で判定。非空行のうち `^set ` が **40% 超**を占める場合は JunOS とみなし false（registry は JunOS → IOS の順で試すため通常はこのガードに到達しない。閾値が JunOS の 50% とずれているのは、IOS の特徴行が無い純 set 形式を確実に JunOS 側へ寄せるための非対称な安全マージン）。
+| 構文 | 抽出先 | 正規化 |
+|------|--------|--------|
+| `hostname <name>` | Device | hostname |
+| `interface <name>` | Interface | name（ブロック内属性を解析） |
+| `ip address <ip> <mask>` | addresses | `{af:"v4", ip:..., prefix:...}` |
+| `ip address ... secondary` | addresses | `{af:"v4", ..., secondary:True}` |
+| `ipv6 address <prefix/len>` | addresses | `{af:"v6", ip:..., prefix:...}` |
+| `ipv6 address fe80::.../len` | addresses | `{af:"v6", ..., scope:"link-local"}` |
+| `shutdown` | shutdown | True（`no shutdown` で False） |
+| `description <text>` | description | テキスト（クォート除去） |
+| `router bgp <asn>` | Device.as_ | asn |
+| `neighbor <ip> remote-as <peer>` | BgpNeighbor | (af は IP アドレス形式で v4/v6 判定) |
+| `address-family ipv6` + `neighbor ... activate` | BgpNeighbor.af | "v6" に更新 |
+| `router ospf <pid>` / `network ... area <a>` | OspfNetwork | (af="v4", area は§6.3で正規化) |
+| `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |
+| `ip route <prefix> <mask> <next_hop>` | StaticRoute | (af="v4") |
+| `ipv6 route <prefix/len> <nexthop>` | StaticRoute | (af="v6", prefix 正規化) |
 
-## Juniper JunOS（juniper_junos.py）— set 形式
-- 全行 `set ...` 前提。
-- `set system host-name X` → hostname。
-- `set interfaces <if> description "X"` → description（クォート除去）。
-- `set interfaces <if> unit N family inet address A.B.C.D/PL` → addresses に `{af:"v4", ip:"...", prefix:n}` エントリを追加。
-  - `ip` フィールド: addresses 中の最初の非 secondary v4 から派生（後方互換）。旧来の「先勝ち」は廃止し全アドレスを収集する。
-- `set interfaces <if> unit N family inet6 address X:Y:Z/PL` → addresses に `{af:"v6", ip:"正規化済みアドレス", prefix:n}` エントリを追加（Phase 3F 追加）。
-  - fe80::/10（link-local）アドレスには `scope:"link-local"` を付与する（IOS と対称）。link-local は addresses には保持されるが結線推論から除外される。
-  - 注記: unit は IF 名に含めない（unit 集約方針踏襲）。複数 unit / 複数アドレスは全て収集する（将来 unit を区別する場合は Phase X で変更）。
-- `set interfaces <if> disable` → shutdown=True。
-- `set interfaces <if> mtu <val>` → `mtu`（int）。`\d+` マッチ後のため ValueError は不発生。
-- `set interfaces <if> speed <val>` → `speed`（文字列のまま格納。例: `"1g"`, `"10g"`）。duplex は JunOS set 形式では通常出現しないため常に None。
-- `set interfaces <if> encapsulation <val>` → `encapsulation`（値はそのまま格納。例: `"flexible-ethernet-services"`）。
-- `set interfaces <if> unit N family ethernet-switching ...` → `l2_flag=True`。
-- **l2_l3 判定（JunOS）**: `family ethernet-switching` あり → L2。`family inet`（v4）**または** `family inet6`（v6）→ L3。それ以外 None。
-  - JunOS は ethernet-switching が L2 判定で優先され（inet より先に評価）、ethernet-switching は L2 の根拠となる。
-  - `switchport` フィールドは常に None（JunOS には IOS の switchport コマンドが存在しない。L2 は l2_l3='l2' で表現）。
-- **admin_status 導出**: `disable` あり → `ADMIN_DOWN`、それ以外 → `ADMIN_UP`。
-- `set routing-options autonomous-system <asn>` → asn。
-- `set protocols bgp group <g> neighbor <ip> peer-as <peer>` → BgpNeighbor。neighbor_ip が v6 アドレスなら af="v6"（normalize_v6 で正規化）、v4 なら af="v4"。
-- `set ... ospf area <a> interface <if>` があれば OspfNetwork(af="v4")（area, network は IF の IP から導出可能なら CIDR、無理なら IF 名を network に格納）。v1 は best-effort。
-- **Phase 3G**: `set protocols ospf3 area <a> interface <if>` → OspfNetwork(af="v6", process=None, network=ベース IF 名, area=a)。IF 名のユニット表記（ge-0/0/0.0）はドット以降を除去してベース名を格納。build_topology の `_resolve_ospf_area_for_device` で v6 サブネットと照合。
-- `set routing-options static route <prefix> next-hop <ip>` → StaticRoute(af="v4")。
-- **Phase 3G**: `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` → StaticRoute(af="v6", prefix=`ipaddress.ip_network(prefix, strict=False)` で正規化済み CIDR（ホストビット除去）, next_hop=normalize_v6(ip))。不正な prefix は try/except ValueError でスキップ。IOS の `ipv6 route` と対称の正規化を保証。
-- **detect**: 非空行の **過半数（50% 超）** が `^set ` で始まる。
+**判定ルール**:
+- **detect**: `hostname` / `interface ...Ethernet` / `!` 等の IOS 特徴行で判定（§2.3）。`set ` 行が40%超なら JunOS とみなす（ガード）。
+- **l2_l3**: `ip address` または `no switchport` → L3。`switchport` → L2。それ以外 null。
+- **admin_status**: shutdown=true → "down"。false → "up"。
+- **addresses ソート**: af 順（v4 < v6）→ ip 昇順 → prefix 昇順（§5.2）。
+- **link-local 除外**: `addresses` には fe80::/10 を保持するが結線推論（lib/build.py）から除外（§7.1）。
 
-## 新ベンダー追加手順（例: Cisco NX-OS）
-1. `lib/parsers/nxos.py` を作り `detect` / `parse` を実装（`Device` を返す）。
-2. `lib/parsers/__init__.py` の registry リストに追加（detect の特異度が高い順に並べる）。
-3. `tests/test_parsers.py` にサンプル config とアサーションを追加。
-4. スキーマ・build_topology・renderer は**変更不要**（正規化モデルに合わせるだけ）。
+## Juniper JunOS（lib/parsers/junos.py）— set 形式
+
+**構文 → 正規化マッピング（要件書 §6.2）**:
+
+| 構文 | 抽出先 | 正規化 |
+|------|--------|--------|
+| `set system host-name <name>` | Device | hostname（クォート除去） |
+| `set interfaces <if> unit <n> family inet address <prefix/len>` | addresses | `{af:"v4", ip:..., prefix:...}` |
+| `set interfaces <if> unit <n> family inet6 address <prefix/len>` | addresses | `{af:"v6", ip:..., prefix:...}` |
+| `set interfaces <if> unit <n> family inet6 address fe80::.../len` | addresses | `{af:"v6", ..., scope:"link-local"}` |
+| `set interfaces <if> description <text>` | description | テキスト（クォート除去） |
+| `set interfaces <if> disable` | shutdown | True（行がなければ False） |
+| `set routing-options autonomous-system <asn>` | Device.as_ | asn |
+| `set routing-options router-id <id>` | Device.bgp_router_id / ospf_router_id | ID（§5.2.1） |
+| `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BgpNeighbor | (af は IP 形式で v4/v6 判定) |
+| `set protocols ospf area <a> interface <if>` | OspfNetwork | (af="v4", area は§6.3で正規化, network は v4 CIDR または IF 名) |
+| `set protocols ospf3 area <a> interface <if>` | OspfNetwork | (af="v6", process=null, network=IF ベース名) |
+| `set routing-options static route <prefix> next-hop <ip>` | StaticRoute | (af="v4") |
+| `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` | StaticRoute | (af="v6", prefix 正規化・ホストビット除去) |
+
+**判定ルール**:
+- **detect**: 非空行のうち `set ` で始まる行が50%超（§2.3）。
+- **l2_l3**: `family ethernet-switching` → L2。`family inet`/`family inet6` (address あり) → L3。それ以外 null。
+- **admin_status**: disable 行あり → "down"。なし → "up"。
+- **switchport**: 常に null（JunOS は IOS switchport コマンドが存在しない）。
+- **addresses ソート**: af 順（v4 < v6）→ ip 昇順 → prefix 昇順。
+- **unit 集約**: 複数 unit は一つの IF に集約。複数アドレスは全収集（§6.2）。
+- **link-local 除外**: fe80::/10 は addresses に保持するが結線推論から除外。
+
+## 新ベンダー追加手順
+
+1. `lib/parsers/<vendor>.py` を作成し以下を実装:
+   - `parse_<vendor>(text: str, warnings) -> Device | None` — 正規化モデルを返す
+2. `lib/parsers/__init__.py` の `detect_vendor()` に判定分岐を追加（特異度が高い順）し、`parse_config()` の dispatch に登録。
+3. `lib/models.py` の `Device` 等のモデルに合わせて属性を正規化（新フィールド追加は不要。既存スキーマで足りるなら変更不要）。
+4. tests に判定・パース・結線推論のテストを追加。
+5. スキーマ・build_topology・renderer は**変更不要**（正規化モデルが共通のため）。

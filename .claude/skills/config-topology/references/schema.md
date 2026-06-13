@@ -66,21 +66,20 @@ topology/
 | `id` | string | `"<device_id>::<name>"` |
 | `device` | string | 所属機器 ID |
 | `name` | string | IF 名（config 上の表記。例 `GigabitEthernet0/0` / `ge-0/0/0`） |
-| `ip` | string \| null | `"a.b.c.d/prefixlen"`（CIDR 正規化済み）。IP 未設定 IF は null |
-| `vlan` | int \| null | access/SVI の VLAN（v1 では基本 null。L2 は将来拡張） |
+| `addresses` | object[] | dual-stack アドレス正本（§4.1）。`[{af, ip, prefix, secondary?, scope?}]` 形式。`af`=`"v4"`/`"v6"`、`ip`=ホストアドレス（プレフィックス長なし）、`prefix`=int。`secondary`=True（IOS secondary、省略=False）、`scope`=`"link-local"`（省略=グローバル）。空の IF は空配列。ソート: af 順（v4 < v6）→ ip 昇順 → prefix 昇順。 |
+| `ip` | string \| null | 後方互換フィールド。`addresses` 中の最初の非 secondary v4 から派生（§4.1）。v6-only / 未設定は null |
+| `vlan` | int \| null | access/SVI の VLAN（初版は基本 null。L2 は将来拡張）。 |
 | `description` | string \| null | IF の description |
-| `shutdown` | bool | 管理停止状態。`true` のIFも結線推論には含めるが、対向と結ぶリンクは `links[].admin_down=true`（グレー破線）として推論される。対向の無いスタブはリンク化しない |
-| `admin_status` | string \| null | **Phase 2D** 管理状態。`"up"` / `"down"`。`shutdown` 由来（IOS: shutdown文、JunOS: disable）。設定由来が取れない場合は null |
-| `oper_status` | string \| null | **Phase 2D** 運用状態。config から取得不可のため現状常に null（将来 SNMP 連携等で up/down 受け入れ予定） |
-| `mtu` | int \| null | **Phase 2D** MTU 値（バイト）。config に `mtu` 行がなければ null |
-| `speed` | string \| null | **Phase 2D** インターフェース速度文字列（`"1000"`, `"1g"` 等。ベンダー表記をそのまま格納）。取得不能は null |
-| `duplex` | string \| null | **Phase 2D** duplex 設定（`"full"` / `"half"` 等）。IOS 対応。JunOS set 形式では通常取得不可（null） |
-| `l2_l3` | string \| null | **Phase 2D** レイヤー種別。`"l2"`（switchport / ethernet-switching）/ `"l3"`（ip address あり）/ null（判定不能） |
-| `switchport` | object \| null | **Phase 2D** IOS switchport 情報。`{"mode": "access"\|"trunk", "access_vlan": int?, "trunk_vlans": string?}`。switchport 非設定は null |
-| `encapsulation` | string \| null | **Phase 2D** カプセル化種別（`"dot1q"`, `"flexible-ethernet-services"` 等）。なければ null |
-| `source` | string | **Phase 2D** データソース識別子。現行は常に `"parsed"` |
-| `addresses` | object[] | **Phase 3F** dual-stack アドレス正本。`[{af, ip, prefix, secondary?, scope?}]` 形式。`af`=`"v4"`/`"v6"`、`ip`=ホストアドレス（プレフィックス長なし・ipaddress 正規化済み）、`prefix`=int。`secondary`=True（IOS secondary、省略=False 相当）、`scope`=`"link-local"` 等（省略=通常グローバルアドレス）。空の IF は空配列。ソート: af 順（v4 < v6）→ ip 昇順 → prefix 昇順。|
-| `ip` | string \| null | 後方互換フィールド（Phase 3F より `addresses` が正本）。`addresses` 中の最初の非 secondary v4 アドレスから `"a.b.c.d/prefixlen"` 形式で派生。v6-only IF では null。IP 未設定 IF は null |
+| `shutdown` | bool | 管理停止状態（true/false）。true の IF も結線推論に含める（§7.1）。 |
+| `admin_status` | string \| null | 管理状態（`"up"` / `"down"`. shutdown 由来）。取得不能は null。 |
+| `oper_status` | string \| null | 運用状態（config から取得不可のため現状常に null。将来 SNMP 連携用予約）。 |
+| `mtu` | int \| null | MTU 値（バイト）。未設定は null。 |
+| `speed` | string \| null | インターフェース速度（ベンダー表記のまま）。取得不能は null。 |
+| `duplex` | string \| null | duplex 設定（`"full"` / `"half"` 等）。IOS のみ。JunOS では null。 |
+| `l2_l3` | string \| null | レイヤー種別（`"l2"` / `"l3"` / null）。 |
+| `switchport` | object \| null | IOS switchport 情報（§5.2.2）。JunOS では常に null。 |
+| `encapsulation` | string \| null | カプセル化種別（`"dot1q"` など）。未設定は null。 |
+| `source` | string | データソース識別子。現行は常に `"parsed"`。 |
 
 ## links
 2 機器のちょうど 2 つの IF が同一サブネットを共有するとき 1 本生成。
@@ -112,31 +111,31 @@ topology/
 ### `bgp`（object[]）
 | フィールド | 型 | 説明 |
 |-----------|----|------|
-| `device` | string | 機器 ID |
+| `device` | string | 機器 ID（devices[].id への参照） |
 | `local_as` | int | ローカル AS |
-| `local_ip` | string \| null | neighbor と同一サブネットにある自 IF の IP（解決できなければ null）。**Phase 3G**: v6 neighbor_ip に対しては v6 local_ip を返す |
+| `local_ip` | string \| null | neighbor と同一サブネットにある自 IF の IP（§7.3）。v6 neighbor に対しては v6 local_ip を返す。解決不能は null。 |
 | `neighbor_ip` | string | ネイバー IP（v4 または v6） |
-| `peer_as` | int \| null | ピア AS |
-| `type` | string | `ebgp`（local_as ≠ peer_as）/ `ibgp`（一致）/ `unknown`（peer_as 不明） |
-| `af` | string | **Phase 3G** アドレスファミリ。`"v4"`（IPv4 BGP）/ `"v6"`（BGP IPv6 AF） |
+| `peer_as` | int \| null | ピア AS。不明なら null。 |
+| `type` | string | `"ebgp"` / `"ibgp"` / `"unknown"`（§7.3） |
+| `af` | string | アドレスファミリ（`"v4"` / `"v6"`） |
 
 ### `ospf`（object[]）
-network 文 1 件につき 1 エントリ。
+network 宣言 1 件につき 1 エントリ。
 | フィールド | 型 | 説明 |
 |-----------|----|------|
-| `device` | string | 機器 ID |
+| `device` | string | 機器 ID（devices[].id への参照） |
 | `process` | int \| null | プロセス ID（JunOS は null 可） |
-| `network` | string | CIDR（IOS の wildcard は逆マスクして CIDR 化）またはインターフェース名（JunOS v1）。IPv4 または IPv6 CIDR どちらも取り得る |
-| `area` | string | エリア（`"0"` など。文字列で保持） |
-| `af` | string | **Phase 3G** アドレスファミリ。`"v4"`（OSPFv2）/ `"v6"`（OSPFv3） |
+| `network` | string | CIDR（§6.3 正規化）またはインターフェース名。IPv4 / IPv6 どちらも取り得る。 |
+| `area` | string | エリア（正規化済み文字列。§6.3 参照。例: `"0"`、`"16909060"`） |
+| `af` | string | アドレスファミリ（`"v4"` = OSPFv2 / `"v6"` = OSPFv3） |
 
 ### `static`（object[]）
 | フィールド | 型 | 説明 |
 |-----------|----|------|
-| `device` | string | 機器 ID |
-| `prefix` | string | 宛先 CIDR（`0.0.0.0/0` や `::/0` など。IPv4/IPv6 どちらも取り得る） |
+| `device` | string | 機器 ID（devices[].id への参照） |
+| `prefix` | string | 宛先 CIDR（例: `"0.0.0.0/0"`、`"::/0"`） |
 | `next_hop` | string | ネクストホップ IP（v4 または v6） |
-| `af` | string | **Phase 3G** アドレスファミリ。`"v4"`（IPv4 static）/ `"v6"`（IPv6 static） |
+| `af` | string | アドレスファミリ（`"v4"` / `"v6"`） |
 
 ## ID 採番規則
 - **device id**: `hostname` を小文字化し、英数字・ハイフン以外を `-` に置換。**最初の出現はサフィックスなし、2 番目は `-2`、3 番目は `-3`**（例: hostname が `R1`,`R1` → `r1`,`r1-2`）。さらに、既存の別 id（例 hostname `R1-2` 由来の `r1-2`）と衝突する場合は、衝突しない番号までカウントを繰り上げて一意性を保証する。空 hostname は `device`,`device-2`,...。
