@@ -69,3 +69,43 @@ def infer_links_segments(interfaces):
                              "members": sorted(m["id"] for m in members)})
         # len==1、または同一機器 2 メンバー → スタブ/自己ループ（生成しない）
     return links, segments
+
+
+def _resolve_local_ip(dev, neighbor):
+    """neighbor_ip と同一サブネットにある自機 IF の IP（af 一致）を返す。無ければ None（§7.3）。"""
+    try:
+        nbip = ipaddress.ip_address(neighbor.neighbor_ip)
+    except ValueError:
+        return None
+    for itf in dev.interfaces:
+        for a in itf.addresses:
+            if a.af != neighbor.af:
+                continue
+            if a.af == "v6" and a.scope == "link-local":
+                continue
+            net = ipaddress.ip_network("%s/%s" % (a.ip, a.prefix), strict=False)
+            if nbip in net:
+                return a.ip
+    return None
+
+
+def _bgp_type(local_as, peer_as):
+    if peer_as is None:
+        return "unknown"
+    if local_as == peer_as:
+        return "ibgp"
+    return "ebgp"
+
+
+def build_bgp(id_dev):
+    """id_dev: [(device_id, Device)] → routing.bgp エントリ列（§7.3）。"""
+    out = []
+    for dev_id, dev in id_dev:
+        for nb in dev.bgp:
+            out.append({
+                "device": dev_id, "local_as": dev.as_,
+                "local_ip": _resolve_local_ip(dev, nb),
+                "neighbor_ip": nb.neighbor_ip, "peer_as": nb.peer_as,
+                "type": _bgp_type(dev.as_, nb.peer_as), "af": nb.af,
+            })
+    return out
