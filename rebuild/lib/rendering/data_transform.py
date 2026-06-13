@@ -70,6 +70,25 @@ def _host_in_subnet(interfaces_index, device, ifname, subnet):
     return None
 
 
+def build_segments(topo):
+    """dict segments の members(iface_id) を {dev,ifn,ip} へ解決し DATA.segments を構築（§8.4）。"""
+    idx = {i["id"]: i for i in topo["interfaces"]}
+    out = []
+    for seg in topo["segments"]:
+        members = []
+        for mid in seg["members"]:
+            itf = idx.get(mid)
+            if not itf:
+                continue
+            ip = _host_in_subnet(idx, itf["device"], itf["name"], seg["subnet"])
+            members.append({"dev": itf["device"], "ifn": itf["name"], "ip": ip})
+        s = {"id": seg["id"], "subnet": seg["subnet"], "members": members}
+        if seg.get("ospf_area") is not None:
+            s["area"] = seg["ospf_area"]
+        out.append(s)
+    return out
+
+
 def build_links(topo):
     """dict links（v4/v6 別行）を端点ペアで 1 本に統合し DATA.links を構築（§8.4）。"""
     idx = {i["id"]: i for i in topo["interfaces"]}
