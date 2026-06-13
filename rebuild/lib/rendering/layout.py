@@ -18,7 +18,11 @@ def _initial_circle(node_ids):
 
 
 def compute_positions(data):
-    """全ノード（device + segment + ext）の決定的 POS を返す（座標は round(.,1)）。"""
+    """全ノード（device + segment + ext）の決定的 POS を返す（座標は round(.,1)）。
+
+    引力エッジは物理リンクに加えセグメント↔メンバー・外部ピア↔接続元・iBGP ループバックからも
+    張る（孤立ノードが斥力のみで発散するのを防ぐため）。
+    """
     dev_ids = list(data["devices"].keys())
     seg_ids = [s["id"] for s in data.get("segments", [])]
     ext_ids = [e["id"] for e in data.get("extPeers", [])]
@@ -32,7 +36,7 @@ def compute_positions(data):
     edges = []
     seen = set()
 
-    def _add(a, b):
+    def _add_edge(a, b):
         if a in pos and b in pos and a != b:
             key = (a, b) if a <= b else (b, a)
             if key not in seen:
@@ -40,15 +44,15 @@ def compute_positions(data):
                 edges.append((a, b))
 
     for ln in data.get("links", []):
-        _add(ln.get("a"), ln.get("b"))
+        _add_edge(ln.get("a"), ln.get("b"))
     for s in data.get("segments", []):
         for m in s.get("members", []):
-            _add(s["id"], m.get("dev"))
+            _add_edge(s["id"], m.get("dev"))
     for e in data.get("extPeers", []):
-        _add(e["id"], e.get("from"))
+        _add_edge(e["id"], e.get("from"))
     for be in data.get("bgpEdges", []):
         if be.get("kind") == "loopback":
-            _add(be.get("a"), be.get("b"))
+            _add_edge(be.get("a"), be.get("b"))
 
     ids_sorted = sorted(node_ids)
     for it in range(_ITER):

@@ -79,6 +79,7 @@ def test_segment_bbox_does_not_explode_with_many_segments():
         "bgpEdges": [],
     }
     pos = compute_positions(data)
-    xs = [p["x"] for p in pos.values()]; ys = [p["y"] for p in pos.values()]
+    xs = [p["x"] for p in pos.values()]
+    ys = [p["y"] for p in pos.values()]
     diag = ((max(xs) - min(xs)) ** 2 + (max(ys) - min(ys)) ** 2) ** 0.5
     assert diag < 6000, diag      # 発散していない（修正前は数万 px）
