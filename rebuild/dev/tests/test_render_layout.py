@@ -103,3 +103,4 @@ def test_ext_peer_anchored_to_all_source_devices():
     # ext ノードは d1・d2 の双方から妥当距離内（片側偏りしない）
     assert dist("ext:E", "d1") < 2000
     assert dist("ext:E", "d2") < 2000
+    assert abs(dist("ext:E", "d1") - dist("ext:E", "d2")) < 200   # 両接続元の中間に配置
