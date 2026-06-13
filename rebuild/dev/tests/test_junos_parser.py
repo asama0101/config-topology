@@ -154,3 +154,34 @@ def test_dispatch_parse_config(ios_cfg_text, junos_cfg_text):
     assert parse_config(ios_cfg_text).vendor == "cisco_ios"
     assert parse_config(junos_cfg_text).vendor == "juniper_junos"
     assert parse_config("foo bar\nbaz qux\n") is None
+
+
+def test_host_name_quotes_stripped():
+    dev, _ = _parse('set system host-name "edge-r1"\n')
+    assert dev.hostname == "edge-r1"
+
+
+def test_bad_address_line_warns_not_crash():
+    text = ("set system host-name X\n"
+            "set interfaces ge-0/0/0 unit 0 family inet address NOTANIP/24\n")
+    dev, warnings = _parse(text)
+    assert dev.interfaces[0].addresses == []
+    assert len(warnings) >= 1
+
+
+def test_ospf_v2_fallback_to_if_name_when_no_v4():
+    # IF に v4 アドレスが無ければ network は base IF 名にフォールバック（§6.2）
+    text = ("set system host-name X\n"
+            "set protocols ospf area 0 interface ge-0/0/5.0\n")
+    dev, _ = _parse(text)
+    o = [x for x in dev.ospf if x.af == "v4"][0]
+    assert o.network == "ge-0/0/5"
+
+
+def test_b2_all_interface_details(junos_cfg_text):
+    dev, _ = _parse(junos_cfg_text)
+    ge1 = dev.interfaces[1]
+    assert ge1.name == "ge-0/0/1" and ge1.description == "LAN2"
+    assert ge1.derived_ip() == "192.168.2.1/24" and ge1.l2_l3 == "l3"
+    lo0 = dev.interfaces[2]
+    assert lo0.name == "lo0" and lo0.derived_ip() == "2.2.2.2/32"

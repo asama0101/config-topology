@@ -186,3 +186,40 @@ def test_ipv6_ospf_decl_before_address_resolves():
     dev, _ = _parse(text)
     o = [x for x in dev.ospf if x.af == "v6"]
     assert o[0].network == "2001:db8:9::/64"
+
+
+def test_bgp_af_ipv6_activate_flips_af():
+    # §6.1: address-family ipv6 下の neighbor <v6> activate で af が v6 に確定
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 2001:db8::2 remote-as 65002\n"
+            " address-family ipv6\n"
+            "  neighbor 2001:db8::2 activate\n"
+            " exit-address-family\n!\n")
+    dev, _ = _parse(text)
+    nb = [n for n in dev.bgp if n.neighbor_ip == "2001:db8::2"][0]
+    assert nb.af == "v6"
+
+
+def test_bgp_and_ospf_router_id_captured():
+    # §5.2.1: 両 router-id は独立に取得される
+    text = ("hostname X\nrouter bgp 65001\n bgp router-id 9.9.9.9\n!\n"
+            "router ospf 1\n router-id 8.8.8.8\n!\n")
+    dev, _ = _parse(text)
+    assert dev.bgp_router_id == "9.9.9.9"
+    assert dev.ospf_router_id == "8.8.8.8"
+
+
+def test_description_quotes_stripped():
+    text = ('hostname X\ninterface GigabitEthernet0/0\n description "link to core"\n!\n')
+    dev, _ = _parse(text)
+    assert dev.interfaces[0].description == "link to core"
+
+
+def test_b1_all_interface_details(ios_cfg_text):
+    # 附録 B.1 の 2/3 番目 IF も検証（gi1=LAN, lo0）
+    dev, _ = _parse(ios_cfg_text)
+    gi1 = dev.interfaces[1]
+    assert gi1.name == "GigabitEthernet0/1" and gi1.description == "LAN"
+    assert gi1.derived_ip() == "192.168.1.1/24" and gi1.l2_l3 == "l3"
+    lo0 = dev.interfaces[2]
+    assert lo0.name == "Loopback0" and lo0.derived_ip() == "1.1.1.1/32"

@@ -46,7 +46,9 @@ def test_cli_outputs_json_to_stdout():
     assert data[0]["hostname"] == "R1" and data[0]["vendor"] == "cisco_ios"
     assert data[0]["as"] == 65001
     assert data[1]["hostname"] == "R2"
-    assert "[INFO]" in proc.stderr or "cisco_ios" in proc.stderr
+    assert "[INFO] sample-ios-r1.cfg: cisco_ios" in proc.stderr
+    assert "[INFO] sample-junos-r2.conf: juniper_junos" in proc.stderr
+    assert "[INFO]" not in proc.stdout   # stdout は JSON のみ
 
 
 def test_cli_skips_unknown_vendor_with_warning(tmp_path):
