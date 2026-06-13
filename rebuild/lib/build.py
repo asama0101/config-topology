@@ -1,5 +1,7 @@
 """正規化 Device 群 → topology dict（要件書 §5・§7）。"""
-from .idgen import assign_device_ids, interface_id
+import ipaddress
+
+from .idgen import assign_device_ids, interface_id, segment_id
 
 DEFAULT_TITLE = "Network Topology (config-derived)"
 
@@ -26,3 +28,44 @@ def build_devices_interfaces(parsed):
             })
     devices_sorted = sorted(devices, key=lambda d: d["id"])   # 出力は id 昇順（§7.5）
     return device_ids, devices_sorted, interfaces
+
+
+def _iface_subnets(itf):
+    """IF の addresses から所属ネットワーク CIDR 集合（link-local 除外・重複除去）を返す。"""
+    nets = []
+    seen = set()
+    for a in itf["addresses"]:
+        if a["af"] == "v6" and a.get("scope") == "link-local":
+            continue
+        net = ipaddress.ip_network("%s/%s" % (a["ip"], a["prefix"]), strict=False)
+        cidr = "%s/%s" % (net.network_address, net.prefixlen)
+        if cidr not in seen:
+            seen.add(cidr)
+            nets.append(cidr)
+    return nets
+
+
+def infer_links_segments(interfaces):
+    """サブネット一致で links/segments を推論（§7.1）＋ admin_down 付与（§7.2）。"""
+    groups = {}   # cidr -> [iface dict, ...]（同一 IF は 1 回）
+    for itf in interfaces:
+        for cidr in _iface_subnets(itf):
+            groups.setdefault(cidr, []).append(itf)
+
+    links, segments = [], []
+    for cidr, members in groups.items():
+        if len(members) == 2 and members[0]["device"] != members[1]["device"]:
+            a, b = members
+            if (b["device"], b["name"]) < (a["device"], a["name"]):
+                a, b = b, a                             # a_device<b_device で安定化
+            link = {"a_device": a["device"], "a_if": a["name"],
+                    "b_device": b["device"], "b_if": b["name"],
+                    "subnet": cidr, "kind": "inferred-subnet"}
+            if a["shutdown"] or b["shutdown"]:          # §7.2 片端/両端 shutdown → true
+                link["admin_down"] = True
+            links.append(link)
+        elif len(members) >= 3:
+            segments.append({"id": segment_id(cidr), "subnet": cidr,
+                             "members": sorted(m["id"] for m in members)})
+        # len==1、または同一機器 2 メンバー → スタブ/自己ループ（生成しない）
+    return links, segments
