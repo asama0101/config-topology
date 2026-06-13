@@ -65,3 +65,25 @@ def test_admin_down_and_area_projected():
                    admin_down=True, ospf_area="0", ospf_network="10.0.0.0/30")]
     l = build_links(_topo(ifs, links))[0]
     assert l["admin_down"] is True and l["area"] == "0"
+
+
+def test_v6_only_link_has_null_v4_keys():
+    ifs = [_if("r1", "Gi0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 64}]),
+           _if("r2", "ge0", [{"af": "v6", "ip": "2001:db8::2", "prefix": 64}])]
+    links = [_link("r1", "Gi0", "r2", "ge0", "2001:db8::/64")]
+    l = build_links(_topo(ifs, links))[0]
+    assert l["subnet"] is None and l["aip"] is None and l["bip"] is None   # 契約キーは存在
+    assert l["dual"] == "2001:db8::/64" and l["aip6"] == "2001:db8::1"
+
+
+def test_dual_stack_v6_row_first_still_correct_v4_subnet():
+    ifs = [_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30},
+                             {"af": "v6", "ip": "2001:db8::1", "prefix": 126}]),
+           _if("r2", "ge0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30},
+                             {"af": "v6", "ip": "2001:db8::2", "prefix": 126}])]
+    # v6 行を先に
+    links = [_link("r1", "Gi0", "r2", "ge0", "2001:db8::/126"),
+             _link("r1", "Gi0", "r2", "ge0", "10.0.0.0/30")]
+    l = build_links(_topo(ifs, links))[0]
+    assert l["subnet"] == "10.0.0.0/30" and l["aip"] == "10.0.0.1"   # v4 が None を上書き
+    assert l["dual"] == "2001:db8::/126"

@@ -1,5 +1,6 @@
 """topology dict → DATA（JS が消費する形）。pure・決定的。"""
 import ipaddress
+from collections import defaultdict
 
 
 def _primary_ip6(addresses):
@@ -107,6 +108,9 @@ def build_links(topo):
         if is_v6:
             m["dual"] = ln["subnet"]
             m["aip6"], m["bip6"] = aip, bip
+            m.setdefault("subnet", None)
+            m.setdefault("aip", None)
+            m.setdefault("bip", None)
         else:
             m["subnet"] = ln["subnet"]
             m["aip"], m["bip"] = aip, bip
@@ -211,9 +215,11 @@ def build_bgp_topology(topo):
             pair = tuple(sorted([dev, peer_dev]))
             eid = "be:lb:%s:%s" % pair
             if eid not in edges:
+                a_ip = lip if dev == pair[0] else nb
+                b_ip = nb if dev == pair[0] else lip
                 edges[eid] = {
                     "id": eid, "kind": "loopback", "a": pair[0], "b": pair[1],
-                    "aip": lip, "bip": nb,
+                    "aip": a_ip, "bip": b_ip,
                     "type": e["type"],
                     "label": "iBGP" if e["type"] == "ibgp" else "BGP",
                 }
@@ -236,12 +242,13 @@ def build_data(topo):
     segments = build_segments(topo)
     bgp_topo = build_bgp_topology(topo)
 
-    link_by = {}
+    rows_by_dev = defaultdict(list)
     for r in bgp_topo["bgp_rows"]:
-        link_by[(r["device"], r["nb"])] = r["link"]
+        rows_by_dev[r["device"]].append(r["link"])
     for dev_id, dev in devices.items():
-        for row in dev["bgp"]:
-            row["link"] = link_by.get((dev_id, row["nb"]))
+        links_list = rows_by_dev.get(dev_id, [])
+        for i, row in enumerate(dev["bgp"]):
+            row["link"] = links_list[i] if i < len(links_list) else None
 
     return {
         "meta": {"generated_from": topo["meta"].get("generated_from", [])},

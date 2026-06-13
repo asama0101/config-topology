@@ -33,3 +33,36 @@ def test_build_data_deterministic():
     a = json.dumps(build_data(topo), sort_keys=True)
     b = json.dumps(build_data(topo), sort_keys=True)
     assert a == b
+
+
+def test_same_neighbor_two_sessions_distinct_links():
+    # 同一 (device, neighbor_ip) の 2 セッションが別エッジを指すケースで前行が誤らない
+    topo = {
+        "meta": {"generated_from": []},
+        "devices": [{"id": "r1", "hostname": "R1", "vendor": "cisco_ios", "as": 65001,
+                     "ospf_router_id": None, "bgp_router_id": None, "sections": []},
+                    {"id": "r2", "hostname": "R2", "vendor": "cisco_ios", "as": 65001,
+                     "ospf_router_id": None, "bgp_router_id": None, "sections": []}],
+        "interfaces": [
+            {"id": "r1::Gi0", "device": "r1", "name": "Gi0", "ip": "10.0.0.1/30", "vlan": None,
+             "description": None, "shutdown": False, "admin_status": "up", "oper_status": None,
+             "mtu": None, "speed": None, "duplex": None, "l2_l3": None, "switchport": None,
+             "encapsulation": None, "source": "parsed",
+             "addresses": [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]},
+            {"id": "r2::ge0", "device": "r2", "name": "ge0", "ip": "10.0.0.2/30", "vlan": None,
+             "description": None, "shutdown": False, "admin_status": "up", "oper_status": None,
+             "mtu": None, "speed": None, "duplex": None, "l2_l3": None, "switchport": None,
+             "encapsulation": None, "source": "parsed",
+             "addresses": [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]},
+        ],
+        "links": [{"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "ge0",
+                   "subnet": "10.0.0.0/30", "kind": "inferred-subnet"}],
+        "segments": [],
+        "routing": {"bgp": [
+            {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+             "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4"}],
+            "ospf": [], "static": []},
+    }
+    data = build_data(topo)
+    # over-link セッションは over-link エッジを指す
+    assert data["devices"]["r1"]["bgp"][0]["link"].startswith("be:ol:")

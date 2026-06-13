@@ -68,3 +68,15 @@ def test_extpeers_deduped_and_sorted():
            _bgp("r1", "10.0.0.1", "10.0.0.5", 65101, "ebgp")]
     res = build_bgp_topology(_topo(ifs, [], bgp))
     assert [e["id"] for e in res["extPeers"]] == ["ext:10.0.0.5", "ext:10.0.0.9"]
+
+
+def test_loopback_aip_corresponds_to_a():
+    # 先に来るのが b 側(r2)のセッションでも、aip は a(=r1, sorted先頭)の IP になる
+    ifs = [_if("r1", "lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),
+           _if("r2", "lo0", [{"af": "v4", "ip": "2.2.2.2", "prefix": 32}])]
+    # r2 のセッションを先に並べる
+    bgp = [_bgp("r2", "2.2.2.2", "1.1.1.1", 65001, "ibgp", local_as=65001),
+           _bgp("r1", "1.1.1.1", "2.2.2.2", 65001, "ibgp", local_as=65001)]
+    e = [x for x in build_bgp_topology(_topo(ifs, [], bgp))["bgpEdges"] if x["kind"] == "loopback"][0]
+    assert e["a"] == "r1" and e["aip"] == "1.1.1.1"
+    assert e["b"] == "r2" and e["bip"] == "2.2.2.2"
