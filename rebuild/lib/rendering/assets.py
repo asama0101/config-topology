@@ -876,6 +876,16 @@ function render() {
   renderMinimap();
 }
 
+function applyTransform() {
+  world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
+  if (!S.minimap) return;
+  const mv = $("#minisvg .mview");
+  if (!mv) { renderMinimap(); return; }
+  const r = $("#canvas").getBoundingClientRect();
+  mv.setAttribute("x", -S.tx/S.k); mv.setAttribute("y", -S.ty/S.k);
+  mv.setAttribute("width", r.width/S.k); mv.setAttribute("height", r.height/S.k);
+}
+
 /* visibility: filters / connected-only / search dim / legend-click 強調 */
 function applyVisibility() {
   const adj = adjacency();
@@ -1572,9 +1582,8 @@ window.addEventListener("mousemove", ev => {
     const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
     if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
     if (!drag.moved) return;
-    if (drag.node) { POS[drag.node].x = drag.ox + dx / S.k; POS[drag.node].y = drag.oy + dy / S.k; }
-    else { S.tx = drag.ox + dx; S.ty = drag.oy + dy; }
-    render();
+    if (drag.node) { POS[drag.node].x = drag.ox + dx / S.k; POS[drag.node].y = drag.oy + dy / S.k; render(); }
+    else { S.tx = drag.ox + dx; S.ty = drag.oy + dy; applyTransform(); }
     return;
   }
   if (rs) { hideTip(); return; }   /* パネルリサイズ中は hover 処理をスキップ */
@@ -1731,7 +1740,7 @@ canvas.addEventListener("wheel", ev => {
   const f = ev.deltaY < 0 ? 1.12 : 1/1.12;
   const k2 = Math.min(4, Math.max(.25, S.k * f));
   S.tx = mx - (mx - S.tx) * (k2/S.k); S.ty = my - (my - S.ty) * (k2/S.k); S.k = k2;
-  render();
+  applyTransform();
 }, {passive:false});
 function zoomFit() {
   const xs = Object.values(POS).map(p=>p.x), ys = Object.values(POS).map(p=>p.y);
@@ -1741,11 +1750,11 @@ function zoomFit() {
   const r = canvas.getBoundingClientRect();
   S.k = Math.min(r.width/bw, r.height/bh, 2);
   S.tx = (r.width - bw*S.k)/2 - bx*S.k; S.ty = (r.height - bh*S.k)/2 - by*S.k;
-  render();
+  applyTransform();
 }
-function zoomReset() { S.k = 1; S.tx = 0; S.ty = 0; render(); }
-$("#zin").onclick = () => { S.k = Math.min(4, S.k*1.25); render(); };
-$("#zout").onclick = () => { S.k = Math.max(.25, S.k/1.25); render(); };
+function zoomReset() { S.k = 1; S.tx = 0; S.ty = 0; applyTransform(); }
+$("#zin").onclick = () => { S.k = Math.min(4, S.k*1.25); applyTransform(); };
+$("#zout").onclick = () => { S.k = Math.max(.25, S.k/1.25); applyTransform(); };
 $("#zfit").onclick = zoomFit;
 $("#zreset").onclick = zoomReset;
 
