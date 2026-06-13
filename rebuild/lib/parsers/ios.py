@@ -1,0 +1,222 @@
+"""Cisco IOS / IOS-XE パーサ（要件書 §6.1）。"""
+import re
+
+from ..models import Address, BgpNeighbor, Device, Interface, OspfNetwork, StaticRoute
+from ..normalize import (mask_to_prefix, norm_cidr, norm_cidr_str, norm_ipv4,
+                         norm_ipv6, norm_ospf_area, v6_scope, wildcard_to_prefix)
+from .base import is_sensitive_line
+
+
+def _set_l3(iface):
+    iface.l2_l3 = "l3"   # L3 は switchport より優先（無条件上書き）
+
+
+def _set_l2(iface):
+    if iface.l2_l3 != "l3":   # L3 が既にあれば L2 にしない
+        iface.l2_l3 = "l2"
+
+
+def _parse_iface_line(iface, s, warnings):
+    m = re.match(r"^description\s+(.*)$", s)
+    if m:
+        iface.description = m.group(1).strip().strip('"')
+        return
+    m = re.match(r"^ip address\s+(\S+)\s+(\S+)(\s+secondary)?\s*$", s)
+    if m:
+        ip, mask, sec = m.group(1), m.group(2), bool(m.group(3))
+        try:
+            iface.addresses.append(Address("v4", norm_ipv4(ip), mask_to_prefix(mask),
+                                            secondary=sec))
+            _set_l3(iface)
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("ip address parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^ipv6 address\s+(\S+)(\s+link-local)?\s*$", s, re.IGNORECASE)
+    if m:
+        cidr, ll = m.group(1), bool(m.group(2))
+        try:
+            host, plen = cidr.split("/")
+            ip = norm_ipv6(host)
+            scope = "link-local" if ll else v6_scope(ip)
+            iface.addresses.append(Address("v6", ip, int(plen), scope=scope))
+            _set_l3(iface)
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("ipv6 address parse failed: %s (%s)" % (s, e))
+        return
+    if s == "shutdown":
+        iface.shutdown = True
+        return
+    if s == "no shutdown":
+        iface.shutdown = False
+        return
+    if s == "no switchport":
+        _set_l3(iface)
+        return
+    m = re.match(r"^mtu\s+(\d+)", s)
+    if m:
+        iface.mtu = int(m.group(1))
+        return
+    m = re.match(r"^speed\s+(\S+)", s)
+    if m:
+        iface.speed = m.group(1)
+        return
+    m = re.match(r"^duplex\s+(\S+)", s)
+    if m:
+        iface.duplex = m.group(1)
+        return
+    m = re.match(r"^encapsulation\s+dot1q\b", s, re.IGNORECASE)
+    if m:
+        iface.encapsulation = "dot1q"
+        return
+    m = re.match(r"^switchport mode\s+(access|trunk)", s)
+    if m:
+        iface.switchport = iface.switchport or {}
+        iface.switchport["mode"] = m.group(1)
+        _set_l2(iface)
+        return
+    m = re.match(r"^switchport access vlan\s+(\d+)", s)
+    if m:
+        iface.switchport = iface.switchport or {}
+        iface.switchport["access_vlan"] = int(m.group(1))
+        _set_l2(iface)
+        return
+    m = re.match(r"^switchport trunk allowed vlan\s+(\S+)", s)
+    if m:
+        iface.switchport = iface.switchport or {}
+        iface.switchport["trunk_vlans"] = m.group(1)
+        _set_l2(iface)
+        return
+
+
+def parse_ios(text, warnings):
+    dev = Device(hostname="", vendor="cisco_ios")
+    cur = None
+    context = None        # None | "interface" | "bgp" | "ospf"
+    ospf_pid = None
+    bgp_af = ["v4"]
+    neighbors = {}
+
+    def finish_iface():
+        nonlocal cur
+        if cur is not None:
+            cur.admin_status = "down" if cur.shutdown else "up"
+            dev.interfaces.append(cur)
+            cur = None
+
+    for raw in text.splitlines():
+        if is_sensitive_line(raw):
+            continue
+        s = raw.strip()
+        if not s:
+            continue
+
+        if s == "!" or s == "end":
+            finish_iface()
+            context = None
+            continue
+
+        m = re.match(r"^hostname\s+(\S+)$", s)
+        if m:
+            if dev.hostname == "":
+                dev.hostname = m.group(1)
+            continue
+        m = re.match(r"^interface\s+(\S+)", s)
+        if m:
+            finish_iface()
+            cur = Interface(name=m.group(1))
+            context = "interface"
+            continue
+        m = re.match(r"^router bgp\s+(\d+)", s)
+        if m:
+            finish_iface()
+            dev.as_ = int(m.group(1))
+            context, bgp_af[0] = "bgp", "v4"
+            continue
+        m = re.match(r"^router ospf\s+(\d+)", s)
+        if m:
+            finish_iface()
+            ospf_pid = int(m.group(1))
+            context = "ospf"
+            continue
+        if re.match(r"^ipv6 router ospf\s+\d+", s):
+            finish_iface()
+            context = None
+            continue
+        m = re.match(r"^ip route\s+(\S+)\s+(\S+)\s+(\S+)", s)
+        if m:
+            net, mask, nh = m.groups()
+            try:
+                prefix = mask_to_prefix(mask)
+                dev.static.append(StaticRoute(norm_cidr(norm_ipv4(net), prefix),
+                                              norm_ipv4(nh), "v4"))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("ip route parse failed: %s (%s)" % (s, e))
+            continue
+        m = re.match(r"^ipv6 route\s+(\S+)\s+(\S+)", s)
+        if m:
+            cidr, nh = m.groups()
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(cidr), norm_ipv6(nh), "v6"))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("ipv6 route parse failed: %s (%s)" % (s, e))
+            continue
+
+        if context == "interface" and cur is not None:
+            _parse_iface_line(cur, s, warnings)
+        elif context == "bgp":
+            if s.startswith("address-family ipv6"):
+                bgp_af[0] = "v6"
+            elif s.startswith("address-family ipv4"):
+                bgp_af[0] = "v4"
+            else:
+                _parse_bgp_line(dev, s, bgp_af, neighbors, warnings)
+        elif context == "ospf":
+            _parse_ospf_line(dev, s, ospf_pid, warnings)
+
+    finish_iface()
+    return dev
+
+
+def _parse_bgp_line(dev, s, bgp_af, neighbors, warnings):
+    m = re.match(r"^bgp router-id\s+(\S+)", s)
+    if m:
+        dev.bgp_router_id = m.group(1)
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+remote-as\s+(\d+)", s)
+    if m:
+        ip, peer = m.group(1), int(m.group(2))
+        try:
+            af = "v6" if ":" in ip else "v4"
+            nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
+            nb = BgpNeighbor(nip, peer, af)
+            dev.bgp.append(nb)
+            neighbors[nip] = nb
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("bgp neighbor parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+activate", s)
+    if m and bgp_af[0] == "v6" and ":" in m.group(1):
+        try:
+            nip = norm_ipv6(m.group(1))
+            if nip in neighbors:
+                neighbors[nip].af = "v6"
+        except Exception:                            # noqa: BLE001
+            pass
+        return
+
+
+def _parse_ospf_line(dev, s, ospf_pid, warnings):
+    m = re.match(r"^router-id\s+(\S+)", s)
+    if m:
+        dev.ospf_router_id = m.group(1)
+        return
+    m = re.match(r"^network\s+(\S+)\s+(\S+)\s+area\s+(\S+)", s)
+    if m:
+        net, wild, area = m.groups()
+        try:
+            prefix = wildcard_to_prefix(wild)
+            dev.ospf.append(OspfNetwork(ospf_pid, norm_cidr(norm_ipv4(net), prefix),
+                                        norm_ospf_area(area), "v4"))
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("ospf network parse failed: %s (%s)" % (s, e))
+        return
