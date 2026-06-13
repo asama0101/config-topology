@@ -126,6 +126,7 @@
 | `routing.bgp.yaml` | bgp[] | BGP エントリが存在する場合のみ生成 |
 | `routing.ospf.yaml` | ospf[] | OSPF エントリが存在する場合のみ生成 |
 | `routing.static.yaml` | static[] | static route エントリが存在する場合のみ生成 |
+| `routing.redistribute.yaml` | redistribute[] | redistribute エントリが存在する場合のみ生成（§C5） |
 
 空の routing プロトコルはファイルを書き出さない（読込時は欠落＝空リスト扱い）。
 
@@ -451,6 +452,24 @@ static: [...]
 | `next_hop` | string | ✓ | ネクストホップ IP（v4 または v6） |
 | `af` | string | ✓ | `"v4"` / `"v6"` |
 
+#### routing.redistribute.yaml（§C5）
+
+ルーティングプロトコル間の再配布設定。**IOS のみ対応**。非空時のみ生成。
+
+```
+redistribute: [...]
+```
+
+| フィールド | 型 | 必須 | 説明 |
+|-----------|-----|------|------|
+| `device` | string | ✓ | 機器 ID（devices[].id への参照） |
+| `into` | string | ✓ | 再配布先プロトコル（`"bgp"` / `"ospf"`）= config の文脈（router bgp / router ospf ブロック） |
+| `source` | string | ✓ | 再配布元プロトコル（`connected` / `static` / `ospf` / `bgp` / `rip` / `eigrp` / `isis` 等） |
+| `metric` | int | ✗ | 設定時のみ出力（`metric <n>`）。未設定時はキー省略 |
+| `route_map` | string | ✗ | 設定時のみ出力（`route-map <name>`）。未設定時はキー省略 |
+
+JunOS はルート再配布をポリシーベース（export policy 経由）で制御するため、set 形式 config では非対応（エントリは常に空）。
+
 ### 5.5 ID 採番規則
 
 #### device_id
@@ -554,6 +573,7 @@ CIDR の `.` と `/` を `_` に置換。
 | `area <a> nssa no-summary` (under router ospf) | OSPF area type | `area_type = "totally-nssa"` | |
 | `ip route <prefix> <mask> <next_hop>` | static | `prefix = <CIDR>`, `next_hop = <next_hop>`, `af = "v4"` | `0.0.0.0 0.0.0.0` → `"0.0.0.0/0"` |
 | `ipv6 route <prefix/len> <nexthop>` | static | `prefix = <正規化済み CIDR>`, `next_hop = <v6 短縮形正規化済み>`, `af = "v6"` | §6.3 参照 |
+| `redistribute <source> [<pid/AS>] [metric <n>] [route-map <name>] [subnets ...]` (router bgp / router ospf 内、§C5) | redistribute | `into = <"bgp"/"ospf">`, `source = <直後のトークン>`, `metric`/`route_map` は値ありのみ出力。プロセス ID・AS 番号・`subnets` 等の付加引数は無視。`no redistribute ...` は対象外 | connected / static / ospf / bgp / rip / eigrp / isis 等に対応 |
 
 #### L2/L3 判定ルール（IOS）
 
@@ -929,6 +949,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
   - **BGP Sessions** 表: neighbor / peer_as / type / **af** / **src**（update-source/local-address 由来の local_ip ソース。未設定は `—`）/ **attr**（`RR`=route-reflector-client・`NHS`=next-hop-self のバッジ。未設定は `—`）
   - **OSPF Networks** 表: network / area
   - **Static Routes** 表: prefix / next_hop
+  - **REDISTRIBUTE** 表: into（bgp/ospf）/ source / metric / route-map（device に redistribute がある場合のみ表示。IOS のみ・未設定の metric/route-map は `—`）
   - **Sections**: `devices[].sections` の汎用表示（初版は常に空）
 - パネルは**幅をドラッグでリサイズ**、および**最小化**できる。
 

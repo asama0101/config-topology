@@ -9,12 +9,13 @@
 出力ディレクトリ（既定 `topology/`）に層別ファイルを置く。`lib/topology_io.py` の `dump_topology`/`load_topology` が読み書きする。
 ```
 topology/
-  _meta.yaml            # schema_version: "1.0", title, generated_from
-  devices.yaml          # devices: [...]  /  interfaces: [...]   ← 全層が ID 参照する基盤
-  physical.yaml         # links: [...]    /  segments: [...]
-  routing.bgp.yaml      # bgp: [...]      （空プロトコルはファイルを書き出さない）
-  routing.ospf.yaml     # ospf: [...]
-  routing.static.yaml   # static: [...]
+  _meta.yaml                      # schema_version: "1.0", title, generated_from
+  devices.yaml                    # devices: [...]  /  interfaces: [...]   ← 全層が ID 参照する基盤
+  physical.yaml                   # links: [...]    /  segments: [...]
+  routing.bgp.yaml                # bgp: [...]      （空プロトコルはファイルを書き出さない）
+  routing.ospf.yaml               # ospf: [...]
+  routing.static.yaml             # static: [...]
+  routing.redistribute.yaml       # redistribute: [...]（非空時のみ生成）
 ```
 - **devices と interfaces は同居**（links / routing が interface・device の ID を外部キー参照するため、基盤として 1 ファイルに集約）。
 - **空の routing.\*** は書き出さない／読込時は欠落＝空リスト扱い。
@@ -141,6 +142,20 @@ network 宣言 1 件につき 1 エントリ。
 | `prefix` | string | 宛先 CIDR（例: `"0.0.0.0/0"`、`"::/0"`） |
 | `next_hop` | string | ネクストホップ IP（v4 または v6） |
 | `af` | string | アドレスファミリ（`"v4"` / `"v6"`） |
+
+### `redistribute`（object[]）
+ルーティングプロトコル間の再配布設定（IOS `redistribute` コマンドから抽出。§C5）。
+非空のとき `routing.redistribute.yaml` に出力される。
+
+| フィールド | 型 | 説明 |
+|-----------|----|------|
+| `device` | string | 機器 ID（devices[].id への参照） |
+| `into` | string | 再配布先プロトコル（`"bgp"` / `"ospf"`）= config の文脈（router bgp / router ospf ブロック） |
+| `source` | string | 再配布元プロトコル（`connected` / `static` / `ospf` / `bgp` / `rip` / `eigrp` / `isis` 等） |
+| `metric` | int | **任意・設定時のみ出力**。`metric <n>` の値。未設定時はキー省略。 |
+| `route_map` | string | **任意・設定時のみ出力**。`route-map <name>` の名前。未設定時はキー省略。 |
+
+**JunOS 非対応**: JunOS はルート再配布をポリシーベース（export policy）で制御するため、set 形式 config から直接 redistribute エントリを抽出しない（常に空リスト）。
 
 ## ID 採番規則
 - **device id**: `hostname` を小文字化し、英数字・ハイフン以外を `-` に置換。**最初の出現はサフィックスなし、2 番目は `-2`、3 番目は `-3`**（例: hostname が `R1`,`R1` → `r1`,`r1-2`）。さらに、既存の別 id（例 hostname `R1-2` 由来の `r1-2`）と衝突する場合は、衝突しない番号までカウントを繰り上げて一意性を保証する。空 hostname は `device`,`device-2`,...。

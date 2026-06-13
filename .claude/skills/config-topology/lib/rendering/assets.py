@@ -1215,6 +1215,9 @@ function renderDetails() {
       ${d.static.length?`<div class="csec"><h4>STATIC ROUTES</h4>
         <table class="dt"><tr><th>prefix</th><th>next hop</th></tr>
         ${d.static.map(s=>`<tr><td>${esc(s.p)}</td><td class="dim-t">${esc(s.nh)}</td></tr>`).join("")}</table></div>`:""}
+      ${d.redistribute&&d.redistribute.length?`<div class="csec"><h4>REDISTRIBUTE</h4>
+        <table class="dt"><tr><th>into</th><th>source</th><th>metric</th><th>route-map</th></tr>
+        ${d.redistribute.map(r=>`<tr><td>${esc(r.into)}</td><td>${esc(r.source)}</td><td class="dim-t">${r.metric!=null?r.metric:"—"}</td><td class="dim-t">${r.route_map?esc(r.route_map):"—"}</td></tr>`).join("")}</table></div>`:""}
     </div>`);
   }
   db.innerHTML = html.join("");

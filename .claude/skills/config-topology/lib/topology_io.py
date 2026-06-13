@@ -3,6 +3,9 @@ import os
 
 import yaml
 
+# dump/load 両関数で共有する routing プロトコル名タプル（加算的拡張時はここに追記）
+_ROUTING_PROTOS = ("bgp", "ospf", "static", "redistribute")
+
 
 def _dump_file(out_dir, name, data):
     path = os.path.join(out_dir, name)
@@ -23,7 +26,7 @@ def dump_topology(topo, out_dir):
     _dump_file(out_dir, "physical.yaml",
                {"links": topo["links"], "segments": topo["segments"]})
     routing = topo.get("routing", {})
-    for proto in ("bgp", "ospf", "static"):
+    for proto in _ROUTING_PROTOS:
         entries = routing.get(proto) or []
         if entries:
             _dump_file(out_dir, "routing.%s.yaml" % proto, {proto: entries})
@@ -40,7 +43,7 @@ def load_topology(in_dir):
     devs = _load_file(in_dir, "devices.yaml")
     phys = _load_file(in_dir, "physical.yaml")
     routing = {}
-    for proto in ("bgp", "ospf", "static"):
+    for proto in _ROUTING_PROTOS:
         try:
             data = _load_file(in_dir, "routing.%s.yaml" % proto)
         except FileNotFoundError:

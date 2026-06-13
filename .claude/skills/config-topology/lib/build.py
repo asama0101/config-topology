@@ -196,6 +196,23 @@ def build_static(id_dev):
     return out
 
 
+def build_redistribute(id_dev):
+    """id_dev: [(device_id, Device)] → routing.redistribute エントリ列（§C5）。
+
+    metric / route_map は値があるときのみ出力（None は省略 → golden byte 不変）。
+    """
+    out = []
+    for dev_id, dev in id_dev:
+        for r in dev.redistribute:
+            entry = {"device": dev_id, "into": r.into, "source": r.source}
+            if r.metric is not None:
+                entry["metric"] = r.metric
+            if r.route_map is not None:
+                entry["route_map"] = r.route_map
+            out.append(entry)
+    return out
+
+
 def aggregate_areas(areas):
     """端点の area を集約（§5.3.1/§7.4）。単一→そのまま、複数→昇順スラッシュ連結。"""
     uniq = sorted(set(areas))
@@ -241,6 +258,7 @@ def build_topology(parsed, generated_from, title=DEFAULT_TITLE):
     bgp = build_bgp(id_dev)
     ospf = build_ospf(id_dev)
     static = build_static(id_dev)
+    redistribute = build_redistribute(id_dev)
 
     iface_device_map = {itf["id"]: itf["device"] for itf in interfaces}
     annotate_ospf(links, segments, ospf, iface_device_map)
@@ -251,11 +269,12 @@ def build_topology(parsed, generated_from, title=DEFAULT_TITLE):
     bgp.sort(key=lambda e: (e["device"], e["af"], e["neighbor_ip"]))
     ospf.sort(key=lambda e: (e["device"], e["af"], e["area"], e["network"]))
     static.sort(key=lambda e: (e["device"], e["af"], e["prefix"], e["next_hop"]))
+    # redistribute はパース順（config 順）を保持（決定的順序の不変条件に従う）
 
     return {
         "meta": {"schema_version": "1.0", "title": title,
                  "generated_from": list(generated_from)},
         "devices": devices, "interfaces": interfaces,
         "links": links, "segments": segments,
-        "routing": {"bgp": bgp, "ospf": ospf, "static": static},
+        "routing": {"bgp": bgp, "ospf": ospf, "static": static, "redistribute": redistribute},
     }

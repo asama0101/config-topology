@@ -85,6 +85,29 @@ class StaticRoute:
 
 
 @dataclass
+class Redistribute:
+    """ルーティングプロトコル間の再配布設定（要件書 §6.1 C5）。
+
+    into:      再配布先プロトコル（"bgp" または "ospf"）= 文脈（router bgp / router ospf）。
+    source:    再配布元プロトコル（connected / static / ospf / bgp / rip / eigrp / isis 等）。
+    metric:    metric 値（値があるときのみ to_dict() に出力）。
+    route_map: route-map 名（値があるときのみ to_dict() に出力）。
+    """
+    into: str
+    source: str
+    metric: Optional[int] = None
+    route_map: Optional[str] = None
+
+    def to_dict(self):
+        d = {"into": self.into, "source": self.source}
+        if self.metric is not None:
+            d["metric"] = self.metric
+        if self.route_map is not None:
+            d["route_map"] = self.route_map
+        return d
+
+
+@dataclass
 class Interface:
     name: str
     addresses: List[Address] = field(default_factory=list)
@@ -146,6 +169,7 @@ class Device:
     bgp: List[BgpNeighbor] = field(default_factory=list)
     ospf: List[OspfNetwork] = field(default_factory=list)
     static: List[StaticRoute] = field(default_factory=list)
+    redistribute: List[Redistribute] = field(default_factory=list)
 
     def to_dict(self):
         return {
@@ -158,4 +182,5 @@ class Device:
             "bgp": [n.to_dict() for n in self.bgp],
             "ospf": [o.to_dict() for o in self.ospf],
             "static": [s.to_dict() for s in self.static],
+            "redistribute": [r.to_dict() for r in self.redistribute],
         }

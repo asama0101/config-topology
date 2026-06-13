@@ -1,7 +1,7 @@
 """Cisco IOS / IOS-XE パーサ（要件書 §6.1）。"""
 import re
 
-from ..models import Address, BgpNeighbor, Device, Interface, OspfNetwork, StaticRoute
+from ..models import Address, BgpNeighbor, Device, Interface, OspfNetwork, Redistribute, StaticRoute
 from ..normalize import (mask_to_prefix, norm_cidr, norm_cidr_str, norm_ipv4,
                          norm_ipv6, norm_ospf_area, v6_scope, wildcard_to_prefix)
 from .base import ensure_ospf, is_sensitive_line
@@ -113,11 +113,43 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
         return
 
 
+def _parse_redistribute_line(dev: Device, s: str, into: str) -> bool:
+    """router bgp / router ospf ブロック内の redistribute 行を解析する（§6.1 C5）。
+
+    `redistribute <source> [<process/AS>] [metric <n>] [route-map <name>] [subnets ...]`
+    - into:   現在の文脈（"bgp" または "ospf"）。
+    - source: 直後のトークン（connected / static / ospf / bgp / rip / eigrp / isis 等）。
+    - metric: `metric <整数>` があれば int。
+    - route_map: `route-map <名前>` があれば文字列。
+    - `no redistribute ...` は対象外（呼出し元でフィルタ済み）。
+    - プロセス ID / AS 番号（source の直後のトークン）や subnets 等は無視。
+
+    認識した場合は True を返す（_parse_bgp_line / _parse_ospf_line の早期リターン用）。
+    """
+    m = re.match(r"^redistribute\s+(\S+)(.*)", s)
+    if not m:
+        return False
+    source = m.group(1)
+    rest = m.group(2)
+    # metric を抽出
+    metric = None
+    mm = re.search(r"\bmetric\s+(\d+)\b", rest)
+    if mm:
+        metric = int(mm.group(1))
+    # route-map を抽出
+    route_map = None
+    rm = re.search(r"\broute-map\s+(\S+)", rest)
+    if rm:
+        route_map = rm.group(1)
+    dev.redistribute.append(Redistribute(into, source, metric, route_map))
+    return True
+
+
 def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
                     pending_update_source: dict, warnings: list,
                     pending_rr: dict, pending_nhs: dict) -> None:
     """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate /
-    update-source / route-reflector-client / next-hop-self。
+    update-source / route-reflector-client / next-hop-self / redistribute。
 
     pending_update_source: {nip: ifname} — remote-as より先に update-source が来たとき一時保持する。
     pending_rr: {nip: True} — remote-as より先に route-reflector-client が来たとき一時保持する。
@@ -201,12 +233,16 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp next-hop-self parse failed: %s (%s)" % (s, e))
         return
+    # `no redistribute ...` はスキップ（加算的変更のみ対象）
+    if s.startswith("no redistribute"):
+        return
+    _parse_redistribute_line(dev, s, "bgp")
 
 
 def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
                      passive_ifaces: list, area_types: dict) -> None:
     """router ospf ブロック内の1行を解析（§6.1）。router-id / network area / passive-interface /
-    area <a> stub|nssa [no-summary]。
+    area <a> stub|nssa [no-summary] / redistribute。
 
     area_types: {(ospf_pid, norm_area): area_type_str} — 収集した (process, area)→type マップ。
                 パース末尾で af=='v4' かつ (o.process, o.area) が area_types にある
@@ -247,6 +283,10 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
         else:  # nssa
             area_types[(ospf_pid, norm_area)] = "totally-nssa" if no_summary else "nssa"
         return
+    # `no redistribute ...` はスキップ（加算的変更のみ対象）
+    if s.startswith("no redistribute"):
+        return
+    _parse_redistribute_line(dev, s, "ospf")
 
 
 def parse_ios(text: str, warnings: list) -> Device:

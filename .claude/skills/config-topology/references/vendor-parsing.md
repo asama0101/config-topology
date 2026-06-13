@@ -31,12 +31,16 @@
 | **StaticRoute** | `prefix`（str）| 宛先 CIDR |
 | | `next_hop`（str）| ネクストホップ IP |
 | | `af`（str）| `"v4"` / `"v6"` |
+| **Redistribute** | `into`（str）| 再配布先プロトコル＝宣言ブロック文脈（`"bgp"` / `"ospf"`） |
+| | `source`（str）| 再配布元（`connected`/`static`/`ospf`/`bgp`/`rip`/`eigrp`/`isis` 等） |
+| | `metric`（int \| None）| メトリック（設定時のみ・to_dict 省略） |
+| | `route_map`（str \| None）| route-map 名（設定時のみ・to_dict 省略） |
 | **Device** | `hostname`（str）| ホスト名 |
 | | `vendor`（str）| `"cisco_ios"` / `"juniper_junos"` |
 | | `as_`（int \| None）| ローカル AS |
 | | `ospf_router_id`, `bgp_router_id` | router-id（§5.2.1） |
 | | `interfaces`（list[Interface]）| インターフェース群 |
-| | `bgp`, `ospf`, `static` | ルーティング情報 |
+| | `bgp`, `ospf`, `static`, `redistribute` | ルーティング情報（redistribute は IOS のみ。JunOS はポリシーベースで非対応） |
 
 ## パーサ共通インターフェース（lib/parsers/__init__.py）
 
@@ -75,6 +79,7 @@
 | `area <a> nssa no-summary` (router ospf 内) | OspfNetwork.area_type | "totally-nssa" |
 | `ip route <prefix> <mask> <next_hop>` | StaticRoute | (af="v4") |
 | `ipv6 route <prefix/len> <nexthop>` | StaticRoute | (af="v6", prefix 正規化) |
+| `redistribute <source> [<pid/AS>] [metric <n>] [route-map <name>] [subnets ...]` (router bgp / router ospf 内) | Redistribute | `into` = 現在のブロック文脈（"bgp"/"ospf"）、`source` = 直後のトークン（connected/static/ospf/bgp/rip/eigrp/isis 等）、プロセス ID・AS 番号・subnets 等の付加引数は無視。metric/route-map は値があるときのみ出力。`no redistribute ...` はスキップ |
 
 **判定ルール**:
 - **detect**: `hostname` / `interface ...Ethernet` / `!` 等の IOS 特徴行で判定（§2.3）。`set ` 行が40%超なら JunOS とみなす（ガード）。
@@ -114,6 +119,7 @@
 | `set protocols ospf3 area <a> nssa no-summaries` | OspfNetwork.area_type | "totally-nssa"（v6 限定） |
 | `set routing-options static route <prefix> next-hop <ip>` | StaticRoute | (af="v4") |
 | `set routing-options rib inet6.0 static route <prefix> next-hop <ip>` | StaticRoute | (af="v6", prefix 正規化・ホストビット除去) |
+| redistribute | **非対応**（常に空リスト）。JunOS はルート再配布をポリシーベース（export policy 経由）で制御するため、set 形式 config から直接抽出できない。 |
 
 **判定ルール**:
 - **detect**: 非空行のうち `set ` で始まる行が50%超（§2.3）。

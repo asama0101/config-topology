@@ -36,7 +36,7 @@
 - [x] C3 OSPF area type (stub/nssa/totally)（routing.ospf[].area_type）— M ✅反復7完了
 - [x] C4 BGP route-reflector-client / next-hop-self（routing.bgp[].rr/nhs）— M ✅反復9完了
 - [ ] C4b BGP timers / community（routing.bgp[].attrs）— M
-- [ ] C5 redistribute 抽出（sections or routing 注釈）— L（C2,C4後）
+- [x] C5 redistribute 抽出（新 routing.redistribute 層・IOS）— L ✅反復13完了
 
 ### D. 業務支援機能
 - [x] D1 構成統計ダッシュボード（機器/IF/AS別/area別/リンク種別/dual-stack率/BGP/OSPF集計の新ビュー）— M ✅反復1完了
@@ -145,6 +145,14 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: SKILL.md・requirements.md §8.2/§10.1・CLAUDE.md・tabs docstring を同期。
 - テスト 594→634 passed（+40）。golden byte 不変・render 決定性維持。correctness/security 承認。
 
-### 観点カバレッジ: A=A1,A4 / B=B1,B3 / C=C2,C1,C3,C4 / D=D1,D2,D3,D3b。A/B 各2・C4・D4。
-### 次候補: 反復13。A/B が手薄。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ B2 表ビュー列フィルタ（既存検索と差別化要・area/種別チップ）/ B4 凡例一括レイヤー操作（A1活用）/ C5 redistribute抽出（parser強TDD）。観点バランス＋node実テスト可能性で A2 を推奨（オフセット純関数を node 検証）。次点 C5（強TDD）。
-推奨順序の残り目安: A2 → C5 → B4 → A1b → C4b → D3c → C1b → 残り。
+### 反復13: C5 redistribute 抽出（routing.redistribute 層）— ✅完了（2026-06-14）
+- Redistribute dataclass（into/source/metric?/route_map?）＋Device.redistribute。IOS `redistribute <source> [metric][route-map][subnets]` を bgp/ospf 文脈で抽出（into=文脈・source=先頭トークン・付加引数無視・no redistribute スキップ）。JunOS 非対応。
+- 新 routing.redistribute 層: build_redistribute＋topology_io の proto を `_ROUTING_PROTOS` 定数化（dump/load）。非空時のみ routing.redistribute.yaml 生成→golden byte 不変。参照整合は汎用走査で対応。
+- 詳細パネルに REDISTRIBUTE 表（into/source/metric/route-map）。data_transform で DATA.devices[].redistribute 公開。
+- レビュー対応: **画面表示の実装漏れ修正（最重要・データのみ→REDISTRIBUTE表追加）**、proto 定数化、docstring、AF配下/順序テスト、no ガード厳密化。
+- doc: schema.md・vendor-parsing.md（モデル表含む）・requirements.md §6.1/§8.5・ファイルレイアウトを同期。
+- テスト 634→717 passed（+83）。golden byte 不変・render 決定性維持。correctness 承認。
+
+### 観点カバレッジ: A=A1,A4 / B=B1,B3 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b。A/B 各2・C5・D4。
+### 次候補: 反復14。A/B が手薄。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ B2 表ビュー列フィルタ（既存検索と差別化：種別/area チップ）/ B4 凡例一括レイヤー操作（A1のAS活用）。観点バランス＋node実テスト可能性で A2 か B4 を推奨。A2 はオフセット純関数を node 検証可。
+推奨順序の残り目安: A2 → B4 → A1b → C4b → D3c → C1b → 残り。

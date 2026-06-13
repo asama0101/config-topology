@@ -70,7 +70,7 @@ def build_devices(topo):
     for itf in topo["interfaces"]:
         by_dev_if.setdefault(itf["device"], []).append(itf)
 
-    bgp_by_dev, ospf_by_dev, static_by_dev = {}, {}, {}
+    bgp_by_dev, ospf_by_dev, static_by_dev, redist_by_dev = {}, {}, {}, {}
     for e in topo["routing"].get("bgp", []):
         row = {"nb": e["neighbor_ip"], "pas": e["peer_as"], "type": e["type"],
                "af": e["af"], "lip": e["local_ip"], "link": None,
@@ -85,6 +85,13 @@ def build_devices(topo):
     for e in topo["routing"].get("static", []):
         static_by_dev.setdefault(e["device"], []).append(
             {"p": e["prefix"], "nh": e["next_hop"]})
+    for e in topo["routing"].get("redistribute", []):
+        row = {"into": e["into"], "source": e["source"]}
+        if "metric" in e:
+            row["metric"] = e["metric"]
+        if "route_map" in e:
+            row["route_map"] = e["route_map"]
+        redist_by_dev.setdefault(e["device"], []).append(row)
 
     # 物理接続数（degree）を決定的に算出
     degrees = _compute_degrees(topo)
@@ -98,6 +105,7 @@ def build_devices(topo):
             "bgp": bgp_by_dev.get(d["id"], []),
             "ospf": ospf_by_dev.get(d["id"], []),
             "static": static_by_dev.get(d["id"], []),
+            "redistribute": redist_by_dev.get(d["id"], []),
             "degree": degrees.get(d["id"], 0),
         }
     return out

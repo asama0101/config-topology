@@ -1444,3 +1444,108 @@ def test_diff_links_comment_about_changed_and_changed_label():
     assert "changedLabel" in src or "assets.py" in src, (
         "_diff_links の docstring/コメントに changedLabel / assets.py への注記が無い"
     )
+
+
+# ===========================================================================
+# C5 修正1: assets.py の renderDetails に REDISTRIBUTE 表が存在すること
+# ===========================================================================
+
+@pytest.mark.unit
+def test_render_details_has_redistribute_section():
+    """renderDetails 関数に REDISTRIBUTE 表（見出しまたは列ヘッダ）が含まれること。"""
+    func_start = assets._JS.find("function renderDetails(")
+    assert func_start != -1, "renderDetails 関数が _JS に存在しない"
+    # 次の function 宣言まで切り出す
+    next_func = assets._JS.find("\nfunction ", func_start + 1)
+    section = assets._JS[func_start:next_func if next_func != -1 else func_start + 20000]
+    assert "REDISTRIBUTE" in section, (
+        "renderDetails に 'REDISTRIBUTE' 見出しが存在しない"
+    )
+
+
+@pytest.mark.unit
+def test_render_details_redistribute_table_has_required_columns():
+    """renderDetails の REDISTRIBUTE 表に into/source/metric/route-map の列ヘッダが含まれること。"""
+    func_start = assets._JS.find("function renderDetails(")
+    assert func_start != -1
+    next_func = assets._JS.find("\nfunction ", func_start + 1)
+    section = assets._JS[func_start:next_func if next_func != -1 else func_start + 20000]
+    # 列ヘッダとして into / source が含まれること
+    assert "into" in section, "REDISTRIBUTE 表に 'into' 列ヘッダがない"
+    assert "source" in section, "REDISTRIBUTE 表に 'source' 列ヘッダがない"
+
+
+@pytest.mark.unit
+def test_render_details_redistribute_references_d_redistribute():
+    """renderDetails が d.redistribute（新キー名）を参照していること。"""
+    func_start = assets._JS.find("function renderDetails(")
+    assert func_start != -1
+    next_func = assets._JS.find("\nfunction ", func_start + 1)
+    section = assets._JS[func_start:next_func if next_func != -1 else func_start + 20000]
+    assert "d.redistribute" in section, (
+        "renderDetails が d.redistribute（新キー名）を参照していない"
+    )
+
+
+@pytest.mark.unit
+def test_render_details_redistribute_no_bare_d_redist():
+    """renderDetails が旧キー d.redist を参照していないこと（リネーム確認）。"""
+    func_start = assets._JS.find("function renderDetails(")
+    assert func_start != -1
+    next_func = assets._JS.find("\nfunction ", func_start + 1)
+    section = assets._JS[func_start:next_func if next_func != -1 else func_start + 20000]
+    # d.redistributeXxx は許可するが d.redist のみで終わるパターンを弾く
+    import re
+    bare_redist = re.search(r'\bd\.redist\b(?!ribute)', section)
+    assert bare_redist is None, (
+        "renderDetails に旧キー d.redist が残存している（d.redistribute に変更すること）"
+    )
+
+
+@pytest.mark.unit
+def test_render_details_redistribute_shows_dash_for_missing():
+    """renderDetails の REDISTRIBUTE 表で metric/route-map が無い場合に代替表示（— 等）を使うこと。"""
+    func_start = assets._JS.find("function renderDetails(")
+    assert func_start != -1
+    next_func = assets._JS.find("\nfunction ", func_start + 1)
+    section = assets._JS[func_start:next_func if next_func != -1 else func_start + 20000]
+    # metric/route_map が無い場合のフォールバック（"—" か "?" か null チェック）
+    # "r.metric" の参照がある（存在確認）かつ null/undefined ガードがあること
+    assert "r.metric" in section or "metric" in section, (
+        "REDISTRIBUTE 表に metric フィールドの参照がない"
+    )
+
+
+@pytest.mark.unit
+def test_js_node_check_with_redistribute():
+    """node --check が redistribute を含む _JS で構文エラーを出さないこと。"""
+    import shutil
+    import tempfile
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node が見つからない")
+    # _JS に stub DATA（redistribute を含む）を前置して構文チェック
+    stub = (
+        "const DATA = {"
+        "  devices: { r1: { hostname: 'R1', vendor: 'cisco_ios', as: 65001,"
+        "    ospf_rid: null, bgp_rid: null, ifs: [], bgp: [], ospf: [], static: [],"
+        "    redistribute: [{ into: 'bgp', source: 'connected', metric: null, route_map: null }],"
+        "    degree: 0 } },"
+        "  links: [], segments: [], extPeers: [], bgpEdges: [],"
+        "  meta: { generated_from: [] }, stats: {}, checks: [] };\n"
+        "const POS = {};\n"
+    )
+    src = stub + assets._JS
+    with tempfile.NamedTemporaryFile(suffix=".js", mode="w", delete=False, encoding="utf-8") as f:
+        f.write(src)
+        fname = f.name
+    try:
+        result = subprocess.run([node, "--check", fname],
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, (
+            "node --check 失敗（redistribute を含む stub で構文エラー）:\n" + result.stderr
+        )
+    finally:
+        import os
+        os.unlink(fname)
