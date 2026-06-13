@@ -25,25 +25,40 @@ def mask_to_prefix(mask):
 
 
 def wildcard_to_prefix(wildcard):
-    """ワイルドカードマスク（0.0.0.255）を prefix 長（24）へ。"""
+    """ワイルドカードマスク（0.0.0.255）を prefix 長（24）へ。
+
+    連続マスク（標準 OSPF `network <addr> <wildcard>` 形式）を前提とする。
+    非連続ワイルドカードは popcount 近似であり厳密ではない。
+    """
     mask_int = int(ipaddress.IPv4Address(wildcard.strip())) ^ 0xFFFFFFFF
     return bin(mask_int).count("1")
 
 
 def norm_cidr(ip, prefix):
-    """ホストアドレス + prefix からホストビットを除去した CIDR 文字列へ。"""
+    """ホストアドレス + prefix からホストビットを除去した CIDR 文字列へ。
+
+    IPv4 部は先行ゼロ除去済みであることを前提とする（呼び出し側で norm_ipv4 を適用すること）。
+    Python 3.12 の ipaddress は先行ゼロを拒否するため、未正規化のまま渡すと ValueError になる。
+    """
     net = ipaddress.ip_network("%s/%s" % (ip, prefix), strict=False)
     return "%s/%s" % (net.network_address, net.prefixlen)
 
 
 def norm_cidr_str(cidr):
-    """`a.b.c.d/len` 形式の CIDR を正規化（ホストビット除去・v6 短縮形）。"""
+    """`a.b.c.d/len` 形式の CIDR を正規化（ホストビット除去・v6 短縮形）。
+
+    IPv4 部は先行ゼロ除去済みであることを前提とする（呼び出し側で norm_ipv4 を適用すること）。
+    Python 3.12 の ipaddress は先行ゼロを拒否するため、未正規化のまま渡すと ValueError になる。
+    """
     net = ipaddress.ip_network(cidr.strip(), strict=False)
     return "%s/%s" % (net.network_address, net.prefixlen)
 
 
 def v6_scope(ip):
-    """fe80::/10 に属すなら 'link-local'、それ以外は None。"""
+    """fe80::/10 に属すなら 'link-local'、それ以外は None。
+
+    IPv6 アドレス専用（v4 を渡すと AddressValueError）。
+    """
     return "link-local" if ipaddress.IPv6Address(ip) in _LINK_LOCAL else None
 
 
@@ -51,7 +66,7 @@ def norm_ospf_area(area):
     """OSPF area を整数文字列へ正規化（§6.3）。不正値は原文のまま返す。"""
     area = area.strip()
     if area.isdigit():
-        return area
+        return str(int(area))
     parts = area.split(".")
     if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
         a, b, c, d = (int(p) for p in parts)
