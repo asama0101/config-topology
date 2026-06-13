@@ -1,9 +1,0 @@
-static:
-- af: v4
-  device: r1
-  next_hop: 10.0.0.2
-  prefix: 0.0.0.0/0
-- af: v4
-  device: r2
-  next_hop: 10.0.0.1
-  prefix: 0.0.0.0/0
