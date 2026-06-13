@@ -42,7 +42,8 @@
 - [x] D1 構成統計ダッシュボード（機器/IF/AS別/area別/リンク種別/dual-stack率/BGP/OSPF集計の新ビュー）— M ✅反復1完了
 - [x] D2 設計検証警告の集約パネル（重複IP・MTU不一致・未解決BGP local_ip・dangling next_hop）— M ✅反復3完了
 - [x] D3 トポロジー差分レポート（コア: lib/diff.py + scripts/diff_topology.py）— M ✅反復8完了（HTML表示は D3b に分割）
-- [ ] D3b 差分の HTML 表示／history 自動連携（前回成果物との差分をビュー化）— M
+- [x] D3b 差分の HTML 表示（render --diff-against で DIFF ビュー）— M ✅反復12完了
+- [ ] D3c history 自動連携（直近 history/ との差分を自動ビュー化）— S
 - [ ] D4 IPアドレス計画/サブネット使用率ビュー — M（D1後）
 
 ## 推奨順序
@@ -137,6 +138,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: schema.md（DATA.devices[].degree）・requirements.md §8.3.1・CLAUDE.md 索引を同期。
 - テスト 575→594 passed（+19）。golden byte 不変・render 決定性維持。correctness/test 承認。
 
-### 観点カバレッジ: A=A1,A4 / B=B1,B3 / C=C2,C1,C3,C4 / D=D1,D2,D3。**A/B 各2・C 4・D 3** とバランス改善。
-### 次候補: 反復12。観点バランスでは D（業務支援）が価値高め。D3b 差分の HTML 表示（diff を新ビュー/パネルに）/ D4 サブネット使用率の集計ビュー（STATS拡張で既存ADDRESSESと差別化）/ C4b BGP timers/community（parser 強TDD）/ A2 リンクラベル重なり回避。推奨は D3b（D3基盤活用・変更管理の可視化で業務価値高）または C4b（強TDD）。
-推奨順序の残り目安: D3b → C4b → A2 → A1b → C5 → C1b → 残り。
+### 反復12: D3b 差分の HTML 表示（DIFF ビュー）— ✅完了（2026-06-14）
+- `render_html(topo, diff=None)`＋`build_tabs(routing, has_diff=False)`＋`const DIFF` 埋め込み＋`render_topology.py --diff-against <prev_dir>`（load_topology→diff_topology→render）＋`renderDiffView`。テスト済み D3 diff エンジン再利用。既存 render_html(topo) 後方互換。
+- 条件付き DIFF 表ビュー（STATS/CHECKS と同機構）。7セクション固定順で added/removed/changed・0件は「差分なし」・esc 済み。
+- レビュー対応: renderDiffView の XSS を node 実行で実証、テーブルヘッダ整合、links ラベルの Python/JS 統一、ゼロ/非ゼロ差分 CLI テスト、本体 topo load の YAMLError 対称化。
+- doc: SKILL.md・requirements.md §8.2/§10.1・CLAUDE.md・tabs docstring を同期。
+- テスト 594→634 passed（+40）。golden byte 不変・render 決定性維持。correctness/security 承認。
+
+### 観点カバレッジ: A=A1,A4 / B=B1,B3 / C=C2,C1,C3,C4 / D=D1,D2,D3,D3b。A/B 各2・C4・D4。
+### 次候補: 反復13。A/B が手薄。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ B2 表ビュー列フィルタ（既存検索と差別化要・area/種別チップ）/ B4 凡例一括レイヤー操作（A1活用）/ C5 redistribute抽出（parser強TDD）。観点バランス＋node実テスト可能性で A2 を推奨（オフセット純関数を node 検証）。次点 C5（強TDD）。
+推奨順序の残り目安: A2 → C5 → B4 → A1b → C4b → D3c → C1b → 残り。

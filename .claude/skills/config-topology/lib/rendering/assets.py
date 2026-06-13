@@ -563,7 +563,7 @@ const S = {
   sort:{addr:null, ifs:null},
   collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
 };
-const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats" || S.view === "checks";
+const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats" || S.view === "checks" || S.view === "diff";
 const $ = s => document.querySelector(s);
 const world = $("#world"), tooltip = $("#tooltip");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1282,6 +1282,7 @@ function graphSearchFeedback() {
 function renderTableView() {
   if (S.view === "stats") { $("#tableview").innerHTML = renderStatsView(); return; }
   if (S.view === "checks") { $("#tableview").innerHTML = renderChecksView(); return; }
+  if (S.view === "diff") { $("#tableview").innerHTML = renderDiffView(); return; }
   $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
 }
 
@@ -1590,6 +1591,95 @@ function renderChecksView() {
       <td class="dim-t" style="font-size:11px">${esc(c.kind)}</td>
       <td>${esc(c.message)}</td>
       <td class="dim-t" style="font-size:10px">${(c.refs||[]).map(r=>esc(r)).join("<br>")}</td></tr>`;
+  }
+  html += "</table>";
+  return html;
+}
+
+/* ================= DIFF view (D3b トポロジー差分表示) ================= */
+function renderDiffView() {
+  /* グローバル DIFF が null/undefined のとき（タブが出ないはずだが）安全に空表示 */
+  if (!DIFF) {
+    return '<div class="thead"><h3>DIFF</h3><span class="cnt">—</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">差分データがありません（--diff-against なし）。</div>';
+  }
+
+  /* セクション固定順（決定的描画） */
+  const SECTIONS = [
+    ["devices", "Devices"],
+    ["interfaces", "Interfaces"],
+    ["links", "Links"],
+    ["segments", "Segments"],
+    ["routing_bgp", "Routing / BGP"],
+    ["routing_ospf", "Routing / OSPF"],
+    ["routing_static", "Routing / Static"],
+  ];
+
+  /* エントリのラベル（セクション別・XSS エスケープ済み） */
+  function entryLabel(sec, e) {
+    if (sec === "devices")   return esc(e.id || String(e));
+    if (sec === "interfaces") return esc(e.id || String(e));
+    if (sec === "links")     return esc((e.subnet||"") + "  " + (e.a_device||"") + "::" + (e.a_if||"") + " -- " + (e.b_device||"") + "::" + (e.b_if||""));
+    if (sec === "segments")  return esc(e.id || String(e));
+    if (sec === "routing_bgp")    return esc((e.device||"") + " -> " + (e.neighbor_ip||"") + " (" + (e.af||"") + ")");
+    if (sec === "routing_ospf")   return esc((e.device||"") + " network=" + (e.network||"") + " (" + (e.af||"") + ")");
+    if (sec === "routing_static") return esc((e.device||"") + " prefix=" + (e.prefix||"") + " (" + (e.af||"") + ")");
+    return esc(String(e));
+  }
+  function changedLabel(sec, ch) {
+    if (sec === "devices" || sec === "interfaces" || sec === "segments") return esc(ch.id || String(ch));
+    if (sec === "routing_bgp")    return esc((ch.device||"") + " -> " + (ch.neighbor_ip||"") + " (" + (ch.af||"") + ")");
+    if (sec === "routing_ospf")   return esc((ch.device||"") + " network=" + (ch.network||"") + " (" + (ch.af||"") + ")");
+    if (sec === "routing_static") return esc((ch.device||"") + " prefix=" + (ch.prefix||"") + " (" + (ch.af||"") + ")");
+    return esc(String(ch));
+  }
+
+  /* 全体の総変更件数 */
+  let totalChanges = 0;
+  for (const [sec] of SECTIONS) {
+    const s = DIFF[sec] || {};
+    totalChanges += (s.added||[]).length + (s.removed||[]).length + (s.changed||[]).length;
+  }
+
+  if (totalChanges === 0) {
+    return '<div class="thead"><h3>DIFF</h3><span class="cnt">差分なし</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">差分なし — 前回と同一のトポロジーです。</div>';
+  }
+
+  let html = `<div class="thead"><h3>DIFF</h3><span class="cnt">計 ${totalChanges} 件</span></div>`;
+  html += '<table class="dt" style="max-width:1080px;margin:0 24px 48px">';
+  html += '<tr><th style="width:120px">Kind</th><th>Entry</th></tr>';
+
+  for (const [sec, label] of SECTIONS) {
+    const s = DIFF[sec] || {};
+    const added   = s.added   || [];
+    const removed = s.removed || [];
+    const changed = s.changed || [];
+    const n = added.length + removed.length + changed.length;
+    if (n === 0) continue;
+    const summary = `+${added.length} -${removed.length} ~${changed.length}`;
+    html += `<tr><td colspan="2" style="background:var(--panel);padding:7px 6px;font-size:11px;letter-spacing:.06em;border-top:1px solid var(--panel-edge)">`
+          + `<b>${esc(label)}</b> <span style="color:var(--ink-dim);margin-left:8px;font-size:10px">${esc(summary)}</span></td></tr>`;
+    for (const e of added) {
+      html += `<tr class="trow"><td style="color:var(--search);font-size:11px">+added</td><td>${entryLabel(sec, e)}</td></tr>`;
+    }
+    for (const e of removed) {
+      html += `<tr class="trow"><td style="color:var(--danger);font-size:11px">-removed</td><td>${entryLabel(sec, e)}</td></tr>`;
+    }
+    for (const ch of changed) {
+      html += `<tr class="trow"><td style="color:var(--accent);font-size:11px">~changed</td><td>${changedLabel(sec, ch)}`;
+      const fields = ch.fields || {};
+      const fieldKeys = Object.keys(fields).sort();
+      if (fieldKeys.length) {
+        html += '<br><span style="font-size:10px;color:var(--ink-dim)">';
+        for (const f of fieldKeys) {
+          const [ov, nv] = fields[f];
+          html += `${esc(f)}: ${esc(JSON.stringify(ov))} → ${esc(JSON.stringify(nv))}  `;
+        }
+        html += '</span>';
+      }
+      html += '</td></tr>';
+    }
   }
   html += "</table>";
   return html;

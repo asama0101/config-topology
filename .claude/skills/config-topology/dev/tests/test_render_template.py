@@ -159,3 +159,123 @@ def test_render_html_deterministic_with_checks():
     a = render_html(topo)
     b = render_html(topo)
     assert a == b
+
+
+# ---------------------------------------------------------------------------
+# D3b DIFF ビュー — template テスト
+# ---------------------------------------------------------------------------
+
+def _minimal_topo():
+    return {"meta": {"generated_from": ["x.cfg"]},
+            "devices": [{"id": "r1", "hostname": "R1", "vendor": "cisco_ios", "as": None,
+                         "ospf_router_id": None, "bgp_router_id": None, "sections": []}],
+            "interfaces": [], "links": [], "segments": [],
+            "routing": {"bgp": [], "ospf": [], "static": []}}
+
+
+def _minimal_diff():
+    """diff_topology が返す形式の最小差分 dict（devices に 1 件 added）。"""
+    return {
+        "devices": {"added": [{"id": "r2", "hostname": "R2", "vendor": "cisco_ios",
+                                "as": None, "ospf_router_id": None, "bgp_router_id": None}],
+                    "removed": [], "changed": []},
+        "interfaces": {"added": [], "removed": [], "changed": []},
+        "links": {"added": [], "removed": [], "changed": []},
+        "segments": {"added": [], "removed": [], "changed": []},
+        "routing_bgp": {"added": [], "removed": [], "changed": []},
+        "routing_ospf": {"added": [], "removed": [], "changed": []},
+        "routing_static": {"added": [], "removed": [], "changed": []},
+    }
+
+
+def test_render_html_without_diff_has_const_diff_null():
+    """render_html(topo) — diff 引数なし — は const DIFF=null; を含むこと。"""
+    html = render_html(_minimal_topo())
+    assert "const DIFF=null;" in html
+
+
+def test_render_html_without_diff_no_diff_tab():
+    """render_html(topo) — diff 引数なし — は data-view="diff" タブを含まないこと。"""
+    html = render_html(_minimal_topo())
+    assert 'data-view="diff"' not in html
+
+
+def test_render_html_with_diff_has_const_diff():
+    """render_html(topo, diff=<dict>) は const DIFF=...;（null でない）を含むこと。"""
+    html = render_html(_minimal_topo(), diff=_minimal_diff())
+    assert "const DIFF=" in html
+    assert "const DIFF=null;" not in html
+
+
+def test_render_html_with_diff_has_diff_tab():
+    """render_html(topo, diff=<dict>) は data-view="diff" タブを含むこと。"""
+    html = render_html(_minimal_topo(), diff=_minimal_diff())
+    assert 'data-view="diff"' in html
+
+
+def test_render_html_with_diff_diff_script_correct_json():
+    """render_html(topo, diff=<dict>) の const DIFF が JSON デコードできること。"""
+    diff = _minimal_diff()
+    html = render_html(_minimal_topo(), diff=diff)
+    m = re.search(r"const DIFF=(.*?);</script>", html, re.DOTALL)
+    assert m, "const DIFF=...;</script> が見つからない"
+    parsed = json.loads(m.group(1).replace("<\\/", "</"))
+    assert "devices" in parsed
+    assert len(parsed["devices"]["added"]) == 1
+
+
+def test_render_html_with_diff_deterministic():
+    """render_html(topo, diff=<dict>) が2回バイト一致すること（決定性）。"""
+    topo = _minimal_topo()
+    diff = _minimal_diff()
+    assert render_html(topo, diff=diff) == render_html(topo, diff=diff)
+
+
+def test_render_html_without_diff_deterministic():
+    """render_html(topo) — diff なし — が2回バイト一致すること（回帰）。"""
+    topo = _minimal_topo()
+    assert render_html(topo) == render_html(topo)
+
+
+def test_render_html_golden_without_diff_unaffected():
+    """golden トポロジーへの render_html(topo) が diff タブを含まないこと（回帰）。"""
+    html = render_html(load_topology(str(GOLDEN)))
+    assert 'data-view="diff"' not in html
+    assert "const DIFF=null;" in html
+
+
+# ---------------------------------------------------------------------------
+# 修正 6: </script> 埋め込みテスト（XSS セキュリティ）
+# ---------------------------------------------------------------------------
+
+def test_render_html_script_tag_in_diff_escaped():
+    """id/hostname に </script> を含む diff dict で render_html した HTML に
+    生の </script>（DIFF コンテンツ内）が現れず <\\/script> にエスケープされること。
+
+    JSON 埋め込み時の _json() が </script> → <\\/script> に変換し、
+    script ブロックの早期終了を防ぐことを検証する。
+    """
+    xss_hostname = "</script><script>alert('xss')</script>"
+    diff = {
+        "devices": {
+            "added": [{"id": "r_xss", "hostname": xss_hostname,
+                        "vendor": "cisco_ios", "as": None}],
+            "removed": [], "changed": [],
+        },
+        "interfaces": {"added": [], "removed": [], "changed": []},
+        "links": {"added": [], "removed": [], "changed": []},
+        "segments": {"added": [], "removed": [], "changed": []},
+        "routing_bgp": {"added": [], "removed": [], "changed": []},
+        "routing_ospf": {"added": [], "removed": [], "changed": []},
+        "routing_static": {"added": [], "removed": [], "changed": []},
+    }
+    html = render_html(_minimal_topo(), diff=diff)
+    # DIFF JSON 内の </script> が <\/script> にエスケープされていること
+    # _json() の .replace("</", "<\\/") によって変換される
+    assert "</script><script>alert" not in html, (
+        "生の </script> が DIFF JSON 内に現れた（script ブロック早期終了リスク）"
+    )
+    # エスケープされた形式が存在すること
+    assert "<\\/script>" in html or "&lt;/script&gt;" in html, (
+        "</script> のエスケープが存在しない"
+    )

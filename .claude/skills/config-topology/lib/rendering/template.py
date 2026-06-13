@@ -31,11 +31,21 @@ def _inject_tabs(body, nav_html):
     return new_body
 
 
-def render_html(topo):
-    """topology dict → 自己完結 HTML 文字列（決定的）。"""
+def render_html(topo, diff=None):
+    """topology dict → 自己完結 HTML 文字列（決定的）。
+
+    Parameters
+    ----------
+    topo : dict
+        load_topology() が返す topology dict。
+    diff : dict or None
+        diff_topology() の戻り値（省略可）。
+        指定時は DIFF タブが追加され const DIFF=<json>; が埋め込まれる。
+        省略時（None）は DIFF タブなし・const DIFF=null; のみ埋め込む（既存挙動を維持）。
+    """
     data = build_data(topo)
     pos = compute_positions(data)
-    tabs = build_tabs(topo["routing"])
+    tabs = build_tabs(topo["routing"], has_diff=diff is not None)
     views = [t["view"] for t in tabs]
 
     body = _inject_tabs(_BODY, _tabs_nav(tabs))
@@ -44,11 +54,12 @@ def render_html(topo):
     head = ('<!doctype html>\n<html lang="ja"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             '<title>Network Topology</title><style>%s</style></head><body>' % _CSS)
-    # DATA / POS / VIEWS をそれぞれ独立した <script> タグに分け、
+    # DATA / POS / VIEWS / DIFF をそれぞれ独立した <script> タグに分け、
     # _embedded() の正規表現 `const NAME\s*=\s*(.*?);</script>` が正しく抽出できるようにする
     data_script = ('<script>const DATA=%s;</script>'
                    '<script>const POS=%s;</script>'
                    '<script>const VIEWS=%s;</script>'
-                   % (_json(data), _json(pos), _json(views)))
+                   '<script>const DIFF=%s;</script>'
+                   % (_json(data), _json(pos), _json(views), _json(diff)))
     js = '<script>%s</script>' % _JS
     return head + body + data_script + js + '</body></html>'

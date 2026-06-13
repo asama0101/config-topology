@@ -797,11 +797,12 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 | **INTERFACES** | 機器単位にグループ化した IF 一覧（対向・種別・使用ポート集計） | 常に生成 |
 | **STATS** | 構成統計ダッシュボード（機器数 / IF 総数 / 統合後リンク数 / セグメント数 / ベンダー別・AS 別機器数 / OSPF area 別 network 数 / link 種別〔link・segment・stub〕/ dual-stack IF 数 / BGP セッション数・OSPF network 数・static route 数）の読み取り専用サマリー | 常に生成 |
 | **CHECKS** | 設計検証パネル。topology dict を走査して検出した設計上の注意点を severity / kind / message / refs でリスト表示。0 件のときは「問題は検出されませんでした」メッセージを表示。検出ルール: (1) duplicate_ip（error）同一ホスト IP が複数 IF に重複 / (2) mtu_mismatch（warning）同一リンク両端の MTU 不一致 / (3) bgp_unresolved_local_ip（warning）BGP の local_ip が未解決 / (4) static_dangling_next_hop（warning）static の next_hop がトポロジー内のどの IF サブネット・ホスト IP にも存在しない（静的チェック。デフォルトルートや 0.0.0.0/:: 等の特殊 next_hop、Null0 等の IF 名 next_hop はスキップ）。検出結果は severity→kind→refs の安定ソートで決定的 | 常に生成 |
+| **DIFF** | トポロジー差分ビュー。`render_topology.py --diff-against <prev_dir>` 指定時のみ生成。前回（prev_dir）との差分を `diff_topology()` で計算し、devices / interfaces / links / segments / routing_bgp / routing_ospf / routing_static の固定順で added(+) / removed(-) / changed(~) を件数サマリと一覧表で表示。全体で差分0件のときは「差分なし」を明示。config 由来文字列は esc() でエスケープ。決定的（同一 (topo, prev) → 同一 HTML） | `--diff-against` 指定時のみ |
 
 - **static はビューを生成しない**。static route の情報は Device Details パネル（§8.5）で表示する。
 - STATS / CHECKS の値は render 層で `DATA.stats` / `DATA.checks` として導出する**加算的拡張**であり、層別 YAML スキーマ（§4）には含めない。`bgp_sessions` は重複排除後の実 BGP セッション本数（方向・AF を問わない）で、ステータスバーの AF 総和（§8.6）とは別概念。`link_kinds.link` は dual-stack 統合後の本数、`segment` は raw 件数。
-- 図ビューは `routing` のキーから動的に決まり、新プロトコル層を追加すると自動的にビューが増える（static のみ除外）。表ビュー（ADDRESSES / INTERFACES / STATS / CHECKS）は常設。
-- タブ切替はクリックおよびキーボード `1`〜`N`（図ビュー＝若番、表ビュー＝続く番号）で行う。汎用プロトコルビューが増えると表ビュー（ADDRESSES / INTERFACES / STATS / CHECKS）のキー番号は後ろにずれる（タブ並び順に連番）。
+- 図ビューは `routing` のキーから動的に決まり、新プロトコル層を追加すると自動的にビューが増える（static のみ除外）。表ビュー（ADDRESSES / INTERFACES / STATS / CHECKS）は常設。DIFF ビューは `--diff-against` 指定時のみ CHECKS の前（STATS の前）に追加される。
+- タブ切替はクリックおよびキーボード `1`〜`N`（図ビュー＝若番、表ビュー＝続く番号）で行う。汎用プロトコルビューが増えると表ビュー（ADDRESSES / INTERFACES / STATS / CHECKS 等）のキー番号は後ろにずれる（タブ並び順に連番）。
 - **図ビュー専用のツールバー操作**（ズーム・凡例・ミニマップ・ノード種別フィルタ・表示ノード指定・エクスポート等）は、表ビュー表示中は隠す。検索ボックスとテーマ切替・タブは全ビュー共通で残す。
 - 表ビュー表示中はキャンバス（図）を覆い、図のホバー/クリック処理は発火しない。
 
@@ -1040,7 +1041,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 |---------|------|------|
 | `parse_configs.py` | 正規化 Device リストの JSON 出力（デバッグ・ベンダー判定確認用） | `[paths...]` |
 | `build_topology.py` | パース＋推論を実行し層別 YAML を生成 | `[paths...] [-o DIR]` |
-| `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE]` |
+| `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE] [--diff-against PREV_DIR]` |
 | `diff_topology.py` | 2 つの層別 YAML を比較し差分レポート（Markdown）を生成（§10.4・パイプライン外の独立ツール） | `<old_dir> <new_dir> [-o FILE]` |
 
 **共通の入力解決**（parse / build）:
@@ -1050,6 +1051,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 **デフォルト値**:
 - `build_topology.py -o` の既定値: `topology`（カレント配下 `./topology/`）。
 - `render_topology.py -o` 省略時: `./topology.html`（カレント直下。§1.2・§3.1 の出力②と一致させる）。
+- `render_topology.py --diff-against` 省略時: DIFF ビューなし（従来通り・加算的拡張）。指定時は `load_topology(PREV_DIR)` で前回トポロジーを読み、`diff_topology(prev, topo)` を計算して HTML に DIFF タブを追加する。PREV_DIR の読込失敗（OSError / ValueError / yaml.YAMLError）は終了コード 1。
 
 ### 10.2 終了コード・出力規約
 

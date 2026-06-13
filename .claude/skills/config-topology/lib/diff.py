@@ -205,6 +205,7 @@ def _diff_links(old_links, new_links):
 
     kind/admin_down/ospf_area の変更は changed として追跡しない（将来拡張）。
     _changed_label も links の changed は空を前提としている。
+    将来 changed を追加する場合は assets.py の changedLabel にも links 分岐が必要。
 
     自然キーは一意前提（load_topology が通常保証）。重複時は先勝ち。
     """

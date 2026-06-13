@@ -6,9 +6,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import yaml  # noqa: E402
 from lib.topology_io import load_topology       # noqa: E402
 from lib.rendering.template import render_html   # noqa: E402
 from lib.history import retain_for_render, current_timestamp  # noqa: E402
+from lib.diff import diff_topology              # noqa: E402
 
 
 def main(argv=None):
@@ -16,6 +18,8 @@ def main(argv=None):
     p.add_argument("topology_dir", help="層別 YAML のディレクトリ")
     p.add_argument("-o", "--output", default="./topology.html",
                    help="出力 HTML（既定 ./topology.html）")
+    p.add_argument("--diff-against", metavar="PREV_DIR",
+                   help="前回トポロジーのディレクトリ（指定時は DIFF ビューを生成）")
     args = p.parse_args(argv)
 
     try:
@@ -26,8 +30,27 @@ def main(argv=None):
     except OSError as e:
         print("[ERROR] 読込失敗: %s (%s)" % (args.topology_dir, e), file=sys.stderr)
         return 1
+    except yaml.YAMLError as e:
+        print("[ERROR] YAML パースエラー: %s" % e, file=sys.stderr)
+        return 1
 
-    html = render_html(topo)
+    diff = None
+    if args.diff_against:
+        try:
+            prev = load_topology(args.diff_against)
+        except ValueError as e:
+            print("[ERROR] 前回トポロジー参照整合エラー: %s" % e, file=sys.stderr)
+            return 1
+        except OSError as e:
+            print("[ERROR] 前回トポロジー読込失敗: %s (%s)" % (args.diff_against, e),
+                  file=sys.stderr)
+            return 1
+        except yaml.YAMLError as e:
+            print("[ERROR] 前回トポロジー YAML パースエラー: %s" % e, file=sys.stderr)
+            return 1
+        diff = diff_topology(prev, topo)
+
+    html = render_html(topo, diff=diff)
 
     # §10.3 既存 HTML を退避（生成前）
     retained = retain_for_render(Path(args.output), current_timestamp())

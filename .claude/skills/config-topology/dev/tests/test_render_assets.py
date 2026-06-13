@@ -66,7 +66,110 @@ def test_node_check_syntax():
             "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
             "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
             "checks:[]};"
-            "const POS={};const VIEWS=['physical','stats','checks','addr','ifs'];\n")
+            "const POS={};const VIEWS=['physical','stats','checks','addr','ifs'];"
+            "const DIFF=null;\n")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(stub + assets._JS)
+        path = f.name
+    try:
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# D3b DIFF ビュー — アセットテスト
+# ---------------------------------------------------------------------------
+
+def test_is_table_view_includes_diff():
+    """isTableView() が 'diff' を表ビューとして含むこと。"""
+    assert 'S.view === "diff"' in assets._JS
+
+
+def test_render_diff_view_function_exists():
+    """JS に renderDiffView 関数が定義されていること。"""
+    assert "function renderDiffView" in assets._JS
+
+
+def test_render_table_view_dispatches_to_diff():
+    """renderTableView が diff ビューで renderDiffView を呼び出すこと。"""
+    assert "renderDiffView()" in assets._JS
+
+
+def test_render_diff_view_reads_global_diff():
+    """renderDiffView が グローバル DIFF を参照すること。"""
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    section = assets._JS[diff_start:diff_start + 3000]
+    assert "DIFF" in section
+
+
+def test_render_diff_view_uses_esc():
+    """renderDiffView が esc() で XSS エスケープすること。"""
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    section = assets._JS[diff_start:diff_start + 3000]
+    assert "esc(" in section
+
+
+def test_render_diff_view_zero_diff_message():
+    """renderDiffView が差分0件のとき「差分なし」相当のメッセージを表示すること。"""
+    assert "差分なし" in assets._JS
+
+
+def test_render_diff_view_null_diff_safe():
+    """DIFF が null/undefined のとき renderDiffView が安全に処理すること（ガード有）。"""
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    section = assets._JS[diff_start:diff_start + 3000]
+    # null/undefined ガードが存在すること（!DIFF または DIFF == null 等）
+    assert "!DIFF" in section or "DIFF == null" in section or "DIFF === null" in section
+
+
+def test_render_diff_view_fixed_section_order():
+    """renderDiffView がセクションを固定順で描画すること（決定性保証）。
+
+    devices/interfaces/links/segments/routing_bgp/routing_ospf/routing_static の順で
+    参照していること（文字列位置で確認）。
+    """
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    # セクション名を見つけて順序を検証
+    section = assets._JS[diff_start:diff_start + 5000]
+    sections = ["devices", "interfaces", "links", "segments",
+                "routing_bgp", "routing_ospf", "routing_static"]
+    positions = []
+    for s in sections:
+        pos = section.find('"' + s + '"')
+        if pos == -1:
+            pos = section.find("'" + s + "'")
+        assert pos != -1, f"renderDiffView 内にセクション '{s}' が見つからない"
+        positions.append(pos)
+    assert positions == sorted(positions), \
+        "renderDiffView のセクション順序が固定順でない（決定性違反）"
+
+
+def test_node_check_syntax_with_diff():
+    """DIFF グローバルを stub に含めた状態で node --check が通ること。"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため構文チェックをスキップ")
+    stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
+            "meta:{generated_from:[]},"
+            "stats:{devices:0,interfaces:0,links:0,segments:0,"
+            "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
+            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
+            "checks:[]};"
+            "const POS={};"
+            "const VIEWS=['physical','diff','stats','checks','addr','ifs'];"
+            "const DIFF={devices:{added:[],removed:[],changed:[]},"
+            "interfaces:{added:[],removed:[],changed:[]},"
+            "links:{added:[],removed:[],changed:[]},"
+            "segments:{added:[],removed:[],changed:[]},"
+            "routing_bgp:{added:[],removed:[],changed:[]},"
+            "routing_ospf:{added:[],removed:[],changed:[]},"
+            "routing_static:{added:[],removed:[],changed:[]}};\n")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(stub + assets._JS)
         path = f.name
@@ -1144,3 +1247,200 @@ if (r2.w <= r1.w) {{
         )
     finally:
         os.unlink(path)
+
+
+# ===========================================================================
+# D3b DIFF ビュー — XSS node 実行テスト（修正 1）
+# ===========================================================================
+
+def _extract_function_balanced(js: str, func_name: str) -> str:
+    """_JS から指定関数ブロックをバランス中括弧で切り出す（既存ヘルパと同実装）。"""
+    start_marker = f"function {func_name}"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError(f"{func_name} not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError(f"{func_name}: unbalanced braces")
+
+
+def _extract_esc_line(js: str) -> str:
+    """_JS から const esc = ... の1行を抽出する。"""
+    for line in js.splitlines():
+        if line.strip().startswith("const esc ="):
+            return line.strip()
+    raise ValueError("const esc = ... が _JS に見つからない")
+
+
+def _run_render_diff_node(node_bin: str, diff_js: str) -> str:
+    """renderDiffView + esc（const）を node で実行して HTML を返す。
+
+    renderDiffView はローカル関数 entryLabel / changedLabel を含むため、
+    関数本体のみで自己完結する。DIFF グローバルと esc を注入して実行する。
+    """
+    render_diff_src = _extract_function_balanced(assets._JS, "renderDiffView")
+    esc_line = _extract_esc_line(assets._JS)
+
+    driver = (
+        f"const DIFF = {diff_js};\n"
+        f"{esc_line}\n"
+        f"{render_diff_src}\n"
+        "process.stdout.write(renderDiffView());\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return r.stdout
+
+
+@pytest.mark.unit
+def test_render_diff_view_xss_escape_added_hostname(node_bin):
+    """renderDiffView が hostname に XSS ペイロードを含む added エントリを esc() すること。
+
+    devices.added の id / hostname に <img onerror=alert(1)> を埋め込み、
+    出力 HTML に生の <img が現れず &lt;img として HTML エスケープされていることを検証。
+    esc を1つ消すと赤になる（XSS 防御の有効性を実証）。
+    """
+    xss_id = '<img onerror=alert(1)>'
+    xss_hostname = '</script><script>alert(2)</script>'
+    diff_js = (
+        '{"devices":{"added":[{"id":"' + xss_id.replace('"', '\\"') + '",'
+        '"hostname":"' + xss_hostname.replace('"', '\\"') + '",'
+        '"vendor":"cisco_ios","as":null}],"removed":[],"changed":[]},'
+        '"interfaces":{"added":[],"removed":[],"changed":[]},'
+        '"links":{"added":[],"removed":[],"changed":[]},'
+        '"segments":{"added":[],"removed":[],"changed":[]},'
+        '"routing_bgp":{"added":[],"removed":[],"changed":[]},'
+        '"routing_ospf":{"added":[],"removed":[],"changed":[]},'
+        '"routing_static":{"added":[],"removed":[],"changed":[]}}'
+    )
+    html = _run_render_diff_node(node_bin, diff_js)
+    # 生の XSS タグが出力されていないこと
+    assert "<img" not in html, f"生の <img タグが出力された（XSS 未防御）: {html[:500]}"
+    assert "</script>" not in html.replace("<\\/script>", ""), (
+        f"</script> が生出力された: {html[:500]}"
+    )
+    # エスケープ済み文字列が存在すること
+    assert "&lt;img" in html or "onerror" not in html, (
+        f"&lt;img エスケープが見つからない: {html[:500]}"
+    )
+
+
+@pytest.mark.unit
+def test_render_diff_view_xss_escape_links(node_bin):
+    """renderDiffView が links.added の subnet/device/if に XSS ペイロードが含まれる場合に esc() すること。"""
+    diff_js = (
+        '{"devices":{"added":[],"removed":[],"changed":[]},'
+        '"interfaces":{"added":[],"removed":[],"changed":[]},'
+        '"links":{"added":[{"subnet":"<script>alert(3)</script>",'
+        '"a_device":"<img>","a_if":"GE0","b_device":"R2","b_if":"GE1"}],'
+        '"removed":[],"changed":[]},'
+        '"segments":{"added":[],"removed":[],"changed":[]},'
+        '"routing_bgp":{"added":[],"removed":[],"changed":[]},'
+        '"routing_ospf":{"added":[],"removed":[],"changed":[]},'
+        '"routing_static":{"added":[],"removed":[],"changed":[]}}'
+    )
+    html = _run_render_diff_node(node_bin, diff_js)
+    assert "<script>" not in html, f"生の <script> タグが links.added に現れた: {html[:500]}"
+    assert "<img>" not in html, f"生の <img> が links.added に現れた: {html[:500]}"
+    # エスケープされた形式（&lt;script&gt; 等）が存在すること
+    assert "&lt;script&gt;" in html, f"&lt;script&gt; エスケープが見つからない: {html[:500]}"
+
+
+# ===========================================================================
+# D3b DIFF ビュー — テーブルヘッダ整合テスト（修正 2）
+# ===========================================================================
+
+@pytest.mark.unit
+def test_render_diff_view_table_header_kind_entry():
+    """renderDiffView のテーブルヘッダ第1列が Kind、エントリ列が Entry であること。
+
+    実データ col0=変更種別（+added/-removed/~changed）に合わせ、
+    第1列ヘッダを Kind とし、Section ヘッダは colspan グループ行で提示する。
+    renderChecksView（第1列=Severity）との一貫性を保つ。
+    常に空の未使用列は削除して列数とデータを一致させる。
+    """
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    # renderDiffView の関数本体（3000文字程度でカバー）
+    section = assets._JS[diff_start:diff_start + 5000]
+    # ヘッダ: 第1列が Kind、エントリ列が Entry
+    assert '<th style="width:120px">Kind</th>' in section, (
+        "renderDiffView の第1列ヘッダが Kind でない"
+    )
+    assert '<th>Entry</th>' in section, (
+        "renderDiffView にエントリ列ヘッダ Entry が無い"
+    )
+    # Section 列ヘッダ（セクション名は colspan グループ行で提示するため独立列ヘッダは不要）
+    assert '<th style="width:120px">Section</th>' not in section, (
+        "Section 独立列ヘッダが残存している（colspan グループ行に移行済みのはず）"
+    )
+
+
+@pytest.mark.unit
+def test_render_diff_view_no_always_empty_column():
+    """renderDiffView のデータ行に常に空の未使用列（<td></td>）がないこと。
+
+    データ構造は col0=変更種別、col1=エントリ（colspan=2 または別列）で完結し、
+    未使用の空 <td></td> が残っていないこと（列数とデータの一致）。
+    """
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    section = assets._JS[diff_start:diff_start + 5000]
+    # 旧実装の <td></td>（空セル）が added/removed 行に残っていないこと
+    # パターン: "...kind..."</td><td></td><td>entryLabel...
+    assert "<td></td><td>" not in section, (
+        "renderDiffView データ行に常に空の <td></td> が残存している"
+    )
+
+
+# ===========================================================================
+# D3b DIFF ビュー — links entryLabel スペース統一テスト（修正 3）
+# ===========================================================================
+
+@pytest.mark.unit
+def test_render_diff_view_links_entry_label_double_space():
+    """renderDiffView の links entryLabel が subnet の後にスペース2個を使うこと。
+
+    lib/diff.py の _entry_label（スペース2: "%s  %s::%s -- %s::%s"）に統一する。
+    現状の JS（スペース1）を修正してスペース2に揃える。
+    """
+    diff_start = assets._JS.find("function renderDiffView")
+    assert diff_start != -1
+    section = assets._JS[diff_start:diff_start + 3000]
+    # links の entryLabel: subnet後スペース2個 + a_device::a_if -- b_device::b_if
+    # パターン: (e.subnet||"") + "  " + (e.a_device||"")
+    assert '(e.subnet||"") + "  " + (e.a_device||"")' in section, (
+        'links entryLabel のスペースが1個（JS と Python の _entry_label が不一致）'
+    )
+
+
+# ===========================================================================
+# D3b DIFF ビュー — changedLabel links 分岐コメントテスト（修正 5）
+# ===========================================================================
+
+@pytest.mark.unit
+def test_diff_links_comment_about_changed_and_changed_label():
+    """lib/diff.py の _diff_links コメントに changedLabel links 分岐の将来注記があること。
+
+    現状 _diff_links は changed 常に空だが、将来追加時の保守メモとして
+    'changedLabel' または 'assets.py' へのコメントが _diff_links docstring に存在すること。
+    """
+    import inspect
+    import lib.diff as diff_mod
+    src = inspect.getsource(diff_mod._diff_links)
+    assert "changedLabel" in src or "assets.py" in src, (
+        "_diff_links の docstring/コメントに changedLabel / assets.py への注記が無い"
+    )

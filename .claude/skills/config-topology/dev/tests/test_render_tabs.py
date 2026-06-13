@@ -113,3 +113,67 @@ def test_key_numbers_sequential_with_checks():
     tabs_bgp = build_tabs(_routing(bgp=True))
     # physical=1, bgp=2, stats=3, checks=4, addr=5, ifs=6
     assert [t["key"] for t in tabs_bgp] == [1, 2, 3, 4, 5, 6]
+
+
+# ---------------------------------------------------------------------------
+# D3b DIFF ビュー — タブ生成テスト
+# ---------------------------------------------------------------------------
+
+def test_diff_tab_absent_by_default():
+    """has_diff=False（既定）のとき diff タブが出ないこと。"""
+    tabs = build_tabs(_routing())
+    assert "diff" not in [t["view"] for t in tabs]
+
+
+def test_diff_tab_present_when_has_diff():
+    """has_diff=True のとき diff タブが出ること。"""
+    tabs = build_tabs(_routing(), has_diff=True)
+    assert "diff" in [t["view"] for t in tabs]
+
+
+def test_diff_tab_label():
+    """diff タブのラベルが 'DIFF' であること。"""
+    tabs = build_tabs(_routing(), has_diff=True)
+    diff_tab = next(t for t in tabs if t["view"] == "diff")
+    assert diff_tab["label"] == "DIFF"
+
+
+def test_diff_tab_before_stats():
+    """diff タブは stats タブより前に配置されること。"""
+    tabs = build_tabs(_routing(), has_diff=True)
+    views = [t["view"] for t in tabs]
+    assert views.index("diff") < views.index("stats")
+
+
+def test_diff_tab_sequential_keys_with_diff():
+    """diff タブ追加後もキー番号が連番であること。"""
+    tabs = build_tabs(_routing(), has_diff=True)
+    assert [t["key"] for t in tabs] == list(range(1, len(tabs) + 1))
+
+
+def test_diff_tab_no_duplicate_view():
+    """has_diff=True でも diff タブが1つだけ出ること。"""
+    tabs = build_tabs(_routing(bgp=True, ospf=True), has_diff=True)
+    diff_views = [t for t in tabs if t["view"] == "diff"]
+    assert len(diff_views) == 1
+
+
+def test_diff_order_with_all_routing():
+    """全 routing + has_diff=True: physical→bgp→ospf→diff→stats→checks→addr→ifs の順。"""
+    tabs = build_tabs(_routing(bgp=True, ospf=True), has_diff=True)
+    views = [t["view"] for t in tabs]
+    assert views == ["physical", "bgp", "ospf", "diff", "stats", "checks", "addr", "ifs"]
+
+
+def test_diff_order_no_routing():
+    """routing なし + has_diff=True: physical→diff→stats→checks→addr→ifs の順。"""
+    tabs = build_tabs(_routing(), has_diff=True)
+    views = [t["view"] for t in tabs]
+    assert views == ["physical", "diff", "stats", "checks", "addr", "ifs"]
+
+
+def test_existing_tabs_unaffected_without_diff():
+    """has_diff 未指定（省略）での呼び出しが既存の期待順序を維持すること（回帰）。"""
+    tabs = build_tabs(_routing(bgp=True, ospf=True))
+    views = [t["view"] for t in tabs]
+    assert views == ["physical", "bgp", "ospf", "stats", "checks", "addr", "ifs"]
