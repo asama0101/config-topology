@@ -174,6 +174,7 @@ def build_bgp_topology(topo):
     edge_order: list = []
     ext_peers: dict = {}
     bgp_rows: list = []
+    edge_afs: dict = {}
 
     for e in topo["routing"].get("bgp", []):
         dev = e["device"]
@@ -192,6 +193,7 @@ def build_bgp_topology(topo):
                     "type": e["type"], "peerAs": e["peer_as"],
                 }
                 edge_order.append(eid)
+            edge_afs.setdefault(eid, set()).add(e.get("af", "v4"))
             ext_peers.setdefault(
                 nb,
                 {"id": "ext:" + nb, "label": "AS %s" % e["peer_as"],
@@ -210,6 +212,7 @@ def build_bgp_topology(topo):
                     "type": e["type"], "peerAs": e["peer_as"],
                 }
                 edge_order.append(eid)
+            edge_afs.setdefault(eid, set()).add(e.get("af", "v4"))
         else:
             # loopback: 両端デバイスは既知だが共有 subnet なし（iBGP over loopback 典型）
             pair = tuple(sorted([dev, peer_dev]))
@@ -224,8 +227,13 @@ def build_bgp_topology(topo):
                     "label": "iBGP" if e["type"] == "ibgp" else "BGP",
                 }
                 edge_order.append(eid)
+            edge_afs.setdefault(eid, set()).add(e.get("af", "v4"))
 
         bgp_rows.append({"device": dev, "nb": nb, "link": eid})
+
+    # afs を決定的なソート済みリストとして各エッジに付与（set を直列化しない）
+    for eid in edge_order:
+        edges[eid]["afs"] = sorted(edge_afs[eid])
 
     ext_list = [ext_peers[k] for k in sorted(ext_peers)]
     return {

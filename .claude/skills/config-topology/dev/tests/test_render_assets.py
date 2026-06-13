@@ -28,6 +28,33 @@ def test_js_references_addrs():
     assert "addrs" in assets._JS         # 全アドレス検索/表への適応
 
 
+def test_status_bgp_counts_unique_sessions():
+    # ステータスバー bgp は各 bgpEdge の afs 数の総和＝ユニーク BGP セッション数を示す。
+    # dual-stack（同一リンク/ペアの v4+v6）は 1 エッジ・afs=["v4","v6"] で 2 と数える。
+    # v4-only は各 afs=["v4"] なので総和=エッジ数（双方向2エントリを1セッションに正規化）。
+    # ※元の機器別 bgp[] 合算ロジックは双方向セッションを二重計上していた（本修正で是正）。
+    assert '$("#st-bgp").textContent = DATA.bgpEdges.reduce((n,e)=>n+e.afs.length,0)' in assets._JS
+    # 回帰ガード: 機器ごとの bgp[] を合算する旧ロジックが復活していないこと。
+    assert 'reduce((n,d)=>n+d.bgp.length' not in assets._JS
+
+
+def test_addr_table_af_uses_string_comparison():
+    # addrs[].af は文字列 "v4"/"v6"。数値比較(=== 4/=== 6)は常に false になりバグる。
+    assert 'a.af === 4' not in assets._JS
+    assert 'a.af === 6' not in assets._JS
+    assert 'a.af === "v4"' in assets._JS
+    assert 'a.af === "v6"' in assets._JS
+
+
+def test_addr_table_excludes_link_local():
+    # addrs[] を消費する2ループ（表 secondary 行・重複IP検出）の双方で link-local を除外する。
+    # DATA.addrs[].scope は "link-local" | undefined（models.Address.to_dict）。
+    # 各ループ固有のコメントで個別に裏取り（ヘルパ化や片側統合でも意図ズレを検知）。
+    assert 'a.scope === "link-local"' in assets._JS                      # ガード自体が存在
+    assert 'link-local(fe80::) は ADDRESSES 表に出さない' in assets._JS   # 表 secondary 行ループ
+    assert 'link-local は重複IP判定の対象外' in assets._JS                # 重複IP検出ループ
+
+
 def test_node_check_syntax():
     node = shutil.which("node")
     if not node:
@@ -42,3 +69,29 @@ def test_node_check_syntax():
         assert r.returncode == 0, r.stderr
     finally:
         os.unlink(path)
+
+
+def test_ifv6list_helper_present():
+    assert 'function ifV6List' in assets._JS
+
+
+def test_interfaces_and_card_show_all_v6():
+    # INTERFACES 表の行データとデバイス詳細カードが、それぞれ ifV6List を参照する。
+    # （定義行を数に含めず、2つの呼び出し箇所を文脈付きで個別に裏取りする）
+    assert 'v6list: ifV6List(i)' in assets._JS      # INTERFACES 表の行データ
+    assert 'const v6=ifV6List(i)' in assets._JS     # デバイス詳細カード（1回呼んで GUA/LL に分配）
+
+
+def test_device_card_ipv4_ipv6_columns():
+    # Device Detail カードは IPv4 と IPv6 を別列に分け、link-local は IPv6 列に淡色併記
+    # （専用 LL 列は持たない）。フルスクリーン INTERFACES 表の IPv6 列と同じ扱い。
+    assert '<th>IPv4</th><th>IPv6</th><th>Desc</th>' in assets._JS   # IPv4/IPv6 分離・直後が Desc
+    assert 'title="link-local">LL' not in assets._JS                 # 専用 LL 列ヘッダは無い
+    assert 'v6.map(x=>x.ll?' in assets._JS                           # IPv6 セルが全 v6 を ll 条件で淡色併記
+
+
+def test_link_end_label_includes_link_local():
+    # リンク端ラベルが端点 IF の link-local を ifV6List 経由で抽出し、faint 行として描く。
+    assert 'ifV6List(itf).filter(x=>x.ll)' in assets._JS   # リンク端ラベル固有の抽出
+    assert 'faint:true' in assets._JS                       # faint 行として渡す
+    assert '.iflabel.ll' in assets._CSS                     # SVG ラベル淡色

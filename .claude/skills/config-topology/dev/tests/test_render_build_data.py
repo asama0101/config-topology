@@ -22,6 +22,8 @@ def test_build_data_from_golden():
     assert data["extPeers"] == []
     overs = [e for e in data["bgpEdges"] if e["kind"] == "over-link"]
     assert len(overs) == 1
+    # 実 build_data 経路で afs が付与される（v4-only ゴールデンなので ["v4"]）
+    assert isinstance(overs[0]["afs"], list) and overs[0]["afs"] == ["v4"]
     for dev in ("r1", "r2"):
         for row in data["devices"][dev]["bgp"]:
             assert row["link"] == overs[0]["id"]

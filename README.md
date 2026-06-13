@@ -32,7 +32,7 @@
 ## 結線推論の考え方
 
 - **IP / サブネット一致のみ**で推論（v1 は CDP/LLDP 不使用）。同一サブネットのインターフェースが **2 機器 = リンク**、**3 機器以上 = 共有セグメント**、**単独 = スタブ**。
-- `shutdown` を含むリンクは **admin_down** として区別。link-local（`fe80::/10`）は結線から除外。
+- `shutdown` を含むリンクは **admin_down** として区別。link-local（`fe80::/10`）は結線から除外（ただし INTERFACES 表・PHYSICAL のデバイス詳細／リンク端ラベルには淡色で表示。ADDRESSES 表からは除外）。
 - **BGP** は対向を解決して ebgp / ibgp を判定。config 内に対向が無い外部ピアも片側オーバーレイで描画。
 - **dual-stack** は `interfaces[].addresses` が IP の正本（`interfaces[].ip` は後方互換の派生フィールド）。
 

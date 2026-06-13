@@ -6,7 +6,7 @@
   - _BODY: id="ribbon" スパン・ステータスバーのサンプル固定テキストを除去
   - _JS: const DATA / const POS リテラルを除去（template が globals として注入）
          VIEWS グローバルでキーボードショートカットのタブ遷移を駆動
-         検索 corpus・ADDRESSES/INTERFACES 表に addrs[] を統合（secondary/link-local 対応）
+         検索 corpus・各表に addrs[] を統合（secondary 表示。link-local は ADDRESSES 除外／INTERFACES・PHYSICAL は淡色表示）
          SVG namespace 文字列を連結式に変更（literal http:// を排除）
 """
 
@@ -212,8 +212,10 @@ g.node.ext rect.body { stroke-dasharray: 6 4; }
 /* 提案: 選択/ホバー時にリンク端へ IF 名を表示（IFチップ廃止の代替） */
 .iflabel { font-size: 9px; fill: var(--accent); opacity: 0; transition: opacity .18s; pointer-events: none; }
 .iflabel.show { opacity: 1; }
+.iflabel.ll { fill: var(--ink-faint); }
 .iflabel-bg { fill: var(--bg); opacity: 0; rx: 3; pointer-events: none; }
 .iflabel-bg.show { opacity: .85; }
+.ll-t { color: var(--ink-faint); }
 
 .dim { opacity: .16 !important; transition: opacity .25s; }
 .hidden { display: none !important; }
@@ -580,6 +582,19 @@ const OP_RE = /^(host|ip|desc|as|vendor|net):(.*)$/;
 
 const u32ToIp = u => [(u>>>24)&255, (u>>>16)&255, (u>>>8)&255, u&255].join(".");
 const ipToU32 = h => { const o = h.split(".").map(Number); return ((o[0]<<24)|(o[1]<<16)|(o[2]<<8)|o[3])>>>0; };
+/* interface の全 v6 アドレスを返す。GUA を先、link-local を後に concat（sort 非依存で決定的）。
+   各要素は {cidr: string, ll: bool}。addrs が無い場合は空配列。 */
+function ifV6List(i) {
+  const gua = [], ll = [];
+  for (const a of (i.addrs||[])) {
+    if (a.af !== "v6") continue;
+    const cidr = a.prefix != null ? `${a.ip}/${a.prefix}` : a.ip;
+    if (!cidr) continue;
+    (a.scope === "link-local" ? ll : gua).push(cidr);
+  }
+  return [...gua.map(c=>({cidr:c, ll:false})), ...ll.map(c=>({cidr:c, ll:true}))];
+}
+
 /* v4 アドレスの所属ネットワーク: 結線推論（IP2NET）優先、無ければ自身の prefix から導出
    （対外スタブ /30 等も管理対象に載せる。/32 は host route なので導出せず推論外グループへ） */
 function netOfV4(a) {
@@ -626,14 +641,17 @@ function adjacency() {
   return adj;
 }
 
-/* 積み上げラベル: IF名 / IPv4 / IPv6 を1行ずつ改行して縦に描画（caller 側で null 行を除去して渡す） */
+/* 積み上げラベル: IF名 / IPv4 / IPv6 を1行ずつ改行して縦に描画（caller 側で null 行を除去して渡す）
+   lines の要素は string または {t: string, faint: bool}。後者は link-local 等の淡色表示に使用。 */
 function stackLabel(parts, cx, topY, lines, opts) {
   const show = opts.show ? "show" : "";
   const deco = opts.deco ? ` data-deco="${opts.deco}"` : "";
-  lines.forEach((t, i) => {
-    const w = String(t).length*5.6+8, y0 = topY + i*13;
+  lines.forEach((item, i) => {
+    const txt = typeof item === "string" ? item : item.t;
+    const faint = typeof item === "object" && item.faint;
+    const w = String(txt).length*5.6+8, y0 = topY + i*13;
     parts.push(`<rect class="iflabel-bg ${show}"${deco} x="${cx-w/2}" y="${y0}" width="${w}" height="12"/>` +
-               `<text class="iflabel ${show}"${deco} x="${cx}" y="${y0+9.5}" text-anchor="middle">${esc(t)}</text>`);
+               `<text class="iflabel ${show}${faint?" ll":""}"${deco} x="${cx}" y="${y0+9.5}" text-anchor="middle">${esc(txt)}</text>`);
   });
 }
 
@@ -708,11 +726,14 @@ function render() {
     const sA = S.sel.has(l.a), sB = S.sel.has(l.b);
     const showIf = S.view !== "bgp" &&
       ((multiSel ? (sA && sB) : (sA || sB)) || hoverLink === l.id || netHot(l.subnet));
-    /* リンク端ラベル: IF名 / IPv4 / IPv6 を改行で縦積み（ラインに被らないよう上方向へ伸ばす） */
-    for (const [p,q,ifn,ip,ip6] of [[a,b,l.ai,l.aip,l.aip6],[b,a,l.bi,l.bip,l.bip6]]) {
+    /* リンク端ラベル: IF名 / IPv4 / IPv6 を改行で縦積み（ラインに被らないよう上方向へ伸ばす）
+       端点 IF の link-local アドレスも淡色行として付加 */
+    for (const [p,q,ifn,ip,ip6,dev,ifname] of [[a,b,l.ai,l.aip,l.aip6,l.a,l.ai],[b,a,l.bi,l.bip,l.bip6,l.b,l.bi]]) {
       const t = 0.26;
       const lx = p.x + (q.x-p.x)*t, ly = p.y + (q.y-p.y)*t - 8;
-      const lines = [ifn, ip, ip6].filter(Boolean);
+      const itf = (DATA.devices[dev]?.ifs||[]).find(x=>x.n===ifname);
+      const lls = itf ? ifV6List(itf).filter(x=>x.ll).map(x=>({t: x.cidr, faint:true})) : [];
+      const lines = [ifn, ip, ip6].filter(Boolean).concat(lls);
       stackLabel(parts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`});
     }
     /* リンクのネットワーク情報（subnet。v6 も同形式で併記）を選択/ホバー時に表示（OSPFバッジ表示時は重複を避け省略） */
@@ -1048,8 +1069,8 @@ function renderDetails() {
         ${d.ospf_rid||d.bgp_rid?`<span class="badge rid">rid ${esc(d.ospf_rid||d.bgp_rid)}</span>`:""}
       </div>
       <div class="csec"><h4>INTERFACES (${d.ifs.length})</h4>
-        <table class="dt"><tr><th>Name</th><th>IP</th><th>Desc</th><th>St</th></tr>
-        ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=n0&&netDrawn(n0)?n0:null;return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}${i.ip6?`<br>${esc(i.ip6)}`:""}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
+        <table class="dt"><tr><th>Name</th><th>IPv4</th><th>IPv6</th><th>Desc</th><th>St</th></tr>
+        ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=n0&&netDrawn(n0)?n0:null;const v6=ifV6List(i);return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}</td><td class="dim-t">${v6.length?v6.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>"):"—"}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
       ${d.bgp.length?`<div class="csec"><h4>BGP SESSIONS</h4>
         <table class="dt"><tr><th>neighbor</th><th>peer AS</th><th>type</th><th>af</th></tr>
         ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td></tr>`).join("")}</table></div>`:""}
@@ -1150,11 +1171,12 @@ function renderAddrTable() {
       });
       /* secondary / 追加 GUA: addrs[] から primary と重複しない行を追加 */
       for (const a of (i.addrs||[])) {
+        if (a.scope === "link-local") continue;   // link-local(fe80::) は ADDRESSES 表に出さない
         const cidr = a.ip && a.prefix != null ? `${a.ip}/${a.prefix}` : a.ip || null;
         if (!cidr) continue;
-        if (a.af === 4 && cidr === i.ip) continue;   /* primary と重複 */
-        if (a.af === 6 && cidr === i.ip6) continue;
-        const isV4 = a.af === 4;
+        if (a.af === "v4" && cidr === i.ip) continue;   /* primary と重複 */
+        if (a.af === "v6" && cidr === i.ip6) continue;
+        const isV4 = a.af === "v4";
         rows.push({
           devId:id, dev:d.hostname, ifn:i.n,
           ip: isV4 ? cidr : null, ip6: isV4 ? null : cidr,
@@ -1176,7 +1198,8 @@ function renderAddrTable() {
   for (const [id,d] of Object.entries(DATA.devices))
     for (const i of d.ifs)
       for (const a of (i.addrs||[])) {
-        if (a.ip) (byHost[`${a.af===6?"v6":"v4"}:${a.ip}`] ||= new Set()).add(id);
+        if (a.scope === "link-local") continue;   // link-local は重複IP判定の対象外
+        if (a.ip) (byHost[`${a.af==="v6"?"v6":"v4"}:${a.ip}`] ||= new Set()).add(id);
       }
   const dupOf = (r, addr, af) => {
     if (!addr) return null;
@@ -1371,7 +1394,7 @@ function renderIfsTable() {
       allRows.push({ dev:d.hostname, devId:id, ifn:i.n, ip:i.ip, ip6:i.ip6, desc:i.d, st:i.st,
                      mtu:i.mtu, sp:i.sp, vendor:d.vendor, as:String(d.as), chk: bad[`${id}:${i.n}`] || null,
                      kind: ifKind(id, i), conn: connectedTo(id, i.n),
-                     addrs: i.addrs||[] });
+                     addrs: i.addrs||[], v6list: ifV6List(i) });
   /* 検索フィルタ + 種別チップフィルタ（down は st 基準 / 予約・不可 は運用状態基準 / 他は kind 基準） */
   const kf = S.ifKindFilter;
   const rows = allRows.filter(r => rowSearchHit({
@@ -1439,7 +1462,7 @@ function renderIfsTable() {
         <td>${esc(r.ifn)}</td>
         ${connCell}
         <td class="dim-t">${r.ip?esc(r.ip):"—"}</td>
-        <td class="dim-t">${r.ip6?esc(r.ip6):"—"}</td>
+        <td class="dim-t">${r.v6list.length ? r.v6list.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>") : "—"}</td>
         <td class="${r.desc?"dim-t":"no-desc"}"${r.desc?"":' title="description 未設定"'}>${r.desc?esc(r.desc):"—"}</td>
         <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}<span class="ifk ifk-${r.kind==="connected"?"conn":r.kind==="loopback"?"loop":r.kind}">${IFK_LABEL[r.kind]}</span>${ovBadge}</td>
         <td class="${r.chk&&r.chk.mtu?"chk-bad":"dim-t"}"${r.chk&&r.chk.mtu?` title="${esc(r.chk.mtu)}"`:""}>${r.mtu==null?"—":r.mtu}${r.chk&&r.chk.mtu?" ⚠":""}</td>
@@ -1566,7 +1589,7 @@ function renderStatus() {
   $("#st-dev").textContent = Object.keys(DATA.devices).length;
   $("#st-lk").textContent = DATA.links.length;
   $("#st-seg").textContent = DATA.segments.length;
-  $("#st-bgp").textContent = Object.values(DATA.devices).reduce((n,d)=>n+d.bgp.length,0);
+  $("#st-bgp").textContent = DATA.bgpEdges.reduce((n,e)=>n+e.afs.length,0);
 }
 
 /* ================= interactions ================= */
