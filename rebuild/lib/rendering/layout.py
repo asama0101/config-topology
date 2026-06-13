@@ -30,9 +30,25 @@ def compute_positions(data):
     k = math.sqrt(_AREA / len(node_ids))
 
     edges = []
+    seen = set()
+
+    def _add(a, b):
+        if a in pos and b in pos and a != b:
+            key = (a, b) if a <= b else (b, a)
+            if key not in seen:
+                seen.add(key)
+                edges.append((a, b))
+
     for ln in data.get("links", []):
-        if ln.get("a") in pos and ln.get("b") in pos:
-            edges.append((ln["a"], ln["b"]))
+        _add(ln.get("a"), ln.get("b"))
+    for s in data.get("segments", []):
+        for m in s.get("members", []):
+            _add(s["id"], m.get("dev"))
+    for e in data.get("extPeers", []):
+        _add(e["id"], e.get("from"))
+    for be in data.get("bgpEdges", []):
+        if be.get("kind") == "loopback":
+            _add(be.get("a"), be.get("b"))
 
     ids_sorted = sorted(node_ids)
     for it in range(_ITER):
