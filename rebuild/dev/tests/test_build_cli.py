@@ -36,3 +36,41 @@ def test_cli_unknown_vendor_skipped(tmp_path):
     assert proc.returncode == 0
     assert "[WARN]" in proc.stderr
     assert (out / "devices.yaml").exists()
+
+
+def test_cli_emits_run_summary(tmp_path):
+    weird = tmp_path / "weird.cfg"
+    weird.write_text("foo bar\nbaz qux\n", encoding="utf-8")   # 未知ベンダー
+    out = tmp_path / "topology"
+    proc = _run([str(CONFIG_DIR / "sample-ios-r1.cfg"), str(weird), "-o", str(out)])
+    assert proc.returncode == 0
+    assert "[SUMMARY]" in proc.stderr
+    assert "skipped (unknown vendor)" in proc.stderr
+    assert "不完全" in proc.stderr                         # §10.4 注意喚起
+
+
+def test_cli_retains_existing_default_output(tmp_path):
+    # 既定パス運用（-o 省略）で cwd の既存 ./topology/ と ./topology.html をペア退避
+    (tmp_path / "topology").mkdir()
+    (tmp_path / "topology" / "devices.yaml").write_text("devices: []\n", encoding="utf-8")
+    (tmp_path / "topology.html").write_text("<!doctype html>old", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, str(CLI), str(CONFIG_DIR / "sample-ios-r1.cfg")],
+        capture_output=True, text=True, cwd=str(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    history = tmp_path / "history"
+    assert history.exists()
+    snaps = list(history.iterdir())
+    assert len(snaps) == 1
+    assert (snaps[0] / "topology" / "devices.yaml").exists()   # 旧 YAML 退避
+    assert (snaps[0] / "topology.html").exists()               # ペア HTML 退避
+    assert (tmp_path / "topology" / "devices.yaml").exists()   # 新規生成
+    assert "退避" in proc.stderr
+
+
+def test_cli_no_retention_when_no_existing(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(CLI), str(CONFIG_DIR / "sample-ios-r1.cfg")],
+        capture_output=True, text=True, cwd=str(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    assert not (tmp_path / "history").exists()                 # 退避対象なし
