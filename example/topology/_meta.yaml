@@ -1,7 +1,0 @@
-generated_from:
-- iosC.cfg
-- junosD.conf
-- rA.cfg
-- rB.cfg
-schema_version: '1.0'
-title: Network Topology (config-derived)
