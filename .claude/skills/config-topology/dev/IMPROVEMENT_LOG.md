@@ -27,7 +27,7 @@
 - [x] B1 隣接フォーカスモード（選択ノードの N hop 隣接以外を淡色化）— S ✅反復6完了
 - [ ] B2 表ビューの列フィルタ/絞り込みチップ（vendor/area/AS）— M
 - [x] B3 URLハッシュ状態の保存/復元（ビュー＋選択ノードを #v=&n= にエンコード）— M ✅反復10完了
-- [ ] B4 凡例からの一括レイヤー操作＋ショートカット拡充 — S（A1後）
+- [x] B4 データ駆動凡例（実在 OSPF area / BGP AS の一括強調・ハードコード撤廃）— S ✅反復14完了
 
 ### C. BGP/OSPF 設定管理（parse→build→schema→render の加算フィールド）
 - [x] C1 BGP update-source 抽出 → local_ip 解決フォールバック — M ✅反復4完了（peer-group は C1b に分割・未着手）
@@ -153,6 +153,13 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: schema.md・vendor-parsing.md（モデル表含む）・requirements.md §6.1/§8.5・ファイルレイアウトを同期。
 - テスト 634→717 passed（+83）。golden byte 不変・render 決定性維持。correctness 承認。
 
-### 観点カバレッジ: A=A1,A4 / B=B1,B3 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b。A/B 各2・C5・D4。
-### 次候補: 反復14。A/B が手薄。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ B2 表ビュー列フィルタ（既存検索と差別化：種別/area チップ）/ B4 凡例一括レイヤー操作（A1のAS活用）。観点バランス＋node実テスト可能性で A2 か B4 を推奨。A2 はオフセット純関数を node 検証可。
-推奨順序の残り目安: A2 → B4 → A1b → C4b → D3c → C1b → 残り。
+### 反復14: B4 データ駆動凡例 — ✅完了（2026-06-14）
+- 純関数 `presentAreas(data)`（links非admin_down+segments の area・複合"0/1"分割・数値昇順・重複排除）/ `presentASes(data)`（devices+extPeers の as・null除外・数値昇順）を node 実検証。
+- renderLegend を**データ駆動化**: OSPF の area:0/area:1 ハードコード撤廃→実在 area を列挙、BGP に AS 別 clk("as:N") を追加。applyVisibility に `as:` 一括強調分岐＋update でビュー切替リセット。
+- レビュー対応: seglink as: 分岐の簡潔化（segment は AS 無し・BGP で非描画＝非到達コメント）、legend ハードコード撤廃テスト強化（area0/area1両方）、presentAreas と by_area の集計元差異コメント。
+- doc: requirements.md §8.4 凡例・CLAUDE.md 索引を同期。
+- テスト 717→738 passed（+21）。golden byte 不変・render 決定性維持。correctness 機能バグなし。
+
+### 観点カバレッジ: A=A1,A4 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D3,D3b。A2・B3・C5・D4。
+### 次候補: 反復15。A が最も手薄（2）。A2 リンクラベル重なり回避（layout/JS・純関数オフセット→node検証）/ A3 階層レイアウトモード切替（L・A1後）/ A1b area クラスタリング（cluster_order拡張）。観点バランスで A2 推奨（純関数 node 検証可）。次点 C4b/D3c（強TDD/業務）。
+推奨順序の残り目安: A2 → A1b → C4b → D3c → C1b → B2(差別化要) → 残り。

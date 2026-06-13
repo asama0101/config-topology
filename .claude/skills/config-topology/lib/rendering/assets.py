@@ -550,6 +550,33 @@ const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
 const BGP_COLOR = { ebgp:"#e8775a", ibgp:"#7aa2f7" };
 const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
 
+/* --- データ駆動凡例用 純関数 (B4) --- */
+/* presentAreas(data): data.links (非 admin_down かつ area あり) と data.segments (area あり) から
+   area 値を収集する。複合 area (例 "0/1") は "/" で分割して個別値として扱う。
+   重複排除後、数値昇順でソートした配列を返す。DOM/グローバルに触れない純関数。
+   凡例用は描画される links/segments の area から集計（STATS の by_area は routing.ospf 宣言から集計）＝意図的に集計元が異なる。 */
+function presentAreas(data) {
+  const seen = new Set();
+  const collect = a => {
+    if (a == null) return;
+    for (const part of String(a).split("/")) {
+      const n = /^\\d+$/.test(part.trim()) ? +part.trim() : null;
+      if (n !== null) seen.add(n);
+    }
+  };
+  for (const l of data.links) if (!l.admin_down && l.area != null) collect(l.area);
+  for (const s of data.segments) if (s.area != null) collect(s.area);
+  return [...seen].sort((a, b) => a - b);
+}
+/* presentASes(data): Object.values(data.devices) の as (非 null) と
+   data.extPeers の as (非 null) を収集。重複排除後、数値昇順でソートした配列を返す。 */
+function presentASes(data) {
+  const seen = new Set();
+  for (const d of Object.values(data.devices)) if (d.as != null) seen.add(+d.as);
+  for (const e of data.extPeers) if (e.as != null) seen.add(+e.as);
+  return [...seen].sort((a, b) => a - b);
+}
+
 /* ================= state ================= */
 let hoverLink = null, hoverNode = null, hoverBgp = null, hotBgp = null, hotNet = null;
 const S = {
@@ -1056,19 +1083,34 @@ function applyVisibility() {
     const lg = S.legendHot;
     const areaHit = a => a != null && String(a).split("/").includes(lg.slice(5));
     lgNodes = new Set();
+    const asN = lg.startsWith("as:") ? lg.slice(3) : null;
+    const asHit = id => {
+      const d = DATA.devices[id]; if (d) return String(d.as) === asN;
+      const e = DATA.extPeers.find(x=>x.id===id); return !!e && String(e.as) === asN;
+    };
     lgLine = el => {
       if (el.dataset.elem === "link") {
         const l = DATA.links.find(x=>x.id===el.dataset.id); if (!l) return false;
         if (lg === "admin-down") return !!l.admin_down;
         if (lg.startsWith("area:")) return !l.admin_down && areaHit(l.area);
+        if (lg.startsWith("as:")) return asHit(l.a) && asHit(l.b);
         /* eBGP/iBGP 強調時は over-link セッションの下敷きリンクも許容（半分だけ dim になるのを防ぐ） */
         return DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id && e.type === lg);
       }
       if (el.dataset.elem === "seglink") {
         const s = DATA.segments.find(x=>x.id===el.dataset.id);
-        return !!s && lg.startsWith("area:") && areaHit(s.area);
+        if (lg.startsWith("area:")) return !!s && areaHit(s.area);
+        /* segment 自体は AS を持たない。なお BGP ビューでは segment が描画されないため as: 強調時にこの seglink 分岐は実際には非到達 */
+        if (lg.startsWith("as:")) { return !!s && asHit(el.dataset.mem); }
+        return false;
       }
       const e = DATA.bgpEdges.find(x=>x.id===el.dataset.id);
+      if (lg.startsWith("as:")) {
+        if (!e) return false;
+        const ends = e.kind==="loopback" ? [e.a,e.b] : e.kind==="external" ? [e.a,e.ext]
+                   : (l => l ? [l.a,l.b] : [])(DATA.links.find(x=>x.id===e.link));
+        return ends.length > 0 && ends.every(asHit);
+      }
       return !!e && e.type === lg;
     };
     if (lg === "admin-down") {
@@ -1076,6 +1118,10 @@ function applyVisibility() {
     } else if (lg.startsWith("area:")) {
       for (const l of DATA.links) if (!l.admin_down && areaHit(l.area)) { lgNodes.add(l.a); lgNodes.add(l.b); }
       for (const s of DATA.segments) if (areaHit(s.area)) { lgNodes.add(s.id); for (const m of s.members) lgNodes.add(m.dev); }
+    } else if (lg.startsWith("as:")) {
+      /* AS 別一括強調: 該当 AS の device / extPeer を lgNodes に追加 (B4) */
+      for (const [id,d] of Object.entries(DATA.devices)) if (String(d.as) === asN) lgNodes.add(id);
+      for (const e of DATA.extPeers) if (String(e.as) === asN) lgNodes.add(e.id);
     } else {
       for (const e of DATA.bgpEdges) if (e.type === lg) for (const n of bgpNodes(e.id)) lgNodes.add(n);
     }
@@ -1889,11 +1935,19 @@ function renderLegend() {
     <div class="li"><span class="sw"></span>リンク</div>
     ${S.view === "physical" ? clk("admin-down",'<span class="sw dash"></span>',"admin_down") : ""}`;
   /* 表示条件は render の showBgp/showOspf と同一式（凡例と描画の不一致防止） */
-  if (S.view === "bgp") rows += clk("ebgp",`<span class="sw" style="border-color:${BGP_COLOR.ebgp}"></span>`,"eBGP")
-    + clk("ibgp",`<span class="sw dash" style="border-color:${BGP_COLOR.ibgp}"></span>`,"iBGP (loopback)")
-    + `<div class="li"><span class="sw box" style="border-style:dashed"></span>外部AS (config未提供)</div>`;
-  if (S.view === "ospf") rows += clk("area:0",`<span class="sw" style="border-color:${areaColor("0")}"></span>`,"area 0")
-    + clk("area:1",`<span class="sw" style="border-color:${areaColor("1")}"></span>`,"area 1");
+  if (S.view === "bgp") {
+    rows += clk("ebgp",`<span class="sw" style="border-color:${BGP_COLOR.ebgp}"></span>`,"eBGP")
+      + clk("ibgp",`<span class="sw dash" style="border-color:${BGP_COLOR.ibgp}"></span>`,"iBGP (loopback)")
+      + `<div class="li"><span class="sw box" style="border-style:dashed"></span>外部AS (config未提供)</div>`;
+    /* AS 別一括強調: 実在 AS をデータ駆動で列挙（B4） */
+    for (const a of presentASes(DATA))
+      rows += clk(`as:${a}`,`<span class="sw" style="border-color:${asColor(a)}"></span>`,`AS ${a}`);
+  }
+  if (S.view === "ospf") {
+    /* 実在 OSPF area をデータ駆動で列挙（B4: ハードコード area:0/area:1 を撤廃） */
+    for (const a of presentAreas(DATA))
+      rows += clk(`area:${a}`,`<span class="sw" style="border-color:${areaColor(String(a))}"></span>`,`area ${a}`);
+  }
   rows += `<div class="note">点線・色付き線の項目はクリックで<br>該当要素を強調（再クリックで解除）</div>`;
   L.innerHTML = rows;
 }
@@ -2301,7 +2355,7 @@ function update() {
   /* 凡例強調はビュー変更で項目が消えたら無効化（全画面 dim の固着防止） */
   if (S.legendHot) {
     const lg = S.legendHot;
-    if (((lg === "ebgp" || lg === "ibgp") && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf")) S.legendHot = null;
+    if (((lg === "ebgp" || lg === "ibgp" || lg.startsWith("as:")) && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf")) S.legendHot = null;
   }
   render(); renderDetails(); renderLegend();
   syncHashToState();  /* URL ハッシュを現在の view+sel に同期（B3） */

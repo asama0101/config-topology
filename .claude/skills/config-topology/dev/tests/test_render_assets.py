@@ -1549,3 +1549,410 @@ def test_js_node_check_with_redistribute():
     finally:
         import os
         os.unlink(fname)
+
+
+# ===========================================================================
+# B4: データ駆動凡例 — presentAreas / presentASes 純関数 + renderLegend データ駆動化
+#     + applyVisibility の as: 強調分岐
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# string-presence テスト（RED: 実装前は必ず失敗する）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_b4_present_areas_function_in_js():
+    """presentAreas 関数が _JS に定義されていること。"""
+    assert "function presentAreas" in assets._JS, \
+        "_JS に function presentAreas が見当たらない"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_function_in_js():
+    """presentASes 関数が _JS に定義されていること。"""
+    assert "function presentASes" in assets._JS, \
+        "_JS に function presentASes が見当たらない"
+
+
+@pytest.mark.unit
+def test_b4_render_legend_no_hardcoded_area():
+    """renderLegend にハードコードされた 'area:0' や 'area:1' が残っていないこと。
+
+    B4 実装後は presentAreas(DATA) でデータ駆動生成するため、
+    ハードコードの固定 area 文字列リテラル（'area:0'/'area:1' 等）は
+    renderLegend 内に存在してはならない。
+    area:0 と area:1 の両方を検証し、再混入を防ぐ。
+    """
+    legend_start = assets._JS.find("function renderLegend")
+    assert legend_start != -1, "renderLegend 関数が見つからない"
+    brace_depth = 0
+    func_start = assets._JS.index("{", legend_start)
+    i = func_start
+    while i < len(assets._JS):
+        if assets._JS[i] == "{":
+            brace_depth += 1
+        elif assets._JS[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                break
+        i += 1
+    legend_body = assets._JS[legend_start:i + 1]
+    assert '"area:1"' not in legend_body, \
+        "renderLegend に 'area:1' ハードコードが残っている（データ駆動化が未実装）"
+    assert '"area:0"' not in legend_body, \
+        "renderLegend に 'area:0' ハードコードが残っている（データ駆動化が未実装）"
+
+
+@pytest.mark.unit
+def test_b4_render_legend_uses_present_areas():
+    """renderLegend が presentAreas(DATA) を呼び出してデータ駆動生成すること。"""
+    legend_start = assets._JS.find("function renderLegend")
+    assert legend_start != -1
+    brace_depth = 0
+    func_start = assets._JS.index("{", legend_start)
+    i = func_start
+    while i < len(assets._JS):
+        if assets._JS[i] == "{":
+            brace_depth += 1
+        elif assets._JS[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                break
+        i += 1
+    legend_body = assets._JS[legend_start:i + 1]
+    assert "presentAreas" in legend_body, \
+        "renderLegend 内に presentAreas の呼び出しが見当たらない"
+
+
+@pytest.mark.unit
+def test_b4_render_legend_uses_present_ases():
+    """renderLegend が presentASes(DATA) を呼び出して AS 別凡例を生成すること。"""
+    legend_start = assets._JS.find("function renderLegend")
+    assert legend_start != -1
+    brace_depth = 0
+    func_start = assets._JS.index("{", legend_start)
+    i = func_start
+    while i < len(assets._JS):
+        if assets._JS[i] == "{":
+            brace_depth += 1
+        elif assets._JS[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                break
+        i += 1
+    legend_body = assets._JS[legend_start:i + 1]
+    assert "presentASes" in legend_body, \
+        "renderLegend 内に presentASes の呼び出しが見当たらない"
+
+
+@pytest.mark.unit
+def test_b4_apply_visibility_has_as_branch():
+    """applyVisibility に as: 分岐が含まれていること。
+
+    S.legendHot が 'as:<n>' のとき AS 別強調を行う else-if 分岐が存在すること。
+    """
+    assert 'lg.startsWith("as:")' in assets._JS, \
+        'applyVisibility に lg.startsWith("as:") 分岐が見当たらない'
+
+
+@pytest.mark.unit
+def test_b4_seglink_as_branch_no_dataset_id():
+    """applyVisibility の seglink as: 分岐が el.dataset.id を参照しないこと。
+
+    segment 自体は AS を持たないため el.dataset.id（segment id）への asHit() 呼び出しは
+    常に false を返す無駄な評価となる。
+    正しい形は asHit(el.dataset.mem) のみ（メンバーデバイスの AS を判定）。
+    BGP ビューでは segment が描画されないため as: 強調時にこの seglink 分岐は
+    実際には非到達だが、コードの意図を明確にするため除去する。
+    """
+    # seglink の as: 分岐で el.dataset.id を参照する形（除去済みであること）
+    assert 'asHit(el.dataset.mem) && asHit(el.dataset.id)' not in assets._JS, \
+        'seglink as: 分岐に el.dataset.id への asHit() が残っている（除去が必要）'
+
+
+@pytest.mark.unit
+def test_b4_update_resets_as_legend_when_not_bgp():
+    """update() 内の legendHot リセット条件に as: が含まれていること。
+
+    BGP ビュー以外で as: が固着しないよう、ebgp/ibgp と同じ条件に as: も含まれること。
+    """
+    update_start = assets._JS.find("function update()")
+    assert update_start != -1
+    brace_depth = 0
+    func_start = assets._JS.index("{", update_start)
+    i = func_start
+    while i < len(assets._JS):
+        if assets._JS[i] == "{":
+            brace_depth += 1
+        elif assets._JS[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                break
+        i += 1
+    update_body = assets._JS[update_start:i + 1]
+    assert 'lg.startsWith("as:")' in update_body, \
+        'update() の legendHot リセット条件に lg.startsWith("as:") が含まれていない'
+
+
+# ---------------------------------------------------------------------------
+# node 実行ロジックテスト: presentAreas / presentASes 純関数の動作検証
+# ---------------------------------------------------------------------------
+
+def _b4_extract_func(js: str, func_name: str) -> str:
+    """_JS から指定関数ブロックをバランス中括弧で切り出す。"""
+    idx = js.find(f"function {func_name}")
+    if idx == -1:
+        raise ValueError(f"{func_name} not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError(f"{func_name}: unbalanced braces")
+
+
+def _run_present_areas(node_bin: str, data_js: str) -> list:
+    """node を使って presentAreas(data) を実行し Python list として返す。"""
+    func_src = _b4_extract_func(assets._JS, "presentAreas")
+    driver = (
+        f"{func_src}\n"
+        f"const data = {data_js};\n"
+        f"process.stdout.write(JSON.stringify(presentAreas(data)));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                      capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def _run_present_ases(node_bin: str, data_js: str) -> list:
+    """node を使って presentASes(data) を実行し Python list として返す。"""
+    func_src = _b4_extract_func(assets._JS, "presentASes")
+    driver = (
+        f"{func_src}\n"
+        f"const data = {data_js};\n"
+        f"process.stdout.write(JSON.stringify(presentASes(data)));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                      capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+@pytest.mark.unit
+def test_b4_present_areas_multiple(node_bin):
+    """presentAreas が links と segments から複数 area を収集し数値昇順で返すこと。
+
+    壊すと赤になる: ソートを除去すると [10, 2] になりアサートが失敗する。
+    """
+    data_js = json.dumps({
+        "links": [
+            {"a": "r1", "b": "r2", "area": "0", "admin_down": False},
+            {"a": "r2", "b": "r3", "area": "2", "admin_down": False},
+        ],
+        "segments": [{"id": "seg1", "area": "10", "members": []}],
+    })
+    result = _run_present_areas(node_bin, data_js)
+    assert result == [0, 2, 10], f"数値昇順でない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_areas_compound_split(node_bin):
+    """presentAreas が複合 area ('0/1') を '/' で分割して個別 area として収集すること。
+
+    壊すと赤になる: 分割未実装では '0/1' が整数変換できず両方とも除外される。
+    """
+    data_js = json.dumps({
+        "links": [
+            {"a": "r1", "b": "r2", "area": "0/1", "admin_down": False},
+        ],
+        "segments": [],
+    })
+    result = _run_present_areas(node_bin, data_js)
+    assert 0 in result, f"分割後 area 0 が含まれていない: {result}"
+    assert 1 in result, f"分割後 area 1 が含まれていない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_areas_excludes_admin_down(node_bin):
+    """presentAreas が admin_down のリンクを除外すること。
+
+    壊すと赤になる: admin_down 除外漏れで area 99 が混入する。
+    """
+    data_js = json.dumps({
+        "links": [
+            {"a": "r1", "b": "r2", "area": "99", "admin_down": True},
+            {"a": "r2", "b": "r3", "area": "1", "admin_down": False},
+        ],
+        "segments": [],
+    })
+    result = _run_present_areas(node_bin, data_js)
+    assert 99 not in result, f"admin_down リンクの area 99 が混入: {result}"
+    assert 1 in result, f"有効リンクの area 1 が含まれていない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_areas_dedup(node_bin):
+    """presentAreas が重複 area を排除すること。
+
+    壊すと赤になる: 重複排除未実装で [0, 0] になりアサートが失敗する。
+    """
+    data_js = json.dumps({
+        "links": [
+            {"a": "r1", "b": "r2", "area": "0", "admin_down": False},
+            {"a": "r3", "b": "r4", "area": "0", "admin_down": False},
+        ],
+        "segments": [{"id": "seg1", "area": "0", "members": []}],
+    })
+    result = _run_present_areas(node_bin, data_js)
+    assert result == [0], f"重複排除されていない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_areas_empty(node_bin):
+    """presentAreas が空データで空配列を返すこと。"""
+    data_js = json.dumps({"links": [], "segments": []})
+    result = _run_present_areas(node_bin, data_js)
+    assert result == [], f"空データで空配列でない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_areas_numeric_sort_vs_string_sort(node_bin):
+    """ソートなし実装で数値昇順テストが確実に失敗することの実証。
+
+    area '10' と '2' は文字列ソートだと [10, 2] になるが数値ソートでは [2, 10]。
+    壊すと赤になる: 文字列ソートのまま実装すると [10, 2] でアサートが失敗する。
+    正しい実装では数値昇順で PASS、文字列ソートに変えると [10, 2] 等で赤になる（RED 実証用）。
+    """
+    data_js = json.dumps({
+        "links": [
+            {"a": "r1", "b": "r2", "area": "10", "admin_down": False},
+            {"a": "r2", "b": "r3", "area": "2", "admin_down": False},
+        ],
+        "segments": [],
+    })
+    result = _run_present_areas(node_bin, data_js)
+    assert result == [2, 10], f"数値昇順でない（文字列ソートのまま？）: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_devices_and_ext(node_bin):
+    """presentASes が devices と extPeers の AS を統合し数値昇順で返すこと。
+
+    壊すと赤になる: ソートを除去すると順序が保証されなくなる。
+    """
+    data_js = json.dumps({
+        "devices": {
+            "r1": {"as": 65001, "hostname": "R1"},
+            "r2": {"as": 65002, "hostname": "R2"},
+        },
+        "extPeers": [{"id": "ext:1.1.1.1", "as": 100}],
+    })
+    result = _run_present_ases(node_bin, data_js)
+    assert result == [100, 65001, 65002], f"数値昇順でない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_null_excluded(node_bin):
+    """presentASes が null の as を除外すること。
+
+    壊すと赤になる: null 除外漏れで null が混入しアサートが失敗する。
+    """
+    data_js = json.dumps({
+        "devices": {
+            "r1": {"as": 65001, "hostname": "R1"},
+            "r2": {"as": None, "hostname": "R2"},
+        },
+        "extPeers": [{"id": "ext:1.1.1.1", "as": None}],
+    })
+    result = _run_present_ases(node_bin, data_js)
+    assert None not in result, f"null が混入している: {result}"
+    assert result == [65001], f"期待は [65001] のみ: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_dedup(node_bin):
+    """presentASes が重複 AS を排除すること。
+
+    壊すと赤になる: 重複排除未実装で [65000, 65000, 65000] になる。
+    """
+    data_js = json.dumps({
+        "devices": {
+            "r1": {"as": 65000, "hostname": "R1"},
+            "r2": {"as": 65000, "hostname": "R2"},
+        },
+        "extPeers": [{"id": "ext:1.1.1.1", "as": 65000}],
+    })
+    result = _run_present_ases(node_bin, data_js)
+    assert result == [65000], f"重複排除されていない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_empty(node_bin):
+    """presentASes が空データで空配列を返すこと。"""
+    data_js = json.dumps({"devices": {}, "extPeers": []})
+    result = _run_present_ases(node_bin, data_js)
+    assert result == [], f"空データで空配列でない: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_numeric_sort_vs_string(node_bin):
+    """ソートなし実装で数値昇順テストが確実に失敗することの実証。
+
+    AS 9 と 100 は文字列ソートだと [100, 9] になるが数値ソートでは [9, 100]。
+    壊すと赤になる: 文字列ソートのまま実装するとアサートが失敗する。
+    正しい実装では数値昇順で PASS、文字列ソートに変えると [100, 9] 等で赤になる（RED 実証用）。
+    """
+    data_js = json.dumps({
+        "devices": {
+            "r1": {"as": 100, "hostname": "R1"},
+            "r2": {"as": 9, "hostname": "R2"},
+        },
+        "extPeers": [],
+    })
+    result = _run_present_ases(node_bin, data_js)
+    assert result == [9, 100], f"数値昇順でない（文字列ソートのまま？）: {result}"
+
+
+@pytest.mark.unit
+def test_b4_present_ases_no_as_field(node_bin):
+    """presentASes が as フィールドを持たない device を無視すること。"""
+    data_js = json.dumps({
+        "devices": {"r1": {"hostname": "R1"}},
+        "extPeers": [],
+    })
+    result = _run_present_ases(node_bin, data_js)
+    assert result == [], f"as なし device が混入: {result}"
+
+
+# ---------------------------------------------------------------------------
+# render 決定性テスト（B4 実装後も維持されること）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_b4_render_html_determinism():
+    """B4 実装後も render_html が決定的であること（2回バイト一致）。"""
+    from lib.rendering import template
+    minimal_topology = {
+        "devices": {},
+        "interfaces": [],
+        "links": [],
+        "segments": [],
+        "routing": {"bgp": [], "ospf": [], "static": []},
+        "meta": {"generated_from": [], "schema_version": "2.0"},
+    }
+    h1 = template.render_html(minimal_topology)
+    h2 = template.render_html(minimal_topology)
+    assert h1 == h2, "B4 実装後に render_html が決定的でなくなった"
