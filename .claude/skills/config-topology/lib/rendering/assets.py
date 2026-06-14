@@ -207,7 +207,7 @@ g.node.ext rect.body { stroke-dasharray: 6 4; }
 
 .area-badge rect { rx: 4; opacity: .95; }
 .area-badge text { font-size: 10px; font-weight: bold; }
-.subnet-tag { font-size: 9px; fill: var(--ink-dim); }
+.subnet-tag { font-size: 9px; fill: var(--ink-dim); pointer-events: none; }
 
 /* 提案: 選択/ホバー時にリンク端へ IF 名を表示（IFチップ廃止の代替） */
 .iflabel { font-size: 9px; fill: var(--accent); opacity: 0; transition: opacity .18s; pointer-events: none; }
@@ -896,6 +896,7 @@ function render() {
   const showBgp  = S.view === "bgp";
   const showOspf = S.view === "ospf";
   const parts = [];
+  const labelParts = [];  /* ライン/エッジのラベル（ノードより前面に描画するため device ノード後に統合）*/
 
   /* --- AS frames (BGP view) --- */
   if (S.view === "bgp") {
@@ -957,14 +958,14 @@ function render() {
       const itf = (DATA.devices[dev]?.ifs||[]).find(x=>x.n===ifname);
       const lls = itf ? ifV6List(itf).filter(x=>x.ll).map(x=>({t: x.cidr, faint:true})) : [];
       const lines = [ifn, ip, ip6].filter(Boolean).concat(lls);
-      stackLabel(parts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`});
+      stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`});
     }
     /* リンクのネットワーク情報（subnet。v6 も同形式で併記）を選択/ホバー時に表示（OSPFバッジ表示時は重複を避け省略）
        エッジの法線方向オフセット（edgeNormalOffset）を使い、エッジの角度によらず線の外側にラベルを配置する */
     if (showIf && !(showOspf && l.area && !l.admin_down)) {
       const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
       const off = edgeNormalOffset(a.x, a.y, b.x, b.y, LABEL_NORMAL_OFFSET);
-      stackLabel(parts, mx + off.dx, my + off.dy, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`});
+      stackLabel(labelParts, mx + off.dx, my + off.dy, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`});
     }
     /* OSPF area badge */
     if (showOspf && l.area && !l.admin_down) {
@@ -1007,7 +1008,7 @@ function render() {
         const t = 0.62;
         const lx = p.x + (q.x-p.x)*t, ly = p.y + (q.y-p.y)*t - 8;
         const lines = [m.ifn, m.ip].filter(Boolean);
-        stackLabel(parts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${s.id}:${m.dev}`});
+        stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${s.id}:${m.dev}`});
       }
     }
     const segCls = ["segnode"];
@@ -1046,7 +1047,7 @@ function render() {
       if (hotBgp === e.id || (overNet && netHot(overNet))) ecls.push("bgp-hot");
       parts.push(`<path class="${ecls.join(" ")}" data-elem="bgpedge" data-id="${e.id}" stroke="${c}" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" style="cursor:pointer"/>`);
       if (e.kind === "loopback")
-        parts.push(`<text class="subnet-tag" data-deco="bgpedge:${e.id}" x="${mx}" y="${my+12}" text-anchor="middle">${esc(e.label)}</text>`);
+        labelParts.push(`<text class="subnet-tag" data-deco="bgpedge:${e.id}" x="${mx}" y="${my+12}" text-anchor="middle">${esc(e.label)}</text>`);
       /* BGP ビュー: 端点ノードの選択時またはセッション連動時のみアドレス・ソース IF を表示 */
       if (S.view === "bgp") {
         /* IP からその機器の IF 名を逆引き（loopback セッションにも IF 名を出すため） */
@@ -1076,7 +1077,7 @@ function render() {
           const t = 0.2;
           const lx = pt.x + (qt.x-pt.x)*t, ly = pt.y + (qt.y-pt.y)*t + 18;
           /* IF名 / IPv4 / IPv6 を改行で縦積み（他ビューのリンク端ラベルと同形式） */
-          stackLabel(parts, lx, ly - 10, [ifn, ip, ip6].filter(Boolean), {show: true, deco:`bgpedge:${e.id}`});
+          stackLabel(labelParts, lx, ly - 10, [ifn, ip, ip6].filter(Boolean), {show: true, deco:`bgpedge:${e.id}`});
         }
       }
     }
@@ -1123,6 +1124,8 @@ function render() {
     </g>`);
   }
 
+  /* ラベルをノードより前面に: labelParts を全ノード描画後に統合（z-order 再構成 改修②）*/
+  parts.push(labelParts.join(""));
   world.innerHTML = parts.join("");
   world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
   applyVisibility();

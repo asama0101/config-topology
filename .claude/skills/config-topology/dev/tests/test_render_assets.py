@@ -3818,3 +3818,227 @@ def test_area_stroke_uses_area_color_unchanged():
         "セグメント stroke 側の areaColor(s.area) が消えている。"
         "stroke= を含む文脈でのみ検証する。"
     )
+
+
+# ===========================================================================
+# 改修② ハイライト時ラインラベルのノード前面表示（z-order 再構成）
+# ===========================================================================
+
+def _extract_render_function_source(js: str) -> str:
+    """_JS から render() 関数ブロックをバランス中括弧で切り出す。"""
+    marker = "function render()"
+    idx = js.find(marker)
+    if idx == -1:
+        raise ValueError("function render() not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError("function render(): unbalanced braces")
+
+
+@pytest.mark.unit
+def test_render_labelparts_declared():
+    """render() 内に labelParts 配列が宣言されていること。
+
+    壊すと赤: labelParts を削除した場合に失敗する。
+    """
+    js = assets._JS
+    render_src = _extract_render_function_source(js)
+    assert "const labelParts = []" in render_src, (
+        "render() 内に 'const labelParts = []' が宣言されていない。"
+        "z-order 再構成（改修②）で追加する必要がある。"
+    )
+
+
+@pytest.mark.unit
+def test_render_line_labels_use_labelparts():
+    """render() 内のライン/エッジラベル stackLabel が labelParts を使うこと。
+
+    対象4箇所:
+      - link IF/IP ラベル (L960相当)
+      - link subnet ラベル (L967相当)
+      - seg メンバー IF ラベル (L1010相当)
+      - BGP edge アドレスラベル (L1079相当)
+
+    壊すと赤: いずれかを stackLabel(parts, ...) に戻すと失敗する。
+    """
+    js = assets._JS
+    render_src = _extract_render_function_source(js)
+    # 4箇所すべて labelParts を使っていること
+    # 各呼び出しの deco 文字列で個別に識別する
+    assert 'stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`})' in render_src, (
+        "link IF/IP ラベルの stackLabel が labelParts を使っていない（z-order 未対応）"
+    )
+    assert 'stackLabel(labelParts, mx + off.dx, my + off.dy, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`})' in render_src, (
+        "link subnet ラベルの stackLabel が labelParts を使っていない（z-order 未対応）"
+    )
+    assert 'stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${s.id}:${m.dev}`})' in render_src, (
+        "seg メンバー IF ラベルの stackLabel が labelParts を使っていない（z-order 未対応）"
+    )
+    assert 'stackLabel(labelParts, lx, ly - 10, [ifn, ip, ip6].filter(Boolean), {show: true, deco:`bgpedge:${e.id}`})' in render_src, (
+        "BGP edge アドレスラベルの stackLabel が labelParts を使っていない（z-order 未対応）"
+    )
+
+
+@pytest.mark.unit
+def test_render_no_label_stacklabel_uses_parts():
+    """render() 内にラベル系の stackLabel(parts, ...) 呼び出しが残っていないこと。
+
+    4箇所のラベルはすべて labelParts に移動済みのため、render() 内で
+    stackLabel(parts, ...) はゼロであること（stackLabel 関数定義の行は除く）。
+
+    壊すと赤: いずれかのラベル stackLabel を parts に戻すと失敗する。
+    """
+    js = assets._JS
+    render_src = _extract_render_function_source(js)
+    # stackLabel(parts, ... の呼び出し（関数定義「function stackLabel(parts,」は render() 外なので除外される）
+    # render() 本体内で stackLabel(parts, が呼ばれる回数が 0 であること
+    call_count = render_src.count("stackLabel(parts,")
+    assert call_count == 0, (
+        f"render() 内に stackLabel(parts, ...) 呼び出しが {call_count} 箇所残っている。"
+        "ラベル系は labelParts に移動すること（改修②）。"
+    )
+
+
+@pytest.mark.unit
+def test_render_bgp_subnet_tag_uses_labelparts():
+    """render() 内の BGP loopback subnet-tag が labelParts.push(...) を使うこと。
+
+    壊すと赤: parts.push(`<text class="subnet-tag" data-deco="bgpedge:...`) に戻すと失敗する。
+    """
+    js = assets._JS
+    render_src = _extract_render_function_source(js)
+    # labelParts.push で subnet-tag テキストが積まれること
+    assert 'labelParts.push(`<text class="subnet-tag" data-deco="bgpedge:' in render_src, (
+        "BGP loopback subnet-tag が labelParts.push を使っていない（改修②未対応）"
+    )
+    # 回帰ガード: parts.push で subnet-tag が積まれないこと（data-deco="bgpedge: 付きのみ対象）
+    # area-badge 内の subnet-tag は parts のまま（除外対象）
+    # data-deco="bgpedge: を持つ subnet-tag が parts.push に残っていないこと
+    assert 'parts.push(`<text class="subnet-tag" data-deco="bgpedge:' not in render_src, (
+        "BGP loopback subnet-tag が parts.push を使っている（labelParts への移動が未完了）"
+    )
+
+
+@pytest.mark.unit
+def test_render_labelparts_pushed_after_device_nodes():
+    """labelParts の内容が device ノード描画より後・world.innerHTML より前に parts へ積まれること。
+
+    z-order の核心アサート:
+      - device ノード（data-elem="dev"）の最後の push より後に labelParts が積まれること
+      - world.innerHTML より前に labelParts が積まれること
+
+    これにより HTML 文字列内でノード要素の後にラベルが来て、
+    SVG の描画順でラベルがノードより前面に表示される。
+
+    壊すと赤: parts.push(...labelParts) または parts.push(labelParts.join("")) を
+    world.innerHTML の後に移動した場合、または削除した場合に失敗する。
+    """
+    js = assets._JS
+    render_src = _extract_render_function_source(js)
+
+    # labelParts を parts に統合するステートメントが存在すること
+    merge_pattern1 = "parts.push(...labelParts)"
+    merge_pattern2 = "parts.push(labelParts.join(\"\"))"
+    has_merge = (merge_pattern1 in render_src) or (merge_pattern2 in render_src)
+    assert has_merge, (
+        "render() 内に 'parts.push(...labelParts)' または 'parts.push(labelParts.join(\"\"))' が存在しない。"
+        "labelParts の内容を parts に統合するステートメントが必要（改修②）。"
+    )
+
+    # device ノード（data-elem="dev"）の最後の parts.push 位置
+    dev_push = 'data-elem="dev"'
+    dev_pos = render_src.rfind(dev_push)
+    assert dev_pos != -1, "render() 内に data-elem='dev' の push が見つからない"
+
+    # world.innerHTML の位置
+    world_pos = render_src.find("world.innerHTML")
+    assert world_pos != -1, "render() 内に world.innerHTML が見つからない"
+
+    # labelParts 統合ステートメントの位置
+    merge_pos = render_src.find(merge_pattern1)
+    if merge_pos == -1:
+        merge_pos = render_src.find(merge_pattern2)
+
+    # 順序チェック: dev_pos < merge_pos < world_pos
+    assert dev_pos < merge_pos, (
+        f"labelParts の統合（pos={merge_pos}）が device ノード push（pos={dev_pos}）より前にある。"
+        "labelParts はすべての device ノード描画の後に積む必要がある。"
+    )
+    assert merge_pos < world_pos, (
+        f"labelParts の統合（pos={merge_pos}）が world.innerHTML（pos={world_pos}）より後にある。"
+        "world.innerHTML の直前に labelParts を統合すること。"
+    )
+
+
+@pytest.mark.unit
+def test_render_labelparts_no_spread_push():
+    """parts.push(...labelParts) のスプレッド形が残っていないこと（スタック安全化 改修②修正1）。
+
+    大規模トポロジー（要素数 13万超）で V8 のスプレッド引数上限により
+    Maximum call stack size exceeded が起きうるため、
+    parts.push(labelParts.join("")) に差し替えた。
+
+    壊すと赤: parts.push(...labelParts) に戻すと失敗する。
+    """
+    js = assets._JS
+    render_src = _extract_render_function_source(js)
+    assert "parts.push(...labelParts)" not in render_src, (
+        "parts.push(...labelParts) のスプレッド形が残っている。"
+        "大規模トポロジーでスタックオーバーフローを起こしうるため "
+        "parts.push(labelParts.join(\"\")) を使うこと（改修②修正1）。"
+    )
+    assert 'parts.push(labelParts.join(""))' in render_src, (
+        "parts.push(labelParts.join(\"\")) が存在しない。"
+        "labelParts 統合はスタック安全な join 形で行うこと（改修②修正1）。"
+    )
+
+
+@pytest.mark.unit
+def test_css_subnet_tag_pointer_events_none():
+    """.subnet-tag CSS ルールに pointer-events: none が含まれること（改修②修正2）。
+
+    改修②で subnet-tag がノード前面（labelParts 経由）に移動したため、
+    ノード上に重なってもクリックを素通りさせる必要がある。
+
+    壊すと赤: pointer-events: none を .subnet-tag から消すと失敗する。
+    """
+    css = assets._CSS
+    # .subnet-tag ルールブロックを抽出して確認
+    tag_pos = css.find(".subnet-tag")
+    assert tag_pos != -1, ".subnet-tag ルールが CSS に存在しない"
+    # ルール開始から閉じ括弧まで
+    block_end = css.find("}", tag_pos)
+    assert block_end != -1, ".subnet-tag ブロックの閉じ括弧が見つからない"
+    block = css[tag_pos:block_end + 1]
+    assert "pointer-events: none" in block, (
+        f".subnet-tag CSS ルールに pointer-events: none がない。\n実際のブロック: {block!r}\n"
+        "ノード前面移動後もクリック透過させるために必要（改修②修正2）。"
+    )
+
+
+@pytest.mark.unit
+def test_css_iflabel_pointer_events_none():
+    """.iflabel / .iflabel-bg CSS ルールに pointer-events: none が含まれること（回帰ガード）。
+
+    壊すと赤: どちらかから pointer-events: none を消すと失敗する。
+    """
+    css = assets._CSS
+    # .iflabel の確認（.iflabel-bg や .iflabel.show は別ルール。クラス名前方一致で先頭ブロックを探す）
+    for selector in (".iflabel ", ".iflabel-bg "):
+        pos = css.find(selector)
+        assert pos != -1, f"CSS に {selector.strip()} ルールが存在しない"
+        block_end = css.find("}", pos)
+        assert block_end != -1, f"{selector.strip()} ブロックの閉じ括弧が見つからない"
+        block = css[pos:block_end + 1]
+        assert "pointer-events: none" in block, (
+            f"{selector.strip()} CSS ルールに pointer-events: none がない。\n実際のブロック: {block!r}"
+        )
