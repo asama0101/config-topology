@@ -1598,3 +1598,349 @@ def test_peer_group_member_created_without_individual_remote_as_peer_as_value():
     assert nb.peer_as == 65020, (
         f"peer-group template の remote-as 65020 が継承されていない。実際: {nb.peer_as!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 改修②③: IOS interface-level OSPF area パース（ip ospf <pid> area <a>）
+# ---------------------------------------------------------------------------
+
+def test_ios_ip_ospf_iface_area():
+    """interface 直下 `ip ospf <pid> area <a>` で OspfNetwork(v4) が生成されること。
+
+    IOS-XE モダン形式の interface-level OSPF area 宣言を解析し、
+    IF の v4 アドレスからサブネット CIDR を生成して dev.ospf に追加する。
+    """
+    # Arrange
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.0.1 255.255.255.252\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert len(ospf_v4) == 1
+    o = ospf_v4[0]
+    assert o.process == 1
+    assert o.network == "10.0.0.0/30"
+    assert o.area == "0"
+    assert o.af == "v4"
+
+
+def test_ios_ip_ospf_iface_area_dotted():
+    """ip ospf <pid> area <dotted> のドット表記が norm_ospf_area で正規化されること。
+
+    area 0.0.0.0 → "0"、area 0.0.0.1 → "1" に正規化されることを検証する。
+    """
+    # Arrange: area 0.0.0.0
+    text_zero = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.1.1 255.255.255.252\n"
+        " ip ospf 1 area 0.0.0.0\n"
+        "!\n"
+    )
+    # Arrange: area 0.0.0.1
+    text_one = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.2.1 255.255.255.252\n"
+        " ip ospf 1 area 0.0.0.1\n"
+        "!\n"
+    )
+    # Act
+    dev_zero, w_zero = _parse(text_zero)
+    dev_one, w_one = _parse(text_one)
+    # Assert: 0.0.0.0 → "0"
+    ospf_zero = [o for o in dev_zero.ospf if o.af == "v4"]
+    assert len(ospf_zero) == 1
+    assert ospf_zero[0].area == "0"
+    # Assert: 0.0.0.1 → "1"
+    ospf_one = [o for o in dev_one.ospf if o.af == "v4"]
+    assert len(ospf_one) == 1
+    assert ospf_one[0].area == "1"
+
+
+def test_ios_ip_ospf_iface_no_v4_addr_skipped():
+    """v4 address を持たない IF に `ip ospf <pid> area <a>` がある場合、
+    OspfNetwork を生成せず、例外も発生せず、warnings に致命的エラーが入らないこと。
+    """
+    # Arrange: v4 アドレス無し、ipv6 のみ
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ipv6 address 2001:db8::1/64\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: OspfNetwork 非生成
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert ospf_v4 == []
+    # Assert: クラッシュなし・致命的 warning なし（警告一覧に "ip ospf" 関連クラッシュが出ない）
+    fatal = [w for w in warnings if "ip ospf" in w and "failed" in w]
+    assert fatal == []
+
+
+def test_ios_ip_ospf_iface_coexist_with_network_stmt():
+    """classic `network … area` と IF-level `ip ospf … area` が共存したとき、両方の
+    OspfNetwork エントリが dev.ospf に出ること。
+    """
+    # Arrange
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.0.1 255.255.255.252\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+        "interface GigabitEthernet0/1\n"
+        " ip address 192.168.1.1 255.255.255.0\n"
+        "!\n"
+        "router ospf 1\n"
+        " network 192.168.1.0 0.0.0.255 area 1\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: 両エントリ存在
+    networks = {o.network for o in dev.ospf}
+    assert "10.0.0.0/30" in networks, "IF-level area エントリが欠落"
+    assert "192.168.1.0/24" in networks, "classic network stmt エントリが欠落"
+    assert len(dev.ospf) == 2
+
+
+def test_ios_ipv6_ospf_iface_area_unchanged():
+    """`ipv6 ospf <pid> area <a>`（v6）が引き続き正しく動作すること（回帰テスト）。
+
+    IF-level v4 area サポート追加後も v6 の既存動作が変わらないことを確認する。
+    """
+    # Arrange
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ipv6 address 2001:db8:5::1/64\n"
+        " ipv6 ospf 1 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: v6 エントリが正しく生成されている
+    ospf_v6 = [o for o in dev.ospf if o.af == "v6"]
+    assert len(ospf_v6) == 1
+    o = ospf_v6[0]
+    assert o.process == 1
+    assert o.network == "2001:db8:5::/64"
+    assert o.area == "0"
+    assert o.af == "v6"
+    # Assert: v4 エントリは生成されない
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert ospf_v4 == []
+
+
+def test_ios_ip_ospf_iface_loopback():
+    """Loopback IF の `ip ospf <pid> area <a>` で OspfNetwork が正しく生成されること。
+
+    /32 マスク（255.255.255.255）からネットワーク CIDR "1.1.1.1/32" を生成し、
+    後続の build_ospf_stubs がスタブとして拾えるエントリを出力する。
+    """
+    # Arrange
+    text = (
+        "hostname R1\n"
+        "interface Loopback0\n"
+        " ip address 1.1.1.1 255.255.255.255\n"
+        " ip ospf 1 area 5\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert len(ospf_v4) == 1
+    o = ospf_v4[0]
+    assert o.process == 1
+    assert o.network == "1.1.1.1/32"
+    assert o.area == "5"
+    assert o.af == "v4"
+
+
+# ---------------------------------------------------------------------------
+# 修正1: _iface_v4_network を sorted_addresses() に統一
+# 修正2: 同一 subnet の重複 OspfNetwork を dedup
+# 修正3: テスト強化
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_ios_ip_ospf_iface_coexist_with_network_stmt_strict():
+    """classic `network … area` と IF-level `ip ospf … area` が共存したとき、
+    両方のエントリが dev.ospf に出て、process/area/af まで厳密に検証されること。
+    （修正3: 既存 coexist テストの厳密版）
+    """
+    # Arrange
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.0.1 255.255.255.252\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+        "interface GigabitEthernet0/1\n"
+        " ip address 192.168.1.1 255.255.255.0\n"
+        "!\n"
+        "router ospf 1\n"
+        " network 192.168.1.0 0.0.0.255 area 1\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: 両エントリ存在・process/area/af を厳密検証
+    assert len(dev.ospf) == 2
+    # IF-level エントリ (10.0.0.0/30)
+    if_entry = next((o for o in dev.ospf if o.network == "10.0.0.0/30"), None)
+    assert if_entry is not None, "IF-level area エントリが欠落"
+    assert if_entry.process == 1
+    assert if_entry.area == "0"
+    assert if_entry.af == "v4"
+    # network 文エントリ (192.168.1.0/24)
+    net_entry = next((o for o in dev.ospf if o.network == "192.168.1.0/24"), None)
+    assert net_entry is not None, "classic network stmt エントリが欠落"
+    assert net_entry.process == 1
+    assert net_entry.area == "1"
+    assert net_entry.af == "v4"
+
+
+@pytest.mark.unit
+def test_ios_ip_ospf_iface_dedup_same_subnet_as_network_stmt():
+    """同一 subnet を `ip ospf 1 area 0`（IF）と `network … area 0`（文）で宣言した場合、
+    OspfNetwork が 1 件のみ生成され重複しないこと（修正2: dedup）。
+
+    network 文側のエントリが残る（pending 解決時点で既に dev.ospf にある）。
+    """
+    # Arrange: 10.0.0.0/30 を IF-level と network 文の両方で宣言
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.0.1 255.255.255.252\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+        "router ospf 1\n"
+        " network 10.0.0.0 0.0.0.3 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: 重複せず 1 件のみ
+    v4_entries = [o for o in dev.ospf if o.af == "v4" and o.network == "10.0.0.0/30"]
+    assert len(v4_entries) == 1, (
+        f"同一 subnet の OspfNetwork が重複している: {[o.to_dict() for o in dev.ospf]}"
+    )
+    # network 文側が残る（process/area/af を確認）
+    o = v4_entries[0]
+    assert o.process == 1
+    assert o.area == "0"
+    assert o.af == "v4"
+
+
+@pytest.mark.unit
+def test_ios_ip_ospf_iface_cost_and_area_coexist():
+    """同一 IF に `ip ospf cost 100` と `ip ospf 1 area 0` を併記した場合、
+    cost は iface.ospf["cost"]==100、area は OspfNetwork(1, subnet, "0", "v4") の
+    両方が出ること（実機で頻出の組合せ）。（修正3: 新規テスト）
+    """
+    # Arrange
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.1.0.1 255.255.255.252\n"
+        " ip ospf cost 100\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: iface.ospf["cost"] == 100
+    iface = dev.interfaces[0]
+    assert iface.ospf is not None
+    assert iface.ospf.get("cost") == 100, f"cost が設定されていない: {iface.ospf}"
+    # Assert: OspfNetwork(process=1, network="10.1.0.0/30", area="0", af="v4")
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert len(ospf_v4) == 1
+    o = ospf_v4[0]
+    assert o.process == 1
+    assert o.network == "10.1.0.0/30"
+    assert o.area == "0"
+    assert o.af == "v4"
+
+
+@pytest.mark.unit
+def test_ios_ip_ospf_iface_area_dotted_strict():
+    """ip ospf <pid> area <dotted> のドット表記テストで network/process/af も assert する。
+    （修正3: 既存 dotted テストに network/process/af 検証を追加した厳密版）
+    """
+    # Arrange: area 0.0.0.1
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.2.1 255.255.255.252\n"
+        " ip ospf 1 area 0.0.0.1\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: area/network/process/af すべて検証
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert len(ospf_v4) == 1
+    o = ospf_v4[0]
+    assert o.area == "1"
+    assert o.network == "10.0.2.0/30"
+    assert o.process == 1
+    assert o.af == "v4"
+
+
+@pytest.mark.unit
+def test_ios_ip_ospf_iface_secondary_only_skipped():
+    """v4 が secondary のみ（primary 無し）の IF に `ip ospf 1 area 0` がある場合、
+    _iface_v4_network が None を返し OspfNetwork が生成されないこと。（修正3: 新規テスト）
+
+    sorted_addresses() を使っているため、挿入順に関わらず secondary only では
+    非 secondary v4 が見つからず None となる。
+    """
+    # Arrange: secondary のみ（primary v4 なし）
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ip address 10.0.3.2 255.255.255.252 secondary\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: OspfNetwork 非生成（secondary のみなので primary subnet が取れない）
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert ospf_v4 == [], (
+        f"secondary only IF に OspfNetwork が生成されてしまった: {[o.to_dict() for o in dev.ospf]}"
+    )
+
+
+@pytest.mark.unit
+def test_ios_ip_ospf_iface_no_v4_addr_skipped_strict():
+    """v4 address を持たない IF に `ip ospf <pid> area <a>` がある場合、
+    OspfNetwork を生成せず、warnings がゼロであること（修正3: 警告ゼロを厳格化）。
+    """
+    # Arrange: v4 アドレス無し、ipv6 のみ
+    text = (
+        "hostname R1\n"
+        "interface GigabitEthernet0/0\n"
+        " ipv6 address 2001:db8::1/64\n"
+        " ip ospf 1 area 0\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: OspfNetwork 非生成
+    ospf_v4 = [o for o in dev.ospf if o.af == "v4"]
+    assert ospf_v4 == []
+    # Assert: 警告ゼロ（この最小 config では警告は一切出ない）
+    assert warnings == []

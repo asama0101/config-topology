@@ -77,6 +77,7 @@
 | `neighbor <ip> peer-group <name>` | BgpNeighbor.peer_group ＋ 継承 | メンバー割当。group 属性（remote-as/update-source/rr/nhs/timers/send-community）を欠落分だけ継承（**個別指定が優先**）。個別 remote-as 無しメンバーは末尾解決で生成。未定義 group 参照は neighbor を生成しない |
 | `address-family ipv6` + `neighbor ... activate` | BgpNeighbor.af | "v6" に更新 |
 | `router ospf <pid>` / `network ... area <a>` | OspfNetwork | (af="v4", area は§6.3で正規化) |
+| `ip ospf <pid> area <a>` (IF内・IPv4) | OspfNetwork | IF の v4 サブネット（最初の非 secondary v4 → CIDR）を network に・af="v4"・area は§6.3で正規化（ドット `0.0.0.0`→`0` 含む）。network 文と同一 (network,process,af) は重複排除。v4 アドレス無し IF はスキップ |
 | `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |
 | `ip ospf cost <n>` / `ip ospf network <type>` (IF内) | Interface.ospf | cost=int / network_type=str |
 | `passive-interface <if>` (router ospf 内) | Interface.ospf | 該当 IF の passive=True（`default`・`no passive-interface` は非対応） |

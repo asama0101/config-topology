@@ -571,6 +571,7 @@ CIDR の `.` と `/` を `_` に置換。
 | `neighbor <v6ip> activate` (under address-family ipv6) | BGP AF | `af = "v6"` に変更（当該 neighbor） | activate されていない v4 neighbor は af="v4" 確定 |
 | `router ospf <pid>` | OSPF process | process ID = <pid> | |
 | `network <addr> <wildcard> area <a>` | OSPF network | `network = <CIDR>` (wildcard を逆マスク化), `area = <正規化済み a>`, `af = "v4"` | area は §6.3 で正規化 |
+| `ip ospf <pid> area <a>` (in interface block) | OSPF network | `network = <IF の v4 サブネット CIDR>`, `area = <正規化済み a>`, `af = "v4"` | IF-level 指定（IOS-XE モダン形式）。IF の最初の非 secondary v4 から CIDR 算出。area は §6.3 で正規化（ドット `0.0.0.0` 対応）。`network` 文と同一 (network,process,af) は重複排除。v4 アドレス無し IF はスキップ |
 | `ipv6 router ospf <pid>` | OSPF v3 | process ID 宣言のみ（interface 内で確定） | |
 | `ipv6 ospf <pid> area <a>` (in interface block) | OSPF v3 | `network = <v6_subnet_of_IF_or_IF_name>`, `area = <正規化済み a>`, `af = "v6"` | v6 アドレスが無ければ IF 名 |
 | `ip ospf cost <n>` (in interface block) | OSPF if param | `interfaces[].ospf.cost = int(n)` | 加算フィールド |

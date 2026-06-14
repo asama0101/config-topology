@@ -32,6 +32,17 @@ def _iface_v6_network(iface: Interface):
     return None
 
 
+def _iface_v4_network(iface: Interface):
+    """IF の最初の非 secondary v4 アドレスのサブネットを返す（§6.1）。無ければ None。
+
+    derived_ip() と選択順を一致させるため sorted_addresses() を使う（修正1）。
+    """
+    for a in iface.sorted_addresses():
+        if a.af == "v4" and not a.secondary:
+            return norm_cidr(a.ip, a.prefix)
+    return None
+
+
 def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
     """interface ブロック内の1行 s を解析し iface をミューテートする（§6.1）。失敗は warnings へ。"""
     m = re.match(r"^description\s+(.*)$", s)
@@ -375,7 +386,8 @@ def parse_ios(text: str, warnings: list) -> Device:
         "pg_template":  {},   # {pgname: {key: val}} — peer-group 属性テンプレート
         "pg_member":    {},   # {nip: pgname} — nip → 所属 peer-group 名
     }
-    pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
+    pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に v6 network 解決
+    pending_ospf = []    # [(iface, pid, area)] — IF アドレス確定後に v4 network 解決
     passive_ifaces = []  # router ospf 配下の passive-interface 名リスト
     area_types = {}      # {(ospf_pid, norm_area): area_type_str} — area stub/nssa 宣言を収集し末尾で適用
 
@@ -447,9 +459,12 @@ def parse_ios(text: str, warnings: list) -> Device:
             continue
 
         if context == "interface" and cur is not None:
-            m = re.match(r"^ipv6 ospf\s+(\d+)\s+area\s+(\S+)", s)
-            if m:
-                pending_ospf3.append((cur, int(m.group(1)), norm_ospf_area(m.group(2))))
+            m6 = re.match(r"^ipv6 ospf\s+(\d+)\s+area\s+(\S+)", s)
+            m4 = re.match(r"^ip ospf\s+(\d+)\s+area\s+(\S+)", s)
+            if m6:
+                pending_ospf3.append((cur, int(m6.group(1)), norm_ospf_area(m6.group(2))))
+            elif m4:
+                pending_ospf.append((cur, int(m4.group(1)), norm_ospf_area(m4.group(2))))
             else:
                 _parse_iface_line(cur, s, warnings)
         elif context == "bgp":
@@ -468,6 +483,12 @@ def parse_ios(text: str, warnings: list) -> Device:
     for iface, pid, area in pending_ospf3:
         network = _iface_v6_network(iface) or iface.name
         dev.ospf.append(OspfNetwork(pid, network, area, "v6"))
+    existing = {(o.network, o.process, o.af) for o in dev.ospf}
+    for iface, pid, area in pending_ospf:
+        net = _iface_v4_network(iface)
+        if net and (net, pid, "v4") not in existing:
+            dev.ospf.append(OspfNetwork(pid, net, area, "v4"))
+            existing.add((net, pid, "v4"))
     # passive-interface: 収集した IF 名に対して ospf["passive"]=True を設定
     if passive_ifaces:
         iface_map = {i.name: i for i in dev.interfaces}
