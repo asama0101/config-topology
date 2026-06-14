@@ -249,27 +249,22 @@ def test_css_has_lpstub_rules():
 
 
 @pytest.mark.unit
-def test_css_lpstub_segnode_cursor_default():
-    """loopback stub の segnode（data-deco^="lpstub:"）のカーソルが default であること。
+def test_css_lpstub_segnode_clickable():
+    """loopback stub の segnode が cursor: default に上書きされていないこと（クリック可能）。
 
-    g.segnode には cursor: pointer が付いているが、loopback の lpstub segnode は
-    クリック不可（data-elem 無し）のため、cursor を default にオーバーライドする必要がある。
+    loopback はクリックで親デバイスを選択できるようになったため、g.segnode の
+    cursor: pointer を継承する。旧仕様の cursor: default 上書きは削除済み。
 
-    壊すと赤: このルールが無ければ lpstub segnode でポインタカーソルが出て
-             クリック可能に見える UX 不整合になる。
+    壊すと赤: g.segnode[data-deco^="lpstub:"] { cursor: default } を再追加すると
+             ポインタカーソルが出ず「クリック不可」に見える UX 不整合に戻る。
     """
     css = assets._CSS
-    assert 'g.segnode[data-deco^="lpstub:"]' in css, \
-        'g.segnode[data-deco^="lpstub:"] セレクタが _CSS に存在しない'
-    assert "cursor: default" in css, \
-        "_CSS に cursor: default が存在しない"
-    # lpstub セレクタ直後に cursor: default が来ること（位置で確認）
-    lpstub_sel_pos = css.find('g.segnode[data-deco^="lpstub:"]')
-    assert lpstub_sel_pos != -1
-    # セレクタから 100 文字以内に cursor: default があること
-    nearby = css[lpstub_sel_pos:lpstub_sel_pos + 100]
-    assert "cursor: default" in nearby, \
-        f'lpstub セレクタの直後（100 文字以内）に cursor: default が無い: {nearby!r}'
+    # 旧 cursor: default 上書きルールが削除されていること
+    assert 'g.segnode[data-deco^="lpstub:"] { cursor: default' not in css, \
+        'lpstub segnode の cursor: default 上書きが残っている（クリック可能にしたので削除すべき）'
+    # segnode 自体の pointer カーソルは維持（loopback はこれを継承）
+    assert "g.segnode { cursor: pointer; }" in css, \
+        "g.segnode の cursor: pointer が消えている（loopback がポインタを継承できない）"
 
 
 @pytest.mark.unit
@@ -301,7 +296,8 @@ def test_ospf_stub_drawn_in_parts_not_labelparts():
     # segnode と area-badge が parts.push で積まれていること
     assert "parts.push" in stub_ctx, \
         "loopback stub ブロック内に parts.push が存在しない（segnode 未描画になる）"
-    assert 'class="segnode"' in stub_ctx, \
+    # class="segnode" は selected/hovered 連動のため `class="segnode${...}"` 形式（prefix 一致で検査）
+    assert 'class="segnode' in stub_ctx, \
         "loopback stub ブロック内に segnode 要素が存在しない"
 
     # labelParts.push は loopback stub ブロック内で使っていないこと
@@ -4193,8 +4189,8 @@ def test_loopback_uses_segment_style():
     # ループブロック周辺 3000 文字
     stub_ctx = js[stub_start:stub_start + 3000]
 
-    # segment 様式の必須要素
-    assert 'class="segnode"' in stub_ctx, \
+    # segment 様式の必須要素（class="segnode${selected/hovered}" 形式のため prefix 一致で検査）
+    assert 'class="segnode' in stub_ctx, \
         "loopback ブロックに class=\"segnode\" が存在しない（segment 様式未適用）"
     assert 'class="lk"' in stub_ctx or '"lk "' in stub_ctx, \
         "loopback ブロックに class=\"lk\" が存在しない（spoke 線が未実装）"
@@ -4269,19 +4265,92 @@ def test_loopback_spoke_uses_area_color():
 def test_loopback_no_data_elem():
     """loopback stub ブロック内に data-elem= が一切存在しないこと。
 
-    非選択・ヒットテスト対象外 = DATA.segments に無いノードと selection/詳細パネルが
-    衝突しないようにするための要件。lpstub segnode は data-deco のみを使う（data-elem なし）。
+    選択は data-dev（親デバイス id）＋専用ハンドラ経由で行う。data-elem を付けると
+    DATA.segments に無いノードが seg 用 hittest（mousedown drag の POS 参照・seg 詳細パネル）と
+    衝突するため、data-elem は使わず data-dev のみを使う。
 
-    壊すと赤: data-elem="seg" 等を付けると selection/詳細パネルとの衝突が起きる。
+    壊すと赤: data-elem="seg"/"dev" 等を付けると mousedown drag の POS[id] 参照や
+             seg 詳細パネルとの衝突が起きる。
     """
     js = assets._JS
     stub_start = js.find("DATA.ospf_stubs")
     assert stub_start != -1
     stub_ctx = js[stub_start:stub_start + 3000]
-    # data-deco は使ってよい（applyVisibility の非登録パスで lpstub: が正しく動く）
-    # data-elem は一切付けてはいけない
+    # data-deco / data-dev は使ってよい。data-elem は一切付けてはいけない
     assert 'data-elem=' not in stub_ctx, \
-        "loopback stub ブロック内に data-elem= が存在する（ヒットテスト衝突リスク）"
+        "loopback stub ブロック内に data-elem= が存在する（hittest 衝突リスク）"
+
+
+@pytest.mark.unit
+def test_loopback_has_data_dev():
+    """loopback segnode が data-dev（親デバイス id）属性を持つこと。
+
+    クリックで親デバイスを選択するために、専用ハンドラが参照する data-dev を出力する。
+
+    壊すと赤: data-dev を消すと click/hover ハンドラが親デバイスを特定できず選択不可になる。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1
+    stub_ctx = js[stub_start:stub_start + 3000]
+    assert 'data-dev="${esc(st.dev)}"' in stub_ctx, \
+        "loopback segnode に data-dev=\"${esc(st.dev)}\" が無い（親デバイス選択ができない）"
+
+
+@pytest.mark.unit
+def test_loopback_click_selects_parent_device():
+    """click ハンドラに loopback（g.segnode[data-dev]）分岐があり、親デバイスを選択トグルすること。
+
+    壊すと赤: closest("g.segnode[data-dev]") 分岐を消すと loopback クリックで
+             親デバイスが選択されなくなる。
+    """
+    js = assets._JS
+    # click ハンドラ内に loopback 分岐がある（data-dev を見て S.sel をトグル）
+    click_start = js.find('canvas.addEventListener("click"')
+    assert click_start != -1, "click ハンドラが見つからない"
+    # lp 分岐は click ハンドラ先頭の closest("g.segnode[data-dev]") 直後にある。
+    # dev 分岐（後続）にも同型の has/add/delete があるため、lp の closest 起点から
+    # 狭い窓（250 文字＝lp 分岐のみ・dev 分岐に届かない）を切り出して lp 分岐固有に縛る。
+    lp_start = js.find('closest("g.segnode[data-dev]")', click_start)
+    assert lp_start != -1, \
+        "click ハンドラに g.segnode[data-dev] 分岐が無い（loopback クリックで親デバイスを選択できない）"
+    lp_ctx = js[lp_start:lp_start + 250]
+    assert "lp.dataset.dev" in lp_ctx, \
+        "click の loopback 分岐で lp.dataset.dev（親デバイス id）を参照していない"
+    # トグル（選択⇄解除）の両辺を連続パターンで保証（delete を消すと「クリックで解除できない」退行が赤になる）
+    assert "S.sel.has(id)) S.sel.delete(id); else S.sel.add(id)" in lp_ctx, \
+        "click の loopback 分岐が S.sel の選択⇄解除トグル（has→delete / else→add）になっていない"
+    assert "update(); return;" in lp_ctx, \
+        "click の loopback 分岐に update(); return; が無い（選択後の再描画/早期 return が欠落）"
+
+
+@pytest.mark.unit
+def test_loopback_dblclick_does_not_clear_selection():
+    """dblclick の「空白=全解除」ガードに g.segnode[data-dev] が含まれ、loopback 上の
+    ダブルクリックで選択が全クリアされないこと。
+
+    壊すと赤: dblclick ガードの closest セレクタから g.segnode[data-dev] を外すと
+             loopback ダブルクリックが「空白」扱いになり S.sel.clear() が走る。
+    """
+    js = assets._JS
+    dbl_start = js.find('canvas.addEventListener("dblclick"')
+    assert dbl_start != -1, "dblclick ハンドラが見つからない"
+    dbl_ctx = js[dbl_start:dbl_start + 600]
+    assert "g.segnode[data-dev]" in dbl_ctx, \
+        "dblclick の全解除ガードに g.segnode[data-dev] が無い（loopback dblclick で選択が全クリアされる）"
+
+
+@pytest.mark.unit
+def test_loopback_hover_previews_parent_device():
+    """hover（mousemove）ハンドラで loopback ホバー時に親デバイスを hoverNode にすること。
+
+    壊すと赤: g.segnode[data-dev] の hover フォールバックを消すと
+             loopback ホバーで親デバイスのプレビューハイライトが出なくなる。
+    """
+    js = assets._JS
+    # mousemove 内に loopback hover フォールバックがある
+    assert 'const lp = ev.target.closest("g.segnode[data-dev]"); if (lp) nid = lp.dataset.dev;' in js, \
+        "mousemove に loopback hover フォールバック（nid = lp.dataset.dev）が無い"
 
 
 @pytest.mark.unit
@@ -4300,27 +4369,26 @@ def test_loopback_data_deco_uses_lpstub_prefix():
 
 
 @pytest.mark.unit
-def test_loopback_no_title_no_ifn_displayed():
-    """loopback segnode に <title> が無く、IF 名（st.ifn）が描画に出ないこと。
+def test_loopback_title_shows_ifn():
+    """loopback segnode に <title> があり、IF 名（st.ifn）＋IP をホバー表示すること。
 
-    segment と同一表記の要件: IF 名はどこにも表示しない（ホバー title も無し）。
-    st.ifn は data-deco（lpstub:${dev}:${ifn}）の id 部分にのみ使われ、表示テキスト・
-    title には出さない。中央テキストは subnet（st.net || st.ip）のみ。
+    要件: loopback 楕円にカーソルを乗せると IF 名（Loopback0 等）と IP が出る。
+    <title>${esc(st.ifn)} ${esc(st.ip)}</title> を segnode 内に持つ。
+    中央テキストは引き続き subnet（st.net || st.ip）のみ。
 
-    壊すと赤: <title>${esc(st.ifn)}...</title> を戻すと IF 名がホバー表示され失敗する。
+    壊すと赤: <title> を削除すると IF 名がホバー表示されず失敗する。
     """
     js = assets._JS
     stub_start = js.find("DATA.ospf_stubs")
     assert stub_start != -1
     stub_ctx = js[stub_start:stub_start + 3000]
-    # loopback ブロックに <title> 要素が無いこと（IF 名のホバー表示を廃止）
-    assert "<title>" not in stub_ctx, \
-        "loopback ブロックに <title> が残っている（IF 名がホバー表示される）"
-    # st.ifn が deco キー以外で使われていないこと（deco の `lpstub:...:${esc(st.ifn)}` は許容）
-    deco_line = next((ln for ln in stub_ctx.splitlines() if "lpstub:" in ln and "deco" in ln), "")
-    others = stub_ctx.replace(deco_line, "")
-    assert "st.ifn" not in others, \
-        "loopback の描画 markup（deco キー以外）に st.ifn が使われている（IF 名が表示される）"
+    # loopback ブロックに <title> 要素があり、st.ifn を含むこと（IF 名のホバー表示）
+    assert "<title>" in stub_ctx, \
+        "loopback ブロックに <title> が無い（IF 名がホバー表示されない）"
+    title_start = stub_ctx.find("<title>")
+    title_seg = stub_ctx[title_start:title_start + 80]
+    assert "st.ifn" in title_seg, \
+        f"loopback の <title> に st.ifn（IF 名）が無い: {title_seg!r}"
     # 中央テキストは subnet（フォールバック含む）
     assert "st.net" in stub_ctx, "loopback 中央テキストに st.net（subnet）が無い"
 

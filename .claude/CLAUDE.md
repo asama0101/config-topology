@@ -42,7 +42,7 @@ workspace/*.{cfg,conf,txt}
   `interfaces[].ip` は最初の非 secondary v4 から派生する後方互換フィールド（§4.1）。
 - **render の実体は `lib/rendering/`**（`render_topology.py` は薄い CLI）。CSS/JS 定数 `_CSS`/`_BODY`/`_JS`
   は `assets.py`（設計検証パネル描画 `renderChecksView`・サブネット使用率ビュー描画 `renderSubnetUsageView`・差分ビュー描画 `renderDiffView`・隣接フォーカス `nHopNeighbors`/`S.focusMode`・URL ハッシュ状態 `encodeState`/`decodeState`・degree 連動ノードサイズ `nodeScale`・データ駆動凡例 `presentAreas`/`presentASes`・リンクラベル法線オフセット `edgeNormalOffset`・ラベル省略表示 `truncateLabel`/`nodeLabelMaxChars`・キーボードショートカット `keyToAction`/`toggleShortcutsOverlay`（g/h/m/l/?・図ビュー専用＋ヘルプ overlay）含む）、
-  データ変換・設計検証（`build_checks`→`DATA.checks`・OSPF area 不一致 `ospf_area_mismatch` 含む）・サブネット使用率（`build_subnet_usage`→`DATA.subnet_usage`）・OSPF loopback スタブ（`build_ospf_stubs`→`DATA.ospf_stubs`・OSPF ビューで segment 様式ノード描画）・接続数（`_compute_degrees`→`DATA.devices[].degree`）は
+  データ変換・設計検証（`build_checks`→`DATA.checks`・OSPF area 不一致 `ospf_area_mismatch` 含む）・サブネット使用率（`build_subnet_usage`→`DATA.subnet_usage`）・OSPF loopback スタブ（`build_ospf_stubs`→`DATA.ospf_stubs`・OSPF ビューで segment 様式ノード描画・`<title>` でホバー時 IF 名表示・`data-dev` でクリック時に親デバイスを選択）・接続数（`_compute_degrees`→`DATA.devices[].degree`）は
   `data_transform.py`、決定的レイアウトは `layout.py`（AS クラスタリング初期配置 `cluster_order`・AS グループ化ヘルパ `_group_by_asn`・force/hierarchical 切替 `compute_positions(mode=)`＋階層グリッド `_hierarchical_positions`（`--layout hierarchical`）含む）、ビューロジックは `tabs.py`、
   テンプレート組立は `template.py` にそれぞれ分離。CSS/JS や色を直すときは `assets.py` を見る。
 

@@ -248,17 +248,17 @@ network 宣言 1 件につき 1 エントリ。
 
 ### DATA.ospf_stubs（OSPF loopback スタブ）
 
-`build_ospf_stubs(topo)` が返す **OSPF 参加 loopback** のリスト。`DATA.ospf_stubs` として HTML に埋め込まれ、render() が **OSPF ビュー限定**で各機器ノード脇に **segment と同一表記のノード**（`.segnode` 点線楕円 `rx=62 ry=26`＋subnet テキストのみ＋area-badge＋`.lk` スポーク）を描画する。**層別 YAML スキーマ外の render 層導出**。
+`build_ospf_stubs(topo)` が返す **OSPF 参加 loopback** のリスト。`DATA.ospf_stubs` として HTML に埋め込まれ、render() が **OSPF ビュー限定**で各機器ノード脇に **segment 様式のノード**（`.segnode` 点線楕円 `rx=62 ry=26`＋subnet テキスト＋area-badge＋`.lk` スポーク）を描画する。**ホバーで IF 名 + IP を `<title>` 表示**し、**クリックで親デバイスを選択**できる（`data-dev`＋専用ハンドラ。親デバイス選択状態に連動して楕円を `selected`/`hovered` 強調）。**層別 YAML スキーマ外の render 層導出**。
 
 | フィールド | 型 | 説明 |
 |-----------|----|------|
 | `dev` | string | device ID |
-| `ifn` | string | loopback IF 名（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）。内部 id（`data-deco`）とソート/dedup 用で**描画には出さない**（segment と同様 IF 名は非表示） |
+| `ifn` | string | loopback IF 名（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）。内部 id（`data-deco`）とソート/dedup 用、かつ `<title>` に出して**ホバーで IF 名を表示** |
 | `ip` | string | loopback の v4 host IP（非 secondary・非 link-local） |
 | `area` | string | OSPF area。loopback IP を routing.ospf の network と `ipaddress` 内包判定し**最長プレフィックス一致**で採用（同長は area 昇順） |
 | `net` | string | loopback の subnet（`ip/prefix`・通常 `/32`）。segnode 中央に表示。prefix 欠如時はキー省略（描画は `ip` フォールバック） |
 
-OSPF 非参加（area 引け不能）の loopback はスキップ。ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**非選択（data-elem 無し）**でヒットテスト対象外＝詳細パネル/凡例 dim 非連動（常設）。
+OSPF 非参加（area 引け不能）の loopback はスキップ。ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**選択は `data-dev`（親デバイス id）＋専用 click/hover ハンドラ経由**（`data-elem` は付けない＝seg 用 hittest/詳細パネルと非衝突）。クリックで親デバイスを選択し既存の機器詳細パネルを表示。凡例 dim 連動は対象外（常設・data-deco lpstub は decoState 非登録）。
 
 ---
 
