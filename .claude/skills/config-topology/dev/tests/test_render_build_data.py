@@ -3470,7 +3470,11 @@ def _make_topo(devices=None, interfaces=None, ospf=None, links=None, segments=No
 
 @pytest.mark.unit
 def test_build_ospf_stubs_extracts_loopback_area():
-    """loopback IF の /32 が OSPF network に含まれる場合、area を返す。"""
+    """loopback IF の /32 が OSPF network に含まれる場合、area と net を返す。
+
+    改修①（segment 様式化）で net フィールドが加算的に追加された。
+    既存の dev/ifn/ip/area に加えて net も含まれることを確認する。
+    """
     topo = _make_topo(
         devices=[{
             "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
@@ -3489,7 +3493,16 @@ def test_build_ospf_stubs_extracts_loopback_area():
         }],
     )
     result = build_ospf_stubs(topo)
-    assert result == [{"dev": "r1", "ifn": "Loopback0", "ip": "10.10.0.4", "area": "2"}]
+    assert len(result) == 1
+    stub = result[0]
+    assert stub["dev"] == "r1"
+    assert stub["ifn"] == "Loopback0"
+    assert stub["ip"] == "10.10.0.4"
+    assert stub["area"] == "2"
+    # 改修①: net フィールドが加算的に追加されていること
+    assert stub["net"] == "10.10.0.4/32", (
+        f"net フィールドが期待値 '10.10.0.4/32' でない: {stub.get('net')}"
+    )
 
 
 @pytest.mark.unit
@@ -3779,3 +3792,181 @@ def test_build_ospf_stubs_area_tiebreak_ascending():
     assert result[0]["area"] == "0", (
         f"area tiebreak で昇順 '0' が選ばれるべきだが '{result[0]['area']}' が返った"
     )
+
+
+# ===========================================================================
+# 改修①: loopback の segment 様式描画 — build_ospf_stubs に net フィールド追加
+# ===========================================================================
+
+@pytest.mark.unit
+def test_build_ospf_stubs_has_net_32():
+    """loopback 10.10.0.4/32 のスタブ結果に net=='10.10.0.4/32' が含まれること。
+
+    壊すと赤: net フィールドを削除すると KeyError になる。
+    /32 loopback は net = str(ip_network("10.10.0.4/32", strict=False)) = "10.10.0.4/32"。
+    """
+    # Arrange
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [
+                {"af": "v4", "ip": "10.10.0.4", "prefix": 32},
+            ]),
+        ],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "10.10.0.4/32",
+            "area": "2", "af": "v4",
+        }],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert
+    assert len(result) == 1, f"1 件返ることを期待: {result}"
+    assert "net" in result[0], f"net フィールドが存在しない: {result[0].keys()}"
+    assert result[0]["net"] == "10.10.0.4/32", (
+        f"net が '10.10.0.4/32' でない: {result[0]['net']}"
+    )
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_has_net_24():
+    """loopback に /24 を持つケースで net が正しいサブネット表記になること。
+
+    ip=192.168.1.100, prefix=24 → net="192.168.1.0/24"（ホスト部は落とす）。
+    壊すと赤: strict=True で ip_network を呼ぶと ValueError になる実装の場合失敗。
+    """
+    # Arrange: /24 のループバック（loopback に /24 を付けるケースは稀だが仕様として対応）
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [
+                {"af": "v4", "ip": "192.168.1.100", "prefix": 24},
+            ]),
+        ],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "192.168.1.0/24",
+            "area": "1", "af": "v4",
+        }],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert
+    assert len(result) == 1, f"1 件返ることを期待: {result}"
+    assert "net" in result[0], f"net フィールドが存在しない: {result[0].keys()}"
+    # 192.168.1.100/24 → ip_network("192.168.1.100/24", strict=False) = "192.168.1.0/24"
+    assert result[0]["net"] == "192.168.1.0/24", (
+        f"net が '192.168.1.0/24' でない: {result[0]['net']}"
+    )
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_golden_empty_still_green():
+    """golden topo での build_ospf_stubs は net 追加後も空リストを返し、build_data との整合も保つこと。
+
+    test_build_ospf_stubs_golden_empty（integration）と区別する観点:
+    - unit マーカーで unit スイートでも確認できる（integration スキップ時の補完）
+    - build_data 経由の ospf_stubs キーも空リストであることを合わせて確認
+      （build_ospf_stubs 単独ではなく build_data 統合経路でも影響がないことを検証）
+    """
+    topo = load_topology(str(GOLDEN))
+    # build_ospf_stubs 単独
+    result = build_ospf_stubs(topo)
+    assert result == [], f"golden での stubs は空リストのはずだが {result}"
+    # build_data 統合経路でも ospf_stubs が空リストであること
+    data = build_data(topo)
+    assert data["ospf_stubs"] == [], \
+        f"build_data 経由の ospf_stubs が空でない: {data['ospf_stubs']}"
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_net_existing_fields_preserved():
+    """net フィールド追加後も既存 dev/ifn/ip/area フィールドが維持されること（加算的拡張）。
+
+    壊すと赤: 既存フィールドを削除・変更した場合に失敗する。
+    """
+    # Arrange
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [
+                {"af": "v4", "ip": "10.0.0.1", "prefix": 32},
+            ]),
+        ],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "10.0.0.0/8",
+            "area": "0", "af": "v4",
+        }],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert: 既存フィールドがすべて存在すること
+    assert len(result) == 1
+    stub = result[0]
+    assert stub["dev"] == "r1", f"dev フィールドが正しくない: {stub['dev']}"
+    assert stub["ifn"] == "Loopback0", f"ifn フィールドが正しくない: {stub['ifn']}"
+    assert stub["ip"] == "10.0.0.1", f"ip フィールドが正しくない: {stub['ip']}"
+    assert stub["area"] == "0", f"area フィールドが正しくない: {stub['area']}"
+    assert "net" in stub, "net フィールドが存在しない（加算的拡張のはず）"
+    assert stub["net"] == "10.0.0.1/32", \
+        f"net の値が期待値 '10.0.0.1/32' でない: {stub.get('net')}"
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_no_prefix_omits_net_key():
+    """loopback address に prefix が無い場合、net キーを持たずに他フィールドは出ること。
+
+    docstring「prefix 欠如時は net フィールドを含まない（スキップしない）」の回帰ガード。
+    JS の `st.net || st.ip` フォールバックの根拠となる仕様。
+
+    壊すと赤:
+      - prefix 欠如時に net を付けてしまうと assert "net" not in stub で赤
+      - prefix 欠如でもエントリ自体をスキップした場合は assert len(result) == 1 で赤
+    """
+    # Arrange: prefix フィールドを持たない loopback address（ip のみ）
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [
+                {"af": "v4", "ip": "10.0.0.1"},  # prefix フィールド無し
+            ]),
+        ],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "10.0.0.0/8",
+            "area": "0", "af": "v4",
+        }],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert: スキップされずエントリが1件返ること（スキップしないこと）
+    assert len(result) == 1, \
+        f"prefix 欠如でもエントリが返されるはずだが {len(result)} 件: {result}"
+
+    stub = result[0]
+    # net キーが存在しないこと（prefix 欠如時は net フィールド自体を省略）
+    assert "net" not in stub, \
+        f"prefix 欠如時に net キーが付いている（省略されるべき）: {stub}"
+    # 他フィールド（dev/ifn/ip/area）は正常に出ること
+    assert stub["dev"] == "r1", f"dev フィールドが正しくない: {stub['dev']}"
+    assert stub["ifn"] == "Loopback0", f"ifn フィールドが正しくない: {stub['ifn']}"
+    assert stub["ip"] == "10.0.0.1", f"ip フィールドが正しくない: {stub['ip']}"
+    assert stub["area"] == "0", f"area フィールドが正しくない: {stub['area']}"

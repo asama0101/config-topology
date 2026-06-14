@@ -246,18 +246,19 @@ network 宣言 1 件につき 1 エントリ。
 
 集計対象は interface address のうち **af=="v4"・非 link-local・prefix≠32**（`/32` ホスト/ループバックは除外）。同一サブネットは host IP の set で重複排除（複数 IF/device 跨ぎでも二重計上なし）。ソートは **util 降順 → subnet 文字列昇順**で決定的。
 
-### DATA.ospf_stubs（改修④ OSPF loopback スタブ）
+### DATA.ospf_stubs（OSPF loopback スタブ）
 
-`build_ospf_stubs(topo)` が返す **OSPF 参加 loopback** のリスト。`DATA.ospf_stubs` として HTML に埋め込まれ、render() が **OSPF ビュー限定**で各機器ノード脇に扇状のスタブ図形（小円＋スポーク線＋ラベル）を描画する。**層別 YAML スキーマ外の render 層導出**。
+`build_ospf_stubs(topo)` が返す **OSPF 参加 loopback** のリスト。`DATA.ospf_stubs` として HTML に埋め込まれ、render() が **OSPF ビュー限定**で各機器ノード脇に **segment 様式のノード**（`.segnode` 点線楕円＋subnet テキスト＋area-badge＋`.lk` スポーク）を描画する。**層別 YAML スキーマ外の render 層導出**。
 
 | フィールド | 型 | 説明 |
 |-----------|----|------|
 | `dev` | string | device ID |
-| `ifn` | string | loopback IF 名（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準） |
+| `ifn` | string | loopback IF 名（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）。ノードの `<title>` でホバー表示 |
 | `ip` | string | loopback の v4 host IP（非 secondary・非 link-local） |
 | `area` | string | OSPF area。loopback IP を routing.ospf の network と `ipaddress` 内包判定し**最長プレフィックス一致**で採用（同長は area 昇順） |
+| `net` | string | loopback の subnet（`ip/prefix`・通常 `/32`）。segnode 中央に表示。prefix 欠如時はキー省略（描画は `ip` フォールバック） |
 
-OSPF 非参加（area 引け不能）の loopback はスキップ。ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**凡例 area クリックの dim 連動は非対応**（スタブは常設）。
+OSPF 非参加（area 引け不能）の loopback はスキップ。ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**非選択（data-elem 無し）**でヒットテスト対象外＝詳細パネル/凡例 dim 非連動（常設）。
 
 ---
 

@@ -225,20 +225,51 @@ def test_ospf_stub_render_guarded_by_ospf_view():
 
 @pytest.mark.unit
 def test_css_has_lpstub_rules():
-    """_CSS に loopback stub 用 3 クラスが存在し、.lpstub-label に pointer-events:none が含まれること。
+    """改修①後: 旧 lpstub CSS は削除され segment 様式（.segnode/.lk/.area-badge）が維持されること。
 
-    修正3: 弱い "none" in _CSS → 3 ルールの存在 + .lpstub-label の pointer-events:none を
-    正規表現で検証（消すと赤になる）。
+    改修①（segment 様式化）で .lpstub/.lpstub-spoke/.lpstub-label は削除された。
+    loopback は class="segnode" / class="lk" を再利用するため、これらの CSS が存在すること。
+
+    壊すと赤: segment 様式 CSS を削除すると loopback の描画が崩れる。
     """
-    # .lpstub / .lpstub-spoke / .lpstub-label の3ルールが存在すること
-    assert ".lpstub" in assets._CSS, ".lpstub ルールが _CSS に存在しない"
-    assert ".lpstub-spoke" in assets._CSS, ".lpstub-spoke ルールが _CSS に存在しない"
-    assert ".lpstub-label" in assets._CSS, ".lpstub-label ルールが _CSS に存在しない"
-    # .lpstub-label ルールブロック内に pointer-events: none が含まれること
-    m = re.search(r'\.lpstub-label\s*\{[^}]*pointer-events\s*:\s*none', assets._CSS)
-    assert m is not None, (
-        ".lpstub-label ルール内に pointer-events: none が見つからない"
-    )
+    # 旧 lpstub CSS が削除されていること（改修①）
+    assert ".lpstub {" not in assets._CSS and ".lpstub{" not in assets._CSS, \
+        ".lpstub ルールが _CSS に残っている（改修① で削除済みのはず）"
+    assert ".lpstub-spoke" not in assets._CSS, \
+        ".lpstub-spoke ルールが _CSS に残っている（改修① で削除済みのはず）"
+    assert ".lpstub-label" not in assets._CSS, \
+        ".lpstub-label ルールが _CSS に残っている（改修① で削除済みのはず）"
+    # segment 様式 CSS が維持されていること（loopback が再利用する）
+    assert "g.segnode" in assets._CSS, \
+        "g.segnode CSS が _CSS に存在しない（loopback の点線楕円が消える）"
+    assert ".lk {" in assets._CSS or ".lk{" in assets._CSS, \
+        ".lk CSS が _CSS から消えている（loopback の spoke 線が消える）"
+    assert ".area-badge" in assets._CSS, \
+        ".area-badge CSS が _CSS から消えている（loopback の area バッジが消える）"
+
+
+@pytest.mark.unit
+def test_css_lpstub_segnode_cursor_default():
+    """loopback stub の segnode（data-deco^="lpstub:"）のカーソルが default であること。
+
+    g.segnode には cursor: pointer が付いているが、loopback の lpstub segnode は
+    クリック不可（data-elem 無し）のため、cursor を default にオーバーライドする必要がある。
+
+    壊すと赤: このルールが無ければ lpstub segnode でポインタカーソルが出て
+             クリック可能に見える UX 不整合になる。
+    """
+    css = assets._CSS
+    assert 'g.segnode[data-deco^="lpstub:"]' in css, \
+        'g.segnode[data-deco^="lpstub:"] セレクタが _CSS に存在しない'
+    assert "cursor: default" in css, \
+        "_CSS に cursor: default が存在しない"
+    # lpstub セレクタ直後に cursor: default が来ること（位置で確認）
+    lpstub_sel_pos = css.find('g.segnode[data-deco^="lpstub:"]')
+    assert lpstub_sel_pos != -1
+    # セレクタから 100 文字以内に cursor: default があること
+    nearby = css[lpstub_sel_pos:lpstub_sel_pos + 100]
+    assert "cursor: default" in nearby, \
+        f'lpstub セレクタの直後（100 文字以内）に cursor: default が無い: {nearby!r}'
 
 
 @pytest.mark.unit
@@ -248,17 +279,34 @@ def test_ospf_stub_uses_data_deco():
 
 
 @pytest.mark.unit
-def test_ospf_stub_label_in_label_parts():
-    """stub ラベルが labelParts に push されること（改修② の前面レイヤーに乗る）。"""
-    # labelParts.push を含む文脈で lpstub が現れること
+def test_ospf_stub_drawn_in_parts_not_labelparts():
+    """loopback stub ブロックで segnode/area-badge が parts.push され、labelParts.push を使っていないこと。
+
+    改修①（segment 様式化）後の実態:
+      - subnet は segnode 内テキストとして parts に push される
+      - area バッジも parts.push（areaBadge ヘルパー経由）
+      - labelParts は loopback stub ブロックで使わない（BGP ビュー用のラベル前面レイヤー）
+
+    壊すと赤:
+      - parts.push をやめると segnode/areaBadge が HTML に出ない → 赤
+      - labelParts.push を誤って loopback stub ブロックに追加すると赤
+    """
     js = assets._JS
-    # labelParts への push が stub コンテキストで使われている
-    lpstub_idx = js.find("lpstub:")
-    assert lpstub_idx != -1, "lpstub: が _JS に存在しない"
-    # lpstub の周辺 2000 文字以内に labelParts.push または parts.push が存在
-    context = js[max(0, lpstub_idx - 500):lpstub_idx + 1500]
-    assert "labelParts" in context or "parts.push" in context, \
-        "stub の周辺に labelParts/parts.push が存在しない"
+
+    # loopback stub ブロックを DATA.ospf_stubs から始まる箇所で切り出す（3000文字窓）
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1, "DATA.ospf_stubs が _JS に存在しない"
+    stub_ctx = js[stub_start:stub_start + 3000]
+
+    # segnode と area-badge が parts.push で積まれていること
+    assert "parts.push" in stub_ctx, \
+        "loopback stub ブロック内に parts.push が存在しない（segnode 未描画になる）"
+    assert 'class="segnode"' in stub_ctx, \
+        "loopback stub ブロック内に segnode 要素が存在しない"
+
+    # labelParts.push は loopback stub ブロック内で使っていないこと
+    assert "labelParts.push" not in stub_ctx, \
+        "loopback stub ブロック内に labelParts.push が存在する（stub は parts を使うべき）"
 
 
 @pytest.mark.unit
@@ -4120,3 +4168,194 @@ def test_css_iflabel_pointer_events_none():
         assert "pointer-events: none" in block, (
             f"{selector.strip()} CSS ルールに pointer-events: none がない。\n実際のブロック: {block!r}"
         )
+
+
+# ===========================================================================
+# 改修①: loopback segment 様式描画 — JS/CSS アセット構造テスト
+# ===========================================================================
+
+@pytest.mark.unit
+def test_loopback_uses_segment_style():
+    """loopback ブロックが class="segnode" / class="lk" / area-badge / st.net を使い、
+    旧 <circle class="lpstub" を使っていないこと。
+
+    壊すと赤:
+    - class="segnode" を消すと segment 様式でなくなる
+    - class="lk" を消すと spoke 線が消える
+    - area-badge を消すと area バッジが消える
+    - st.net を消すと subnet が中央に出ない
+    - <circle class="lpstub" を入れると旧スタイルが復活する
+    """
+    js = assets._JS
+    # OSPF loopback ブロック（DATA.ospf_stubs ループ内）のコンテキストを取る
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1, "DATA.ospf_stubs が _JS に存在しない"
+    # ループブロック周辺 3000 文字
+    stub_ctx = js[stub_start:stub_start + 3000]
+
+    # segment 様式の必須要素
+    assert 'class="segnode"' in stub_ctx, \
+        "loopback ブロックに class=\"segnode\" が存在しない（segment 様式未適用）"
+    assert 'class="lk"' in stub_ctx or '"lk "' in stub_ctx, \
+        "loopback ブロックに class=\"lk\" が存在しない（spoke 線が未実装）"
+    assert "area-badge" in stub_ctx, \
+        "loopback ブロックに area-badge が存在しない"
+    assert "st.net" in stub_ctx, \
+        "loopback ブロックに st.net が存在しない（subnet 中央表示が未実装）"
+
+    # 旧スタイルは使わない
+    assert '<circle class="lpstub"' not in stub_ctx, \
+        "loopback ブロックに旧 <circle class=\"lpstub\" が残っている（segment 様式に置換されていない）"
+
+
+@pytest.mark.unit
+def test_lpstub_css_removed():
+    """_CSS に .lpstub / .lpstub-spoke / .lpstub-label が存在しないこと。
+
+    壊すと赤: 旧 lpstub CSS を再追加すると失敗する。
+    .segnode / .lk / .area-badge は残っていること（削除してはいけない CSS の確認も兼ねる）。
+    """
+    css = assets._CSS
+    # 旧 lpstub CSS が消えていること
+    assert ".lpstub {" not in css and ".lpstub{" not in css, \
+        ".lpstub ルールが _CSS に残っている（削除されていない）"
+    assert ".lpstub-spoke" not in css, \
+        ".lpstub-spoke ルールが _CSS に残っている（削除されていない）"
+    assert ".lpstub-label" not in css, \
+        ".lpstub-label ルールが _CSS に残っている（削除されていない）"
+
+    # segment 様式の CSS は維持されていること（回帰ガード）
+    assert "g.segnode" in css, \
+        "g.segnode CSS が _CSS から消えている（削除してはいけない）"
+    assert ".lk {" in css or ".lk{" in css, \
+        ".lk CSS が _CSS から消えている（削除してはいけない）"
+    assert ".area-badge" in css, \
+        ".area-badge CSS が _CSS から消えている（削除してはいけない）"
+
+
+@pytest.mark.unit
+def test_loopback_render_deterministic_round():
+    """loopback ブロックに Math.round( が含まれること（座標決定化の維持）。
+
+    壊すと赤: Math.round を削除すると座標が不定になる。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1, "DATA.ospf_stubs が _JS に存在しない"
+    stub_ctx = js[stub_start:stub_start + 2000]
+    assert "Math.round(" in stub_ctx, \
+        "loopback ブロックに Math.round( が存在しない（座標決定化が失われている）"
+
+
+@pytest.mark.unit
+def test_loopback_spoke_uses_area_color():
+    """loopback spoke が areaColor を使うこと（OSPF ビューで area 色を付ける）。
+
+    壊すと赤: areaColor を削除すると spoke 線に area 色が付かない。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1, "DATA.ospf_stubs が _JS に存在しない"
+    stub_ctx = js[stub_start:stub_start + 3000]
+    assert "areaColor(" in stub_ctx, \
+        "loopback ブロックに areaColor( が存在しない（area 色付けが未実装）"
+
+
+@pytest.mark.unit
+def test_loopback_no_data_elem():
+    """loopback stub ブロック内に data-elem= が一切存在しないこと。
+
+    非選択・ヒットテスト対象外 = DATA.segments に無いノードと selection/詳細パネルが
+    衝突しないようにするための要件。lpstub segnode は data-deco のみを使う（data-elem なし）。
+
+    壊すと赤: data-elem="seg" 等を付けると selection/詳細パネルとの衝突が起きる。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1
+    stub_ctx = js[stub_start:stub_start + 3000]
+    # data-deco は使ってよい（applyVisibility の非登録パスで lpstub: が正しく動く）
+    # data-elem は一切付けてはいけない
+    assert 'data-elem=' not in stub_ctx, \
+        "loopback stub ブロック内に data-elem= が存在する（ヒットテスト衝突リスク）"
+
+
+@pytest.mark.unit
+def test_loopback_data_deco_uses_lpstub_prefix():
+    """loopback 要素の data-deco が lpstub: プレフィックスを使っていること（既存の deco 命名継続）。
+
+    壊すと赤: data-deco のプレフィックスを変えると applyVisibility の
+    コメント（'lpstub: プレフィックスの deco は decoState 非登録'）との不整合になる。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1
+    stub_ctx = js[stub_start:stub_start + 3000]
+    assert "lpstub:" in stub_ctx, \
+        "loopback ブロックに data-deco='lpstub:...' が存在しない"
+
+
+@pytest.mark.unit
+def test_loopback_title_shows_ifn_and_ip():
+    """loopback segnode に <title> 要素があり ifn と ip をホバー表示すること。
+
+    壊すと赤: <title> を削除するとホバー情報がなくなる。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1
+    stub_ctx = js[stub_start:stub_start + 3000]
+    assert "<title>" in stub_ctx, \
+        "loopback segnode に <title> 要素が存在しない（ホバー情報なし）"
+    # ifn と ip の両方が title 内にあること
+    assert "st.ifn" in stub_ctx, \
+        "loopback title に st.ifn が存在しない"
+    assert "st.ip" in stub_ctx, \
+        "loopback title に st.ip が存在しない"
+
+
+@pytest.mark.unit
+def test_loopback_uses_areabadge_helper():
+    """loopback ブロックが areaBadge() ヘルパーを呼び出していること。
+
+    壊すと赤: areaBadge を呼ばずに独自計算すると DRY 違反で一貫性が崩れる。
+    """
+    js = assets._JS
+    stub_start = js.find("DATA.ospf_stubs")
+    assert stub_start != -1
+    stub_ctx = js[stub_start:stub_start + 3000]
+    assert "areaBadge(" in stub_ctx, \
+        "loopback ブロックに areaBadge( 呼び出しが存在しない"
+
+
+@pytest.mark.unit
+def test_loopback_segnode_css_reused():
+    """_CSS の g.segnode CSS が loopback にも再利用されていること（CSS 二重定義なし）。
+
+    loopback は class="segnode" を使うため、新しい CSS クラスは不要。
+    旧 .lpstub / .lpstub-spoke / .lpstub-label が消えた後も
+    g.segnode / g.segnode ellipse / g.segnode text の定義が存在すること。
+
+    壊すと赤: g.segnode ellipse を消すと点線楕円が消える。
+    """
+    css = assets._CSS
+    assert "g.segnode ellipse" in css, \
+        "g.segnode ellipse CSS が _CSS に存在しない（loopback の点線楕円が消える）"
+    assert "g.segnode text" in css, \
+        "g.segnode text CSS が _CSS に存在しない（loopback の subnet テキストが消える）"
+
+
+@pytest.mark.unit
+def test_ospf_stub_guarded_by_ospf_view_after_refactor():
+    """改修後も DATA.ospf_stubs が S.view === 'ospf' ガードの内側にあること（回帰）。
+
+    壊すと赤: ガードを外すと物理/BGP ビューでも loopback が描画される。
+    """
+    js = assets._JS
+    assert "DATA.ospf_stubs" in js, "DATA.ospf_stubs が _JS に存在しない"
+    guard_pos = js.find('S.view === "ospf"')
+    stubs_pos = js.find("DATA.ospf_stubs")
+    assert stubs_pos > guard_pos, (
+        "DATA.ospf_stubs が S.view === \"ospf\" ガードより前に現れている"
+        "（ガードの内側に配置されていること）"
+    )

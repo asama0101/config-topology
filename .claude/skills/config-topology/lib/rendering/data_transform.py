@@ -822,12 +822,17 @@ def _natural_key(s):
 
 
 def build_ospf_stubs(topo):
-    """OSPF 参加 loopback を [{dev, ifn, ip, area}] で返す（dev→ifn 自然順で安定ソート）。
+    """OSPF 参加 loopback を [{dev, ifn, ip, area, net}] で返す（dev→ifn 自然順で安定ソート）。
 
     loopback IF（_LOOPBACK_RE 一致）の v4 ホスト IP を、同一 device・af=="v4" の
     routing.ospf entry と ipaddress 内包判定で照合し、最長プレフィックス一致の area を採用
     （同長は str(area) 昇順）。area が引けない（OSPF 非参加）loopback はスキップ。
     返り値は (dev, natural_key(ifn)) で安定ソート（決定的）。
+
+    各結果要素の net フィールド: loopback の subnet 表記
+    （str(ipaddress.ip_network(f"{ip}/{prefix}", strict=False))）。
+    /32 loopback では "10.0.0.1/32" のようにホスト IP のまま。
+    prefix 欠如時は net フィールドを含まない（スキップしない）。
     """
     # device → ospf entries (v4 のみ) をあらかじめ整理
     ospf_by_dev = {}
@@ -878,7 +883,19 @@ def build_ospf_stubs(topo):
             candidates.sort(key=lambda x: (-x[0], x[1]))
             best_area = candidates[0][1]
 
-            results.append({"dev": dev, "ifn": itf["name"], "ip": ip_str, "area": best_area})
+            entry = {"dev": dev, "ifn": itf["name"], "ip": ip_str, "area": best_area}
+
+            # net: loopback の subnet 表記（segment 様式の subnet 中央表示用）
+            # prefix が存在する場合のみ付与（欠如時はフィールド自体を省略）
+            prefix = a.get("prefix")
+            if prefix is not None:
+                try:
+                    net_obj = ipaddress.ip_network(f"{ip_str}/{prefix}", strict=False)
+                    entry["net"] = str(net_obj)
+                except ValueError:
+                    pass  # prefix 不正の場合は net フィールドを省略
+
+            results.append(entry)
 
     # (dev, natural_key(ifn)) で安定ソート
     results.sort(key=lambda r: (r["dev"], _natural_key(r["ifn"])))
