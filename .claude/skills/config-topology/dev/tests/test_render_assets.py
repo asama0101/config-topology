@@ -2989,3 +2989,514 @@ def test_render_subnet_usage_tnote_references_threshold():
         "renderSubnetUsageView の tnote に '80%%' 文言がない。"
         "_EXHAUSTED_THRESHOLD=0.8 と tnote 文言 '80%%' は対応付けられるべき。"
     )
+
+
+# ===========================================================================
+# B5: キーボードショートカット拡充
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# string-presence テスト（構造・存在確認）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_b5_key_to_action_function_present():
+    """keyToAction 関数が _JS に定義されていること。"""
+    assert "function keyToAction" in assets._JS, \
+        "_JS に function keyToAction が見当たらない"
+
+
+@pytest.mark.unit
+def test_b5_toggle_shortcuts_overlay_function_present():
+    """toggleShortcutsOverlay 関数が _JS に定義されていること。"""
+    assert "function toggleShortcutsOverlay" in assets._JS, \
+        "_JS に function toggleShortcutsOverlay が見当たらない"
+
+
+@pytest.mark.unit
+def test_b5_shortcuts_overlay_in_body():
+    """_BODY に id="shortcuts-overlay" 要素が存在すること。"""
+    assert 'id="shortcuts-overlay"' in assets._BODY, \
+        '_BODY に id="shortcuts-overlay" が見当たらない'
+
+
+@pytest.mark.unit
+def test_b5_shortcuts_overlay_default_hidden():
+    """shortcuts-overlay が既定で display:none （非表示）で定義されていること。
+
+    _CSS の #shortcuts-overlay ルールに "display:none" が含まれていること。
+    これにより:
+    - display:none を削除すると赤（初期非表示を壊すと検出）
+    - #shortcuts-overlay セレクタだけ残して display:none を消しても赤
+
+    壊すと赤: _CSS の #shortcuts-overlay { display: none; ... } から
+    "display:none" を除去すると失敗する。
+    """
+    css = assets._CSS
+    # #shortcuts-overlay セレクタのルールブロックを切り出す
+    selector = "#shortcuts-overlay {"
+    idx = css.find(selector)
+    assert idx != -1, f"_CSS に {selector!r} セレクタが存在しない"
+    # セレクタから対応する閉じ中括弧までのブロックを取り出す
+    block_start = idx
+    brace_depth = 0
+    i = idx
+    block_end = -1
+    while i < len(css):
+        if css[i] == "{":
+            brace_depth += 1
+        elif css[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                block_end = i + 1
+                break
+        i += 1
+    assert block_end != -1, "#shortcuts-overlay の CSS ブロックが閉じていない"
+    rule_block = css[block_start:block_end]
+    # ブロック内に display:none（スペース有無を問わない）が含まれること
+    normalized = re.sub(r"\s+", "", rule_block)
+    assert "display:none" in normalized, (
+        f"#shortcuts-overlay の CSS ルールに display:none が存在しない。\n"
+        f"該当ブロック: {rule_block!r}"
+    )
+
+
+@pytest.mark.unit
+def test_b5_keydown_dispatches_keytoaction():
+    """keydown ハンドラ内に keyToAction(ev.key) の呼び出しが存在すること。"""
+    assert "keyToAction(ev.key)" in assets._JS, \
+        "keydown ハンドラに keyToAction(ev.key) の呼び出しが存在しない"
+
+
+@pytest.mark.unit
+def test_b5_keydown_dispatch_after_input_guard():
+    """keydown ハンドラ内で keyToAction() の呼び出しが INPUT/SELECT ガードより後にあること。
+
+    入力欄ガード（ev.target.tagName === "INPUT"）が keyToAction 呼び出しより前にあること。
+    これを逆転させると検索欄入力中にも g/h/m/l が発火する（入力欄ガード跨ぎバグ）。
+    """
+    js = assets._JS
+    guard_pos = js.find('ev.target.tagName === "INPUT"')
+    action_pos = js.find("keyToAction(ev.key)")
+    assert guard_pos != -1, '_JS に INPUT ガードが存在しない（入力欄ガード削除を検出）'
+    assert action_pos != -1, '_JS に keyToAction(ev.key) が存在しない'
+    assert guard_pos < action_pos, (
+        "keyToAction(ev.key) の呼び出しが INPUT/SELECT ガードより前にある"
+        "（ガードを跨いでいる: 回帰防止テスト）"
+    )
+
+
+@pytest.mark.unit
+def test_b5_input_select_guard_preserved():
+    """INPUT/SELECT ガードが keydown ハンドラに残存していること（削除を検出する回帰防止）。
+
+    壊すと赤: ガードを削除すると検索入力中に g/h/m/l 等が奪われる。
+    """
+    assert 'ev.target.tagName === "INPUT"' in assets._JS, \
+        'keydown ハンドラに INPUT ガードが存在しない（入力欄ガード削除を検出）'
+    assert 'ev.target.tagName === "SELECT"' in assets._JS, \
+        'keydown ハンドラに SELECT ガードが存在しない（入力欄ガード削除を検出）'
+
+
+@pytest.mark.unit
+def test_b5_escape_closes_shortcuts_overlay():
+    """Escape ハンドラが shortcuts-overlay を閉じる処理を含むこと。
+
+    既存の選択解除/リセット処理は維持しつつ、
+    shortcuts-overlay の非表示化がグローバル keydown の Escape 分岐内に追加されていること。
+
+    注意: 検索欄専用 keydown（#search）にも "Escape" 分岐があるため、
+    グローバル keydown ハンドラ（window.addEventListener("keydown"...）内の
+    Escape 分岐のみを対象とする。
+
+    1000文字マジックスライスではなく、バランス中括弧で keydown ブロック全体を
+    robust に切り出してから検証する。
+    """
+    js = assets._JS
+    # グローバル keydown ハンドラ（keyboard セクション）の開始位置を特定
+    keyboard_marker = "/* keyboard"
+    keyboard_pos = js.find(keyboard_marker)
+    assert keyboard_pos != -1, '_JS にキーボードセクションマーカーが存在しない'
+    # グローバル keydown ハンドラの開始位置
+    global_keydown_pos = js.find('window.addEventListener("keydown"', keyboard_pos)
+    assert global_keydown_pos != -1, 'グローバル keydown ハンドラが見つからない'
+    # バランス中括弧で keydown ハンドラブロック全体を切り出す
+    # window.addEventListener("keydown", ev => { ... }); の形を想定
+    brace_start = js.index("{", global_keydown_pos)
+    brace_depth = 0
+    i = brace_start
+    block_end = -1
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                block_end = i + 1
+                break
+        i += 1
+    assert block_end != -1, 'グローバル keydown ハンドラの閉じ中括弧が見つからない'
+    # 閉じ括弧の次の "});" まで含めて切り出す（addEventListener の末尾）
+    # block_end はアロー関数本体の } の直後。addEventListener の ); までを含める
+    closing = js.find(");", block_end)
+    if closing != -1 and closing - block_end < 10:
+        block_end = closing + 2
+    global_keydown_section = js[global_keydown_pos:block_end]
+    assert "Escape" in global_keydown_section, \
+        'グローバル keydown ハンドラに Escape キー処理が存在しない'
+    assert "shortcuts-overlay" in global_keydown_section, \
+        'グローバル keydown の Escape 処理に shortcuts-overlay 非表示化が含まれていない'
+
+
+@pytest.mark.unit
+def test_b5_shortcuts_keymap_in_body_or_js():
+    """ショートカット一覧（Ctrl/⌘+F / F / Esc / 1-N / G / H / M / L / ?）が
+    overlay または _JS の toggleShortcutsOverlay 近傍に記載されていること。"""
+    blob = assets._BODY + assets._JS
+    # 主要ショートカット文字が一覧に含まれていること
+    assert "Ctrl" in blob or "⌘" in blob, "Ctrl/⌘ の記述が _BODY/_JS に存在しない"
+    # overlay コンテンツとして少なくとも G / H / M / L のいずれかが一覧記載されていること
+    overlay_section = assets._BODY
+    has_shortcut_list = any(k in overlay_section for k in ["G", "H", "M", "L", "?"])
+    assert has_shortcut_list, "shortcuts-overlay の一覧内容が _BODY に存在しない"
+
+
+# ---------------------------------------------------------------------------
+# node 実行ロジックテスト: keyToAction 純関数の実検証（必須）
+# ---------------------------------------------------------------------------
+
+def _extract_key_to_action_source(js: str) -> str:
+    """_JS から keyToAction 関数ブロックをバランス中括弧で切り出す。"""
+    start_marker = "function keyToAction"
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError("keyToAction not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError("keyToAction: unbalanced braces")
+
+
+def _run_key_to_action(node_bin: str, key: str) -> object:
+    """node を使って keyToAction(key) を実行し結果（文字列 or null）を返す。"""
+    func_src = _extract_key_to_action_source(assets._JS)
+    driver = (
+        f"{func_src}\n"
+        f"const result = keyToAction({json.dumps(key)});\n"
+        "process.stdout.write(JSON.stringify(result));\n"
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                      capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+@pytest.mark.unit
+def test_b5_key_g_lowercase_returns_connected(node_bin):
+    """keyToAction("g") が "connected" を返すこと。
+
+    壊すと赤: g キーのマッピングを消すと null になり失敗する。
+    """
+    result = _run_key_to_action(node_bin, "g")
+    assert result == "connected", f'keyToAction("g") = {result!r}, 期待: "connected"'
+
+
+@pytest.mark.unit
+def test_b5_key_g_uppercase_returns_connected(node_bin):
+    """keyToAction("G") が "connected" を返すこと（大文字小文字正規化）。
+
+    実装で String(key).toLowerCase() しているため G も g と同じ結果になること。
+    壊すと赤: toLowerCase() を除去すると G が null になる。
+    """
+    result = _run_key_to_action(node_bin, "G")
+    assert result == "connected", f'keyToAction("G") = {result!r}, 期待: "connected"'
+
+
+@pytest.mark.unit
+def test_b5_key_h_returns_focus(node_bin):
+    """keyToAction("h") が "focus" を返すこと。"""
+    result = _run_key_to_action(node_bin, "h")
+    assert result == "focus", f'keyToAction("h") = {result!r}, 期待: "focus"'
+
+
+@pytest.mark.unit
+def test_b5_key_m_returns_minimap(node_bin):
+    """keyToAction("m") が "minimap" を返すこと。"""
+    result = _run_key_to_action(node_bin, "m")
+    assert result == "minimap", f'keyToAction("m") = {result!r}, 期待: "minimap"'
+
+
+@pytest.mark.unit
+def test_b5_key_l_returns_legend(node_bin):
+    """keyToAction("l") が "legend" を返すこと。"""
+    result = _run_key_to_action(node_bin, "l")
+    assert result == "legend", f'keyToAction("l") = {result!r}, 期待: "legend"'
+
+
+@pytest.mark.unit
+def test_b5_key_question_returns_shortcuts(node_bin):
+    """keyToAction("?") が "shortcuts" を返すこと。"""
+    result = _run_key_to_action(node_bin, "?")
+    assert result == "shortcuts", f'keyToAction("?") = {result!r}, 期待: "shortcuts"'
+
+
+@pytest.mark.unit
+def test_b5_key_f_returns_null(node_bin):
+    """keyToAction("f") が null を返すこと（f は既存処理 zoomFit が担う）。
+
+    壊すと赤: f を keyToAction のマップに追加すると null でなくなり失敗する。
+    """
+    result = _run_key_to_action(node_bin, "f")
+    assert result is None, f'keyToAction("f") = {result!r}, 期待: null（既存予約キー）'
+
+
+@pytest.mark.unit
+def test_b5_key_x_returns_null(node_bin):
+    """keyToAction("x") が null を返すこと（未割当キー）。
+
+    壊すと赤: 余計なキーをマップに追加すると null でなくなり失敗する。
+    """
+    result = _run_key_to_action(node_bin, "x")
+    assert result is None, f'keyToAction("x") = {result!r}, 期待: null'
+
+
+@pytest.mark.unit
+def test_b5_key_digit_returns_null(node_bin):
+    """keyToAction("1") が null を返すこと（数字は既存タブ切替が担う）。
+
+    壊すと赤: 数字をマップに追加すると null でなくなり失敗する。
+    """
+    result = _run_key_to_action(node_bin, "1")
+    assert result is None, f'keyToAction("1") = {result!r}, 期待: null（既存予約キー）'
+
+
+@pytest.mark.unit
+def test_b5_key_escape_returns_null(node_bin):
+    """keyToAction("Escape") が null を返すこと（Escape は既存処理が担う）。
+
+    壊すと赤: Escape をマップに追加すると null でなくなり失敗する。
+    """
+    result = _run_key_to_action(node_bin, "Escape")
+    assert result is None, f'keyToAction("Escape") = {result!r}, 期待: null（既存予約キー）'
+
+
+@pytest.mark.unit
+def test_b5_node_check_syntax_with_shortcuts(node_bin):
+    """keyToAction / toggleShortcutsOverlay を含む _JS 全体で node --check が通ること。"""
+    stub = (
+        "const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
+        "meta:{generated_from:[]},"
+        "stats:{devices:0,interfaces:0,links:0,segments:0,"
+        "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
+        "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
+        "checks:[],subnet_usage:[]};"
+        "const POS={};const VIEWS=['physical','stats','checks','addr','ifs'];"
+        "const DIFF=null;\n"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(stub + assets._JS)
+        path = f.name
+    try:
+        r = subprocess.run([node_bin, "--check", path], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# B5 修正: 表ビューガード検証
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_b5_graph_ops_guarded_by_is_table_view():
+    """グラフ操作系ディスパッチ（_act）が isTableView() でガードされていること。
+
+    壊すと赤: isTableView ガードを除去すると表ビュー中に g/h/m/l が
+    グラフ状態を変更してしまう（実害修正 #1）。
+
+    検証内容:
+    - keyToAction の dispatch ブロックに isTableView が含まれること
+    - shortcuts アクションは isTableView ガード外で発火できること
+      （else if (_act === "shortcuts") が isTableView チェックより前にあること）
+    """
+    js = assets._JS
+    # keydown ハンドラ全体を切り出す（keyboard セクション以降）
+    keyboard_marker = "/* keyboard"
+    keyboard_pos = js.find(keyboard_marker)
+    assert keyboard_pos != -1, '_JS にキーボードセクションが存在しない'
+    global_keydown_pos = js.find('window.addEventListener("keydown"', keyboard_pos)
+    assert global_keydown_pos != -1, 'グローバル keydown ハンドラが見つからない'
+    # バランス中括弧でブロック切り出し
+    brace_start = js.index("{", global_keydown_pos)
+    brace_depth = 0
+    i = brace_start
+    block_end = -1
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                block_end = i + 1
+                break
+        i += 1
+    assert block_end != -1, 'グローバル keydown ハンドラの閉じ中括弧が見つからない'
+    handler_src = js[global_keydown_pos:block_end]
+
+    # 1. keyToAction の dispatch ブロックに isTableView が含まれること
+    assert "isTableView" in handler_src, (
+        "keydown ハンドラに isTableView() ガードが存在しない。\n"
+        "グラフ操作系（g/h/m/l）が表ビュー中に発火してしまう。"
+    )
+
+    # 2. "shortcuts" アクションの分岐は isTableView() より前（ガード外）にあること
+    #    つまり: "_act === \"shortcuts\"" の位置が "isTableView" より前
+    shortcuts_pos = handler_src.find('"shortcuts"')
+    is_table_view_pos = handler_src.find("isTableView")
+    assert shortcuts_pos != -1, 'handler に "shortcuts" 分岐が存在しない'
+    assert is_table_view_pos != -1, 'handler に isTableView が存在しない'
+    assert shortcuts_pos < is_table_view_pos, (
+        '"shortcuts" 分岐が isTableView() ガードより後にある。\n'
+        "表ビュー中でも ? キーでオーバーレイを開けるよう、"
+        '"shortcuts" は isTableView チェックの前に置くこと。'
+    )
+
+
+@pytest.mark.unit
+def test_b5_toggle_shortcuts_overlay_simplified():
+    """toggleShortcutsOverlay が classList.toggle("visible") 1行で実装されていること。
+
+    壊すと赤: const isVisible = ...; classList.toggle("visible", !isVisible);
+    という冗長な2行に戻すと失敗する（修正 #2: 簡約）。
+
+    검証: 関数本体に classList.toggle("visible") が含まれ、
+    classList.contains を使った isVisible 変数パターンが存在しないこと。
+    """
+    js = assets._JS
+    # toggleShortcutsOverlay 関数ブロックを切り出す
+    start_marker = "function toggleShortcutsOverlay"
+    idx = js.find(start_marker)
+    assert idx != -1, '_JS に toggleShortcutsOverlay 関数が存在しない'
+    brace_start = js.index("{", idx)
+    brace_depth = 0
+    i = brace_start
+    block_end = -1
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                block_end = i + 1
+                break
+        i += 1
+    assert block_end != -1, 'toggleShortcutsOverlay: 閉じ中括弧が見つからない'
+    func_body = js[idx:block_end]
+
+    # 1. classList.toggle("visible") が含まれること（引数1個 = 純トグル）
+    assert 'classList.toggle("visible")' in func_body, (
+        'toggleShortcutsOverlay に classList.toggle("visible") が存在しない。\n'
+        "classList.toggle(\"visible\") 1行への簡約が行われていないか、"
+        "または引数2個の形式（toggle(\"visible\", !isVisible)）のまま。"
+    )
+
+    # 2. 冗長パターン（isVisible 変数 + contains）が存在しないこと
+    assert "classList.contains" not in func_body, (
+        'toggleShortcutsOverlay に classList.contains が残存している。\n'
+        "isVisible 変数パターンを廃止し、classList.toggle(\"visible\") 1行に簡約すること。"
+    )
+
+
+@pytest.mark.unit
+def test_b5_toggle_shortcuts_overlay_dom_stub(node_bin):
+    """toggleShortcutsOverlay が classList.toggle("visible") を呼び出すことを node で実検証。
+
+    DOM-stub（最小の classList モック）を使い:
+    - 初期状態（visible なし）→ toggle 呼び出し後に "visible" が付与されること
+    - 再度 toggle 呼び出し後に "visible" が除去されること
+
+    壊すと赤: classList.toggle("visible") を消したり別の実装に変えると失敗する。
+    """
+    # toggleShortcutsOverlay 関数ブロックを切り出す
+    js = assets._JS
+    start_marker = "function toggleShortcutsOverlay"
+    idx = js.find(start_marker)
+    assert idx != -1, '_JS に toggleShortcutsOverlay 関数が存在しない'
+    brace_start = js.index("{", idx)
+    brace_depth = 0
+    i = brace_start
+    block_end = -1
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                block_end = i + 1
+                break
+        i += 1
+    func_src = js[idx:block_end]
+
+    # DOM スタブ + $ モック + 実行ドライバ
+    driver = r"""
+// DOM-stub: 最小の classList 実装
+function makeElement() {
+  const classes = new Set();
+  return {
+    classList: {
+      add(c)    { classes.add(c); },
+      remove(c) { classes.delete(c); },
+      toggle(c, force) {
+        if (force === undefined) {
+          if (classes.has(c)) classes.delete(c); else classes.add(c);
+        } else {
+          force ? classes.add(c) : classes.delete(c);
+        }
+      },
+      contains(c) { return classes.has(c); },
+      has(c)      { return classes.has(c); },
+    },
+    _classes: classes,
+  };
+}
+const _ov = makeElement();
+// $ モック: #shortcuts-overlay のみ応答
+function $(sel) {
+  if (sel === "#shortcuts-overlay") return _ov;
+  throw new Error("unexpected selector: " + sel);
+}
+
+""" + func_src + r"""
+
+// テスト 1: 初期状態（visible なし）→ toggle → visible が付与される
+if (_ov._classes.has("visible")) throw new Error("初期状態に visible が存在する");
+toggleShortcutsOverlay();
+if (!_ov._classes.has("visible")) throw new Error("1回目 toggle 後に visible が付与されない");
+
+// テスト 2: 再度 toggle → visible が除去される
+toggleShortcutsOverlay();
+if (_ov._classes.has("visible")) throw new Error("2回目 toggle 後に visible が除去されない");
+
+process.stdout.write("ok");
+"""
+
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0 and r.stdout.strip() == "ok", (
+        f"toggleShortcutsOverlay DOM-stub テスト失敗:\n"
+        f"stdout={r.stdout!r}\nstderr={r.stderr!r}"
+    )

@@ -220,6 +220,32 @@ g.node.ext rect.body { stroke-dasharray: 6 4; }
 .dim { opacity: .16 !important; transition: opacity .25s; }
 .hidden { display: none !important; }
 
+/* ---------- shortcuts overlay ---------- */
+#shortcuts-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.55);
+  align-items: center; justify-content: center;
+}
+#shortcuts-overlay.visible { display: flex; }
+#shortcuts-overlay .sc-box {
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-radius: 12px; padding: 20px 28px; box-shadow: var(--shadow);
+  min-width: 300px; max-width: 420px;
+}
+#shortcuts-overlay .sc-box h3 {
+  margin: 0 0 14px; font-size: 13px; letter-spacing: .12em;
+  color: var(--ink-dim);
+}
+#shortcuts-overlay table { border-collapse: collapse; width: 100%; }
+#shortcuts-overlay td { padding: 4px 6px; font-size: 12px; color: var(--ink-dim); }
+#shortcuts-overlay td:first-child {
+  font-weight: bold; color: var(--ink);
+  border: 1px solid var(--panel-edge); border-radius: 4px;
+  padding: 2px 7px; white-space: nowrap; text-align: center;
+  background: var(--bg);
+}
+
 /* ---------- tooltip ---------- */
 #tooltip {
   position: absolute; pointer-events: none; z-index: 30;
@@ -520,6 +546,24 @@ _BODY = """\
   <span>links <b id="st-lk">0</b></span>
   <span>segments <b id="st-seg">0</b></span>
   <span>bgp <b id="st-bgp">0</b></span>
+</div>
+
+<div id="shortcuts-overlay">
+  <div class="sc-box">
+    <h3>KEYBOARD SHORTCUTS</h3>
+    <table>
+      <tr><td>Ctrl/⌘+F</td><td>検索欄へフォーカス</td></tr>
+      <tr><td>/</td><td>検索欄へフォーカス</td></tr>
+      <tr><td>F</td><td>ズームフィット</td></tr>
+      <tr><td>Esc</td><td>選択解除 / このヘルプを閉じる</td></tr>
+      <tr><td>1–N</td><td>タブ切替</td></tr>
+      <tr><td>G</td><td>接続先のみ表示切替</td></tr>
+      <tr><td>H</td><td>フォーカスモード切替</td></tr>
+      <tr><td>M</td><td>ミニマップ切替</td></tr>
+      <tr><td>L</td><td>凡例切替</td></tr>
+      <tr><td>?</td><td>このヘルプ</td></tr>
+    </table>
+  </div>
 </div>
 
 
@@ -2410,7 +2454,20 @@ $("#btn-panelmin").onclick = function() {
   this.textContent = min ? "❮" : "—";
 };
 
-/* keyboard */
+/* keyboard — B5 キーボードショートカット拡充 */
+/* keyToAction: DOM 非依存の純関数。新規ショートカットキーをアクション名に変換する。
+   既存予約キー (f/F/Escape///数字/Ctrl+F) は別処理のため null を返す（マップに含めない）。
+   大文字小文字は toLowerCase() で正規化する。*/
+function keyToAction(key) {
+  const M = {"g":"connected","h":"focus","m":"minimap","l":"legend","?":"shortcuts"};
+  return M[String(key).toLowerCase()] || null;
+}
+/* toggleShortcutsOverlay: shortcuts-overlay の表示/非表示をトグルする。
+   オーバーレイ自身のクリックでも閉じる（onclick はオーバーレイ要素に設定済み）。 */
+function toggleShortcutsOverlay() {
+  $("#shortcuts-overlay").classList.toggle("visible");
+}
+
 window.addEventListener("keydown", ev => {
   /* Ctrl+F / ⌘F はどこにフォーカスがあっても検索欄へ（ブラウザのページ内検索を抑止） */
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F")) {
@@ -2420,11 +2477,16 @@ window.addEventListener("keydown", ev => {
   }
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
   if (ev.key === "f" || ev.key === "F") zoomFit();
-  else if (ev.key === "Escape") { S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
+  else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
   else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }
   else if (/^\\d$/.test(ev.key)) {
     const _vi = +ev.key - 1;
     if (_vi >= 0 && _vi < VIEWS.length) setView(VIEWS[_vi]);
+  }
+  else {
+    const _act = keyToAction(ev.key);
+    if (_act === "shortcuts") toggleShortcutsOverlay();
+    else if (_act && !isTableView()) $("#btn-" + _act).click();  /* 既存ボタンの onclick を発火（状態ロジック非二重化）。表ビュー中はグラフ操作系をスキップ */
   }
 });
 
@@ -2440,6 +2502,10 @@ function update() {
 }
 $("#btn-minimap").classList.add("on");
 $("#btn-legend").classList.add("on");
+/* shortcuts-overlay: オーバーレイ自身（背景）をクリックで閉じる */
+$("#shortcuts-overlay").addEventListener("click", function(ev) {
+  if (ev.target === this) this.classList.remove("visible");
+});
 renderStatus();
 applyStateFromHash();  /* URL ハッシュから view+sel を復元してから初期描画（B3） */
 update();

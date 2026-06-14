@@ -29,6 +29,7 @@
 - [ ] B2 表ビューの列フィルタ/絞り込みチップ（vendor/area/AS）— M
 - [x] B3 URLハッシュ状態の保存/復元（ビュー＋選択ノードを #v=&n= にエンコード）— M ✅反復10完了
 - [x] B4 データ駆動凡例（実在 OSPF area / BGP AS の一括強調・ハードコード撤廃）— S ✅反復14完了
+- [x] B5 キーボードショートカット拡充（g/h/m/l/?・図ビュー専用＋ヘルプ overlay）— S ✅反復24完了
 
 ### C. BGP/OSPF 設定管理（parse→build→schema→render の加算フィールド）
 - [x] C1 BGP update-source 抽出 → local_ip 解決フォールバック — M ✅反復4完了（peer-group は C1b に分割・未着手）
@@ -217,6 +218,11 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - レビュー対応: `_EXHAUSTED_THRESHOLD=0.8` 定数化、exhausted 境界値テスト（util==0.8→True）、0件メッセージ/util%表示/trow件数の node 実検証強化、tabs docstring 更新。
 - doc: requirements.md §8.2（SUBNETS・ADDRESSES 差別化）・schema.md DATA.subnet_usage・SKILL.md・CLAUDE.md 索引を同期。テスト 930→967 passed（+37）。**層別 YAML 不変**（保存済み golden HTML は無く render 決定性は test_render_e2e で担保）。
 
-### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D2c,D3,D3b,D3c,D4。
-### 次候補: 反復24（B5 キーボードショートカット拡充＝最終項目）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
+### 反復24: B5 キーボードショートカット拡充 — ✅完了（2026-06-14）
+- 純関数 `keyToAction(key)`（g→connected/h→focus/m→minimap/l→legend/?→shortcuts・未割当 null）を node 実検証。keydown ディスパッチは既存ボタン `.click()` 複製で状態ロジック非二重化。`?` でショートカット一覧オーバーレイ（_BODY 隠し DOM・toggleShortcutsOverlay・背景/Esc で閉じる）。入力欄ガード維持。
+- レビュー対応: **表ビュー中はグラフ操作系(g/h/m/l)を `!isTableView()` でガード**（hidden ボタンの誤 .click() 反転を防止）、toggleShortcutsOverlay 簡約、overlay 既定非表示の display:none 実検証、Escape 閉じテストのマジックスライス除去。
+- doc: requirements.md §8.5・SKILL.md・CLAUDE.md 索引を同期。テスト 967→990 passed（+23）。層別 YAML 不変（render のみ）。
+
+### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4,B5 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D2c,D3,D3b,D3c,D4。
+### 計画 6 項目（C4b/C1b/A3/D2c/D4/B5）完了。残バックログ: A1b（要設計・見送り）/ B2（要差別化）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
 推奨順序の残り目安: D2c or B2 → C4b → A3 → A1b(要設計) → 残り。
