@@ -52,6 +52,12 @@ class BgpNeighbor:
     引数なしは "standard" として格納。値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
     JunOS 非対応（§6.2）。
     """
+    peer_group: Optional[str] = None
+    """IOS peer-group 名（継承元）。peer-group メンバーに継承解決後に設定される。
+    値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
+    JunOS は今回未マッピング（JunOS group を peer_group に設定するとサンプル golden が変化するため
+    C1b スコープ外・非対称は仕様）。
+    """
 
     def to_dict(self):
         d = {"neighbor_ip": self.neighbor_ip, "peer_as": self.peer_as, "af": self.af}
@@ -65,6 +71,8 @@ class BgpNeighbor:
             d["timers"] = {"keepalive": self.timers[0], "holdtime": self.timers[1]}
         if self.send_community is not None:
             d["send_community"] = self.send_community
+        if self.peer_group is not None:
+            d["peer_group"] = self.peer_group
         return d
 
 

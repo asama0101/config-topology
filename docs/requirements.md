@@ -410,6 +410,7 @@ bgp: [...]
 | `next_hop_self` | bool | ✗ | **任意・True 時のみ出力**。IOS `neighbor next-hop-self`。JunOS はポリシーベースで常に False（キー省略） |
 | `timers` | object \| null | ✗ | **任意・設定時のみ出力**。IOS `timers <ka> <hold>` → `{keepalive, holdtime}`。JunOS 非対応 |
 | `send_community` | string \| null | ✗ | **任意・設定時のみ出力**。IOS `send-community [both\|standard\|extended]`（無印=standard）。large 等の未対応キーワードはスキップ。JunOS 非対応 |
+| `peer_group` | string \| null | ✗ | **任意・設定時のみ出力**。IOS peer-group 名（属性は group 定義から継承・個別指定が優先）。JunOS は group を peer_group にマッピングしない（非出力） |
 
 **local_ip 解決ルール**:
 - neighbor_ip と同一サブネットにある自機のインターフェース IP を検索（一次解決）。
@@ -564,6 +565,8 @@ CIDR の `.` と `/` を `_` に置換。
 | `neighbor <ip> next-hop-self` | BGP neighbor | `next_hop_self = true`（True 時のみ YAML 出力）| remote-as と順不同可。address-family 配下も対応。他 neighbor に影響しない |
 | `neighbor <ip> timers <ka> <hold>` | BGP neighbor | `timers = {keepalive, holdtime}`（設定時のみ YAML 出力）| remote-as と順不同可。address-family 配下も対応 |
 | `neighbor <ip> send-community [both\|standard\|extended]` | BGP neighbor | `send_community = <値>`（無印=standard・設定時のみ YAML 出力）| large 等の未対応キーワードはスキップ。remote-as と順不同可。address-family 配下も対応 |
+| `neighbor <name> remote-as/update-source/...`（name が IP でない）| peer-group 定義 | group 属性を集約（pg_template） | name は norm 失敗で peer-group 名と判定 |
+| `neighbor <ip> peer-group <name>` | BGP neighbor | `peer_group = <name>` ＋ group 属性を欠落分だけ継承（**個別指定が優先**・設定時のみ YAML 出力）| 個別 remote-as 無しメンバーは末尾解決で生成。未定義 group 参照は neighbor 非生成（ゾンビ防止） |
 | `address-family ipv6` | BGP AF | neighbor に `activate` で `af = "v6"` に変更 | v6 neighbor のみ |
 | `neighbor <v6ip> activate` (under address-family ipv6) | BGP AF | `af = "v6"` に変更（当該 neighbor） | activate されていない v4 neighbor は af="v4" 確定 |
 | `router ospf <pid>` | OSPF process | process ID = <pid> | |
@@ -624,6 +627,7 @@ CIDR の `.` と `/` を `_` に置換。
 | `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BGP neighbor | `neighbor_ip = <ip>`, `peer_as = <peer>` | neighbor_ip が v4 なら `af="v4"` |
 | `set protocols bgp group <g> neighbor <ip> local-address <localip>` | BGP neighbor | `update_source = <localip>`（ローカル IP 文字列）| peer-as と順不同可 |
 | `set protocols bgp group <g> cluster <id>` | BGP neighbor | cluster を持つ group の全 neighbor に `route_reflector_client = true`（末尾一括適用・True 時のみ YAML 出力）| JunOS の RR 表現。cluster のない group の neighbor は False（影響なし） |
+| `set protocols bgp group <g> peer-as <peer>`（neighbor 無し）| BGP neighbor | group の peer_as 未設定 neighbor に `peer_as` を継承（末尾一括適用・個別 peer-as が優先）| peer_group フィールドは出力しない（golden 維持の非対称） |
 | JunOS next_hop_self | BGP neighbor | **非対応（常に False・YAML 出力なし）**。JunOS は next-hop-self をポリシー（export policy）ベースで制御するため set 形式 config から直接抽出できない | |
 | neighbor_ip が v6 アドレス | BGP neighbor | `af = "v6"`（neighbor_ip を v6 短縮形に正規化して格納） | |
 | `set protocols ospf area <a> interface <if>` | OSPF network | `area = <正規化済み a>`, `network = <CIDR_or_IF_name>`, `af = "v4"` | IF の v4 サブネットから CIDR；不能なら IF 名 |
@@ -1135,7 +1139,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 | `interfaces` | `id` | `description`, `shutdown`, `mtu`, `speed`, `addresses`, `ospf` |
 | `links` | `(subnet, a_device, a_if, b_device, b_if)` | added/removed のみ |
 | `segments` | `id` | `members`（集合比較） |
-| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source`, `route_reflector_client`, `next_hop_self`, `timers`, `send_community` |
+| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source`, `route_reflector_client`, `next_hop_self`, `timers`, `send_community`, `peer_group` |
 | `routing_ospf` | `(device, network, af)` | `process`, `area`, `area_type` |
 | `routing_static` | `(device, prefix, af)` | `next_hop` |
 

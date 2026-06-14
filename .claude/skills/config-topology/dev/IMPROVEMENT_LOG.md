@@ -32,11 +32,11 @@
 
 ### C. BGP/OSPF 設定管理（parse→build→schema→render の加算フィールド）
 - [x] C1 BGP update-source 抽出 → local_ip 解決フォールバック — M ✅反復4完了（peer-group は C1b に分割・未着手）
-- [ ] C1b BGP peer-group のメンバー継承（remote-as/update-source をグループから継承）— M
+- [x] C1b BGP peer-group のメンバー継承（remote-as/update-source をグループから継承）— M ✅反復20完了
 - [x] C2 OSPF interface cost / passive / network-type（interfaces[].ospf 加算）— M ✅反復2完了
 - [x] C3 OSPF area type (stub/nssa/totally)（routing.ospf[].area_type）— M ✅反復7完了
 - [x] C4 BGP route-reflector-client / next-hop-self（routing.bgp[].rr/nhs）— M ✅反復9完了
-- [ ] C4b BGP timers / community（routing.bgp[].attrs）— M
+- [x] C4b BGP timers / community（routing.bgp[].timers/send_community）— M ✅反復19完了
 - [x] C5 redistribute 抽出（新 routing.redistribute 層・IOS）— L ✅反復13完了
 
 ### D. 業務支援機能
@@ -189,6 +189,18 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - doc: schema.md・requirements.md §8.2・SKILL.md を同期。
 - テスト 796→815 passed（+19）。golden byte 不変（sample router-id 全null→checks 不変）。render 決定性維持。
 
-### 観点カバレッジ: A=A1,A4,A2,A5 / B=B1,B3,B4 / C=C2,C1,C3,C4,C5 / D=D1,D2,D2b,D3,D3b,D3c。**A4・B3・C5・D6**。
-### 次候補: 反復19。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
+### 反復19: C4b BGP timers / send-community（＋pending dict 統合リファクタ）— ✅完了（2026-06-14）
+- BgpNeighbor に timers（`{keepalive,holdtime}` dict 化）/ send_community（"standard"/"extended"/"both"・無印=standard）を omit-when-None 追加。IOS `neighbor timers <ka> <hold>` / `send-community [both|standard|extended]`。
+- pending dict 3個（update_source/rr/nhs）を単一 `pending_attrs[nip]` に統合し `_parse_bgp_line` を8→6引数に縮小。lib/diff.py COMPARE に timers/send_community 追加。
+- レビュー対応（実バグ）: `send-community large` の silent "standard" 誤登録を修正（未対応キーワードはスキップ）、test_diff.py の削除アサーション復元、`Optional[Tuple[int,int]]` 厳密化、address-family 配下テスト追加。
+- doc: schema.md・vendor-parsing.md・requirements.md §5.4/§6.1/§10 を同期。テスト 815→855 passed（+40）。golden byte 不変。
+
+### 反復20: C1b BGP peer-group 継承 — ✅完了（2026-06-14）
+- グループテンプレート方式。IOS `neighbor <name> 属性`（name が IP でない）→ pg_template、`neighbor <ip> peer-group <name>` → メンバー継承（remote-as/update-source/rr/nhs/timers/send-community を欠落分だけ・**個別指定が優先**）。BgpNeighbor.peer_group（omit-when-None）。BGP パース状態を単一 `bgp` dict に統合（引数再肥大を回避）。
+- JunOS は group レベル `peer-as` 継承のみ（peer_group は非出力＝golden 維持の非対称）。
+- レビュー対応（実害）: 未定義 peer-group をメンバー行だけで参照した際の **ゾンビ neighbor（peer_as=None）を排除**（メンバー生成を末尾解決へ遅延・DRY 重複も解消）、diff.py COMPARE に peer_group 追加、override 逆順/属性 override/二重登録/IPv6 メンバーのテスト補強。
+- doc: schema.md・vendor-parsing.md・requirements.md §5.4/§6.1/§6.2/§10 を同期。テスト 855→880 passed（+25）。golden byte 不変。
+
+### 観点カバレッジ: A=A1,A4,A2,A5 / B=B1,B3,B4 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D3,D3b,D3c。
+### 次候補: 反復21（A3 階層レイアウト → D2c → D4 → B5）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
 推奨順序の残り目安: D2c or B2 → C4b → A3 → A1b(要設計) → 残り。

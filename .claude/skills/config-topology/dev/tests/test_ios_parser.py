@@ -1246,3 +1246,355 @@ def test_ios_bgp_send_community_under_address_family_ipv6():
     assert nb.send_community == "extended", (
         f"address-family ipv6 配下の send-community が適用されていない。実際の値: {nb.send_community!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# C1b: BGP peer-group 継承（IOS）
+# ---------------------------------------------------------------------------
+
+def test_peer_group_inherits_remote_as():
+    """peer-group の remote-as がメンバー neighbor に継承されること（厳密等価）。
+
+    IOS: `neighbor PG remote-as 65010` + `neighbor 10.0.0.5 peer-group PG`
+    → nb(10.0.0.5).peer_as == 65010, peer_group == "PG"
+    実装を壊すと peer_as が None のまま → アサート失敗（壊すと赤）。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.neighbor_ip == "10.0.0.5"
+    assert nb.peer_as == 65010, (
+        f"peer-group PG の remote-as 65010 が継承されていない。実際: {nb.peer_as!r}"
+    )
+    assert nb.peer_group == "PG", (
+        f"peer_group フィールドが設定されていない。実際: {nb.peer_group!r}"
+    )
+
+
+def test_peer_group_member_created_without_individual_remote_as():
+    """peer-group メンバー行のみ（個別 remote-as なし）でも BgpNeighbor が生成されること。
+
+    壊すと neighbor 欠落 → len(dev.bgp)==0 で赤。
+    """
+    # Arrange: メンバー行のみ、個別 remote-as は存在しない
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65020\n"
+        " neighbor 10.0.0.6 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert len(dev.bgp) == 1, (
+        f"peer-group メンバー行で BgpNeighbor が生成されるべき。実際の件数: {len(dev.bgp)}"
+    )
+    assert dev.bgp[0].neighbor_ip == "10.0.0.6"
+
+
+def test_peer_group_member_override_wins():
+    """メンバーが個別 remote-as を持つ場合、template より個別指定が優先されること。
+
+    壊すと個別値 65099 がテンプレート 65010 に上書きされ → アサート失敗（壊すと赤）。
+    """
+    # Arrange: メンバーに個別 remote-as 65099 があり、template は 65010
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor 10.0.0.5 remote-as 65099\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65099, (
+        f"個別 remote-as 65099 が template 65010 に上書きされた。実際: {nb.peer_as!r}"
+    )
+
+
+def test_peer_group_inherits_update_source_rr_nhs_timers():
+    """peer-group template の update-source / rr / nhs / timers / send-community が
+    メンバーに継承されること（各属性の厳密等価）。
+
+    壊すと各属性が None/False のまま → アサート失敗（壊すと赤）。
+    """
+    # Arrange: template に全属性を設定、メンバーは個別指定なし
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65001\n"
+        " neighbor PG update-source Loopback0\n"
+        " neighbor PG route-reflector-client\n"
+        " neighbor PG next-hop-self\n"
+        " neighbor PG timers 10 30\n"
+        " neighbor PG send-community both\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65001, f"remote_as 継承失敗: {nb.peer_as!r}"
+    assert nb.update_source == "Loopback0", f"update_source 継承失敗: {nb.update_source!r}"
+    assert nb.route_reflector_client is True, "route_reflector_client 継承失敗"
+    assert nb.next_hop_self is True, "next_hop_self 継承失敗"
+    assert nb.timers == (10, 30), f"timers 継承失敗: {nb.timers!r}"
+    assert nb.send_community == "both", f"send_community 継承失敗: {nb.send_community!r}"
+
+
+def test_peer_group_unknown_template_no_crash():
+    """存在しない peer-group 名を参照しても例外が起きず、peer_as は既存値を維持すること。"""
+    # Arrange: PG-GHOST は定義されていない
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.5 remote-as 65002\n"
+        " neighbor 10.0.0.5 peer-group PG-GHOST\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: 例外なし、peer_as は個別設定値 65002 を維持
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65002, f"未定義 PG 参照で peer_as が壊れた: {nb.peer_as!r}"
+
+
+def test_peer_group_order_independent():
+    """peer-group 定義行・属性行・メンバー行が順不同でも継承が成立すること（決定性）。
+
+    属性行 → メンバー行 → 定義行の逆順で来てもテンプレート継承が機能する。
+    壊すと pg_template が空でメンバーに継承されない → peer_as==None でアサート失敗。
+    """
+    # Arrange: メンバー行が最初に来るパターン（最も壊れやすい順序）
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor PG peer-group\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65010, f"順不同パターンで継承失敗: {nb.peer_as!r}"
+    assert nb.peer_group == "PG"
+
+
+def test_peer_group_multiple_members():
+    """同一 peer-group に複数メンバーがいる場合、全員に継承されること。"""
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor PG timers 5 15\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        " neighbor 10.0.0.6 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 2
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    for ip in ("10.0.0.5", "10.0.0.6"):
+        assert nb_map[ip].peer_as == 65010
+        assert nb_map[ip].peer_group == "PG"
+        assert nb_map[ip].timers == (5, 15)
+
+
+# ---------------------------------------------------------------------------
+# C1b 修正: ゾンビ neighbor 排除・逆順・属性優先・重複登録防止・v6
+# ---------------------------------------------------------------------------
+
+def test_peer_group_undefined_no_zombie_neighbor():
+    """存在しない peer-group 名のみ参照（個別 remote-as なし）→ dev.bgp が空。
+
+    修正前: メンバー行で peer_as=None の BgpNeighbor を即生成→ゾンビが残る。
+    修正後: 末尾解決で未定義 PG かつ個別情報なし → BgpNeighbor を生成しない。
+    実装を壊すと dev.bgp に peer_as=None のゾンビが残り len==1 でアサート失敗（壊すと赤）。
+    """
+    # Arrange: GHOST は宣言されていない
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.5 peer-group GHOST\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert len(dev.bgp) == 0, (
+        f"未定義 peer-group のみ参照でゾンビ neighbor が生成された。"
+        f"dev.bgp={[(n.neighbor_ip, n.peer_as) for n in dev.bgp]!r}"
+    )
+
+
+def test_peer_group_override_reverse_order():
+    """メンバー割当が先・個別 remote-as が後の逆順でも個別値が勝つ。
+
+    IOS 設定例:
+      neighbor 10.0.0.5 peer-group PG   ← メンバー割当（先）
+      neighbor 10.0.0.5 remote-as 65099 ← 個別 remote-as（後）
+    個別 65099 が template 65010 より優先されるべき（個別 > template 厳守）。
+    実装を壊すと 65010 が返り アサート失敗（壊すと赤）。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        " neighbor 10.0.0.5 remote-as 65099\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65099, (
+        f"逆順で個別 remote-as 65099 が template 65010 に上書きされた。実際: {nb.peer_as!r}"
+    )
+    assert nb.peer_group == "PG"
+
+
+def test_peer_group_attr_override_wins():
+    """メンバーが個別 update-source / timers を持ち template にも別値がある → 個別が勝つ。
+
+    個別指定: update-source Loopback1, timers 3 9
+    template:  update-source Loopback0, timers 10 30
+    個別 > template を厳守。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor PG update-source Loopback0\n"
+        " neighbor PG timers 10 30\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        " neighbor 10.0.0.5 update-source Loopback1\n"
+        " neighbor 10.0.0.5 timers 3 9\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.update_source == "Loopback1", (
+        f"個別 update-source Loopback1 が template Loopback0 に上書きされた。実際: {nb.update_source!r}"
+    )
+    assert nb.timers == (3, 9), (
+        f"個別 timers (3,9) が template (10,30) に上書きされた。実際: {nb.timers!r}"
+    )
+
+
+def test_peer_group_no_double_registration():
+    """neighbor remote-as + neighbor peer-group の両指定で BgpNeighbor が1件のみ登録される。
+
+    remote-as 行で生成後にメンバー行で重複生成してはならない。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65010\n"
+        " neighbor 10.0.0.5 remote-as 65099\n"
+        " neighbor 10.0.0.5 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1, (
+        f"BgpNeighbor が重複生成された。実際の件数: {len(dev.bgp)}"
+    )
+
+
+def test_peer_group_ipv6_member():
+    """v6 アドレスのメンバー neighbor が PG6 template から peer_as を継承し af=='v6' になる。"""
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG6 peer-group\n"
+        " neighbor PG6 remote-as 65020\n"
+        " neighbor 2001:db8::5 peer-group PG6\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.neighbor_ip == "2001:db8::5"
+    assert nb.peer_as == 65020, (
+        f"v6 メンバーへの remote-as 継承失敗。実際: {nb.peer_as!r}"
+    )
+    assert nb.af == "v6", f"af が v6 になっていない。実際: {nb.af!r}"
+    assert nb.peer_group == "PG6"
+
+
+def test_peer_group_member_created_without_individual_remote_as_peer_as_value():
+    """test_peer_group_member_created_without_individual_remote_as の強化版。
+
+    peer-group テンプレートの remote-as 65020 が継承されていることを厳密等価で検証。
+    元テストは len チェックのみで peer_as 値を検証していなかった（弱さを解消）。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor PG remote-as 65020\n"
+        " neighbor 10.0.0.6 peer-group PG\n"
+        "!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.neighbor_ip == "10.0.0.6"
+    assert nb.peer_as == 65020, (
+        f"peer-group template の remote-as 65020 が継承されていない。実際: {nb.peer_as!r}"
+    )

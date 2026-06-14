@@ -637,3 +637,93 @@ def test_junos_bgp_next_hop_self_always_false():
         assert nb.next_hop_self is False, (
             "JunOS neighbor %s: next_hop_self は常に False であるべき" % nb.neighbor_ip
         )
+
+
+# ---------------------------------------------------------------------------
+# C1b: BGP group レベル peer-as 継承（JunOS）
+# ---------------------------------------------------------------------------
+
+def test_junos_group_peer_as_inherited():
+    """set protocols bgp group <g> peer-as <asn>（neighbor 無し）が
+    同一グループの neighbor.peer_as に継承されること（厳密等価）。
+
+    壊すと peer_as が None のまま → アサート失敗（壊すと赤）。
+    """
+    # Arrange: group レベル peer-as + neighbor（個別 peer-as なし）
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp peer-as 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.neighbor_ip == "10.0.0.2"
+    assert nb.peer_as == 65001, (
+        f"group peer-as 65001 が継承されていない。実際: {nb.peer_as!r}"
+    )
+
+
+def test_junos_group_peer_as_individual_wins():
+    """個別 peer-as がある場合、group peer-as より個別指定が優先されること（override 勝ち）。
+
+    壊すと group の 65001 で上書きされ → アサート失敗（壊すと赤）。
+    """
+    # Arrange: group peer-as 65001 と neighbor 個別 peer-as 65002
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group mixed peer-as 65001\n"
+        "set protocols bgp group mixed neighbor 10.0.0.3 peer-as 65002\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65002, (
+        f"個別 peer-as 65002 が group peer-as 65001 に上書きされた。実際: {nb.peer_as!r}"
+    )
+
+
+def test_junos_group_peer_as_multiple_neighbors():
+    """group peer-as が同一グループの複数 neighbor 全員に継承されること。"""
+    # Arrange
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp peer-as 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.3\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    assert len(dev.bgp) == 2
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].peer_as == 65001
+    assert nb_map["10.0.0.3"].peer_as == 65001
+
+
+def test_junos_group_peer_as_no_peer_group_field_emitted():
+    """JunOS group peer-as 継承では peer_group フィールドは出力されないこと（スコープ限定）。
+
+    JunOS group を peer_group にマッピングするとサンプル golden が変化するため対象外。
+    この非対称は仕様（C1b スコープ限定・doc に明記）。
+    """
+    # Arrange
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp peer-as 65001\n"
+        "set protocols bgp group ibgp neighbor 10.0.0.2\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: peer_group は None（JunOS では設定しない）
+    assert dev.bgp[0].peer_group is None

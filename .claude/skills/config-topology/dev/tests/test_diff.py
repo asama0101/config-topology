@@ -1328,3 +1328,59 @@ def test_routing_bgp_unchanged_send_community_not_in_changed():
     new = copy.deepcopy(old)  # old を deepcopy して new も同値にする
     diff = diff_mod.diff_topology(old, new)
     assert diff["routing_bgp"]["changed"] == []
+
+
+# ===========================================================================
+# 21. C2: routing.bgp — peer_group diff テスト
+# ===========================================================================
+
+@pytest.mark.unit
+def test_routing_bgp_changed_peer_group_none_to_value():
+    """peer_group が None→'PG' に変わった bgp エントリが changed に出ること。
+
+    diff.py COMPARE に peer_group が追加されていないと changed が空になり失敗（壊すと赤）。
+    """
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    # old 側はキー欠如（peer_group を持たない = None 相当）
+    # new 側は "PG" を設定
+    new["routing"]["bgp"][0]["peer_group"] = "PG"
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1, (
+        "peer_group None→'PG' の変化は changed に出るはず。"
+        "diff.py の COMPARE に peer_group が追加されていないと空になる。"
+    )
+    ch = changed[0]
+    assert "peer_group" in ch["fields"], \
+        "peer_group フィールドが fields に含まれるはず"
+    assert ch["fields"]["peer_group"] == [None, "PG"]
+
+
+@pytest.mark.unit
+def test_routing_bgp_changed_peer_group_value_update():
+    """peer_group が 'PG'→'PG2' に変わった場合も changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    old["routing"]["bgp"][0]["peer_group"] = "PG"
+    new["routing"]["bgp"][0]["peer_group"] = "PG2"
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1, "peer_group 'PG'→'PG2' の変化は changed に出るはず"
+    ch = changed[0]
+    assert "peer_group" in ch["fields"]
+    assert ch["fields"]["peer_group"] == ["PG", "PG2"]
+
+
+@pytest.mark.unit
+def test_routing_bgp_unchanged_peer_group_not_in_changed():
+    """peer_group が同一値のとき changed が空であること（false positive 防止）。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    old["routing"]["bgp"][0]["peer_group"] = "PG"
+    new = copy.deepcopy(old)  # old を deepcopy して new も同値にする
+    diff = diff_mod.diff_topology(old, new)
+    assert diff["routing_bgp"]["changed"] == [], \
+        "peer_group が同一値のとき changed は空であるべき（false positive）"

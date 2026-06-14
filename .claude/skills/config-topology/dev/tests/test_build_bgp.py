@@ -344,3 +344,40 @@ def test_build_bgp_golden_unchanged_with_new_fields_absent():
     # Assert: 新規フィールドが混入しない（既存 golden と同一キー集合）
     expected_keys = {"device", "local_as", "local_ip", "neighbor_ip", "peer_as", "type", "af"}
     assert set(e.keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# C1b: build_bgp — peer_group 透過テスト（omit-when-None）
+# ---------------------------------------------------------------------------
+
+def test_build_bgp_peer_group_passthrough():
+    """peer_group="PG" の BgpNeighbor の build_bgp 出力に 'peer_group': 'PG' が含まれること。
+
+    壊すと peer_group が出力されない → アサート失敗（壊すと赤）。
+    """
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.5", 65010, "v4", peer_group="PG")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "peer_group" in bgp[0]
+    assert bgp[0]["peer_group"] == "PG"
+
+
+def test_build_bgp_peer_group_none_omits_key():
+    """peer_group=None（デフォルト）の場合、build_bgp 出力に 'peer_group' キーが出ないこと（golden byte 不変）。
+
+    壊すと 'peer_group': None が混入し既存 golden が変化 → アサート失敗（壊すと赤）。
+    """
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "peer_group" not in bgp[0]
+    expected_keys = {"device", "local_as", "local_ip", "neighbor_ip", "peer_as", "type", "af"}
+    assert set(bgp[0].keys()) == expected_keys

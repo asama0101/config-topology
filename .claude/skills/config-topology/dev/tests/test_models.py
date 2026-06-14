@@ -318,3 +318,40 @@ def test_bgpneighbor_new_fields_none_leaves_base_keys_only():
     d = nb.to_dict()
     # 新規フィールドがデフォルト状態では既存キーのみ
     assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}
+
+
+# ---------------------------------------------------------------------------
+# C1b: BgpNeighbor.peer_group フィールドテスト（omit-when-None）
+# ---------------------------------------------------------------------------
+
+def test_bgpneighbor_omits_none_peer_group():
+    """peer_group=None（デフォルト）のとき to_dict() に 'peer_group' キーが出ないこと（golden byte 不変）。
+
+    peer_group フィールドが追加されても None 時は省略されること。
+    壊すと 'peer_group': None が混入しキー集合が変化 → アサート失敗（壊すと赤）。
+    """
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "peer_group" not in d
+    assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}
+
+
+def test_bgpneighbor_peer_group_set_appears_in_dict():
+    """peer_group="PG" のとき to_dict() に 'peer_group': 'PG' が出ること。
+
+    壊すと peer_group が省略される → アサート失敗（壊すと赤）。
+    """
+    nb = BgpNeighbor(neighbor_ip="10.0.0.5", peer_as=65010, af="v4", peer_group="PG")
+    d = nb.to_dict()
+    assert "peer_group" in d
+    assert d["peer_group"] == "PG"
+
+
+def test_bgpneighbor_peer_group_none_leaves_existing_keys_unchanged():
+    """peer_group=None でも既存フィールド（neighbor_ip/peer_as/af）が変わらないこと（後方互換性）。"""
+    nb = BgpNeighbor(neighbor_ip="2001:db8::2", peer_as=65002, af="v6")
+    d = nb.to_dict()
+    assert d["neighbor_ip"] == "2001:db8::2"
+    assert d["peer_as"] == 65002
+    assert d["af"] == "v6"
+    assert "peer_group" not in d

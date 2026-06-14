@@ -266,18 +266,20 @@ def _bgp_key(e):
 
 def _diff_routing_bgp(old_bgp, new_bgp):
     """routing.bgp: キー=(device,neighbor_ip,af)、changed=(peer_as,type,local_ip,update_source,
-    route_reflector_client,next_hop_self,timers,send_community)。
+    route_reflector_client,next_hop_self,timers,send_community,peer_group)。
 
     local_as は COMPARE に含まれないため changed として追跡しない。
     route_reflector_client / next_hop_self は omit-when-False フィールドのため、
     キー欠如（.get() → None）と True の差異も検出される。
-    timers / send_community は omit-when-None フィールドのため、
+    timers / send_community / peer_group は omit-when-None フィールドのため、
     キー欠如（.get() → None）と値ありの差異も検出される。
+    peer_group は所属 peer-group 名の変化（None→名前・名前→別名）を追跡する。
 
     自然キーは一意前提（load_topology が通常保証）。重複時は先勝ち。
     """
     COMPARE = ["peer_as", "type", "local_ip", "update_source",
-               "route_reflector_client", "next_hop_self", "timers", "send_community"]
+               "route_reflector_client", "next_hop_self", "timers", "send_community",
+               "peer_group"]
 
     old_by_key = _to_first_wins(old_bgp, _bgp_key)
     new_by_key = _to_first_wins(new_bgp, _bgp_key)

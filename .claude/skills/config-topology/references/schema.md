@@ -127,6 +127,7 @@ topology/
 | `next_hop_self` | bool | **任意・True 時のみ出力**。IOS `neighbor next-hop-self` が設定されているとき `true`。False の場合はキー自体を省略する（golden byte 不変）。JunOS はポリシーベースのため常に False（キー省略）。 |
 | `timers` | object \| null | **任意・設定時のみ出力**。IOS `neighbor <ip> timers <keepalive> <holdtime>` から `{keepalive: int, holdtime: int}`。未設定はキー省略（null 値は出力しない）。JunOS は非対応。 |
 | `send_community` | string \| null | **任意・設定時のみ出力**。IOS `neighbor <ip> send-community [both\|standard\|extended]`（無印は `"standard"`）。`large` 等の未対応キーワードは誤分類せずスキップ（キー省略）。JunOS は非対応。 |
+| `peer_group` | string \| null | **任意・設定時のみ出力**。IOS peer-group 名（`neighbor <ip> peer-group <name>` のメンバーが属する group。属性は group 定義から継承し個別指定が優先）。未設定はキー省略。JunOS は group を peer_group にマッピングしない（非出力）。 |
 
 ### `ospf`（object[]）
 network 宣言 1 件につき 1 エントリ。
@@ -241,7 +242,7 @@ network 宣言 1 件につき 1 エントリ。
 | `interfaces` | `id` | `description`, `shutdown`, `mtu`, `speed`, `addresses`, `ospf` |
 | `links` | `(subnet, a_device, a_if, b_device, b_if)` ※端点は辞書順で安定化 | added/removed のみ（changed なし） |
 | `segments` | `id` | `members`（集合比較） |
-| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source`, `route_reflector_client`, `next_hop_self`, `timers`, `send_community` |
+| `routing_bgp` | `(device, neighbor_ip, af)` | `peer_as`, `type`, `local_ip`, `update_source`, `route_reflector_client`, `next_hop_self`, `timers`, `send_community`, `peer_group` |
 | `routing_ospf` | `(device, network, af)` | `process`, `area`, `area_type` |
 | `routing_static` | `(device, prefix, af)` | `next_hop` |
 

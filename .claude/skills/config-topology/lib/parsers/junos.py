@@ -135,8 +135,9 @@ def parse_junos(text: str, warnings: list) -> Device:
     bgp_neighbors: dict[str, BgpNeighbor] = {}  # nip → BgpNeighbor（update_source 後付け用）
     pending_local_address: dict[str, str] = {}   # nip → local-address（peer-as より先に来た場合）
     area_types: dict[tuple[str, str], str] = {}  # {(norm_area, af): area_type_str} — 末尾で適用
-    bgp_neighbor_group: dict[str, str] = {}      # nip → group name（cluster 後付け適用用）
+    bgp_neighbor_group: dict[str, str] = {}      # nip → group name（cluster/group-peer-as 後付け適用用）
     cluster_groups: set[str] = set()             # cluster 宣言を持つ group 集合
+    group_peer_as: dict[str, int] = {}           # group name → peer-as（group レベル peer-as 継承用）
 
     def get_if(name: str) -> Interface:
         """ifaces dict から取得、未登録なら新規 Interface を作成する。"""
@@ -183,16 +184,48 @@ def parse_junos(text: str, warnings: list) -> Device:
             try:
                 af = "v6" if ":" in ip else "v4"
                 nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
-                nb = BgpNeighbor(nip, peer, af)
-                # peer-as より先に local-address が来たケースを適用
-                if nip in pending_local_address:
-                    nb.update_source = pending_local_address.pop(nip)
-                dev.bgp.append(nb)
-                bgp_neighbors[nip] = nb
-                bgp_neighbor_group[nip] = grp   # group 名を記録（cluster 後付け用）
+                if nip in bgp_neighbors:
+                    # neighbor のみ行（peer-as 無し）で先に BgpNeighbor 生成済みの場合は peer_as を更新
+                    bgp_neighbors[nip].peer_as = peer
+                else:
+                    nb = BgpNeighbor(nip, peer, af)
+                    # peer-as より先に local-address が来たケースを適用
+                    if nip in pending_local_address:
+                        nb.update_source = pending_local_address.pop(nip)
+                    dev.bgp.append(nb)
+                    bgp_neighbors[nip] = nb
+                bgp_neighbor_group[nip] = grp   # group 名を記録（cluster/group-peer-as 後付け用）
                 # 同一 neighbor IP が複数 group に跨るのは未定義（実 JunOS では発生しない・後勝ち。既存 update_source/local-address と一貫）
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos bgp neighbor parse failed: %s (%s)" % (body, e))
+            continue
+
+        # BGP neighbor のみ（peer-as 無し）: protocols bgp group <g> neighbor <ip>
+        # group レベル peer-as を継承するメンバー neighbor（`set protocols bgp group <g> neighbor <ip>`）。
+        # peer-as 有りパターンより後にマッチするよう配置（特異度: peer-as 有りを先にチェック済み）。
+        m = re.match(r"^protocols bgp group (\S+) neighbor\s+(\S+)$", body)
+        if m:
+            grp, ip = m.group(1), m.group(2)
+            try:
+                af = "v6" if ":" in ip else "v4"
+                nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
+                if nip not in bgp_neighbors:
+                    nb = BgpNeighbor(nip, None, af)
+                    if nip in pending_local_address:
+                        nb.update_source = pending_local_address.pop(nip)
+                    dev.bgp.append(nb)
+                    bgp_neighbors[nip] = nb
+                bgp_neighbor_group[nip] = grp
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos bgp neighbor (peer-as inherited from group) parse failed: %s (%s)" % (body, e))
+            continue
+
+        # BGP group レベル peer-as: protocols bgp group <g> peer-as <asn>（neighbor 無し）
+        # group の全 neighbor に peer_as を補完する（末尾一括解決）。
+        m = re.match(r"^protocols bgp group (\S+) peer-as\s+(\d+)$", body)
+        if m:
+            grp, peer = m.group(1), int(m.group(2))
+            group_peer_as[grp] = peer
             continue
 
         # BGP cluster: protocols bgp group <g> cluster <cluster-id>
@@ -293,11 +326,15 @@ def parse_junos(text: str, warnings: list) -> Device:
 
     # cluster を持つ group の neighbor に route_reflector_client=True を設定（末尾一括適用）
     # JunOS の next_hop_self はポリシーベースのため本実装では対象外（False 固定・docstring 明記）
-    if cluster_groups:
+    # group レベル peer-as: peer_as が None のメンバー neighbor に group_peer_as を補完（個別指定が優先）
+    if cluster_groups or group_peer_as:
         for nip, nb in bgp_neighbors.items():
             grp = bgp_neighbor_group.get(nip)
-            if grp and grp in cluster_groups:
-                nb.route_reflector_client = True
+            if grp:
+                if cluster_groups and grp in cluster_groups:
+                    nb.route_reflector_client = True
+                if group_peer_as and nb.peer_as is None and grp in group_peer_as:
+                    nb.peer_as = group_peer_as[grp]
 
     # OSPF network を全 IF 確定後に解決（宣言前 address 対応）
     for area, base_if, af in ospf_decls:

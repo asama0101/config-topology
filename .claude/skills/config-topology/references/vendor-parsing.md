@@ -26,6 +26,7 @@
 | | `next_hop_self`（bool）| next-hop-self フラグ（既定 False・True 時のみ to_dict 出力）。IOS `neighbor next-hop-self`。JunOS はポリシーベースで非対応（常に False）。 |
 | | `timers`（tuple[int,int] \| None）| `(keepalive, holdtime)`。IOS `neighbor <ip> timers <ka> <hold>`。to_dict では `{keepalive,holdtime}` dict 化・未設定は省略。JunOS 非対応。 |
 | | `send_community`（str \| None）| `"standard"`/`"extended"`/`"both"`。IOS `neighbor <ip> send-community [both\|standard\|extended]`（無印=standard）。未対応キーワード（large 等）はスキップ。to_dict では未設定省略。JunOS 非対応。 |
+| | `peer_group`（str \| None）| IOS peer-group 名（メンバーが属する group・継承元）。未設定は None（to_dict では省略）。JunOS は group を peer_group にマッピングしない（非出力）。 |
 | **OspfNetwork** | `process`（int \| None）| プロセス ID |
 | | `network`（str）| CIDR またはインターフェース名 |
 | | `area`（str）| エリア（正規化前） |
@@ -72,6 +73,8 @@
 | `neighbor <ip> next-hop-self` | BgpNeighbor.next_hop_self | True（remote-as と順不同可）。他 neighbor には影響しない |
 | `neighbor <ip> timers <ka> <hold>` | BgpNeighbor.timers | `(keepalive, holdtime)`（remote-as と順不同可。address-family 配下も対応） |
 | `neighbor <ip> send-community [both\|standard\|extended]` | BgpNeighbor.send_community | 無印=standard。large 等の未対応キーワードはスキップ（remote-as と順不同可。address-family 配下も対応） |
+| `neighbor <name> remote-as/update-source/...`（name が IP でない）| pg_template[name] | peer-group 定義。group に属性を集約 |
+| `neighbor <ip> peer-group <name>` | BgpNeighbor.peer_group ＋ 継承 | メンバー割当。group 属性（remote-as/update-source/rr/nhs/timers/send-community）を欠落分だけ継承（**個別指定が優先**）。個別 remote-as 無しメンバーは末尾解決で生成。未定義 group 参照は neighbor を生成しない |
 | `address-family ipv6` + `neighbor ... activate` | BgpNeighbor.af | "v6" に更新 |
 | `router ospf <pid>` / `network ... area <a>` | OspfNetwork | (af="v4", area は§6.3で正規化) |
 | `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |
@@ -107,6 +110,7 @@
 | `set routing-options autonomous-system <asn>` | Device.as_ | asn |
 | `set routing-options router-id <id>` | Device.bgp_router_id / ospf_router_id | ID（§5.2.1） |
 | `set protocols bgp group <g> neighbor <ip> peer-as <peer>` | BgpNeighbor | (af は IP 形式で v4/v6 判定) |
+| `set protocols bgp group <g> peer-as <peer>`（neighbor 無し）| BgpNeighbor.peer_as | group レベル peer-as。**その group の peer_as 未設定 neighbor のみ**に継承（個別 peer-as が優先）。peer_group フィールドは出力しない |
 | `set protocols bgp group <g> neighbor <ip> local-address <localip>` | BgpNeighbor.update_source | ローカル IP 文字列を格納（peer-as と順不同可） |
 | `set protocols bgp group <g> cluster <id>` | BgpNeighbor.route_reflector_client | cluster を持つ group に属する全 neighbor を True に設定（末尾一括適用。複数 neighbor 対応） |
 | JunOS next_hop_self | BgpNeighbor.next_hop_self | **非対応（常に False）**。JunOS は next-hop-self をポリシー（export policy）ベースで制御するため、set 形式 config から直接抽出できない |
