@@ -863,3 +863,386 @@ def test_ios_bgp_nhs_under_address_family_ipv6():
     assert len(dev.bgp) == 1
     nb = dev.bgp[0]
     assert nb.next_hop_self is True
+
+
+# ---------------------------------------------------------------------------
+# C4b: timers / send-community 抽出（IOS）+ pending dict 統合
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_timers_extracted():
+    """neighbor <ip> timers <ka> <hold> で BgpNeighbor.timers == (ka, hold)（厳密等価）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 timers 10 30\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.timers == (10, 30)
+
+
+def test_ios_bgp_timers_before_remote_as_pending():
+    """timers 行が remote-as より前に出現しても pending 経由で正しく適用されること（順不同保証）。
+
+    これは統合 pending_attrs が機能していることの証明テスト。
+    """
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 timers 10 30\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.timers == (10, 30)
+
+
+def test_ios_bgp_send_community_both_extracted():
+    """neighbor <ip> send-community both で send_community == 'both'（厳密等価）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 send-community both\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "both"
+
+
+def test_ios_bgp_send_community_plain_defaults_to_standard():
+    """引数なし send-community（`neighbor <ip> send-community` のみ）→ 'standard'。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 send-community\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "standard"
+
+
+def test_ios_bgp_send_community_extended_extracted():
+    """send-community extended → 'extended'（厳密等価）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 send-community extended\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "extended"
+
+
+def test_ios_bgp_send_community_standard_explicit():
+    """send-community standard → 'standard'（明示指定）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 send-community standard\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "standard"
+
+
+def test_ios_bgp_send_community_before_remote_as_pending():
+    """send-community が remote-as より前に出現しても pending 経由で正しく適用されること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 send-community both\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "both"
+
+
+def test_ios_bgp_timers_none_when_not_configured():
+    """timers が設定されていない neighbor の timers は None のままであること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.timers is None
+
+
+def test_ios_bgp_send_community_none_when_not_configured():
+    """send-community が設定されていない neighbor の send_community は None のままであること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community is None
+
+
+def test_ios_bgp_multiple_neighbors_no_attr_cross_contamination():
+    """複数 neighbor で update-source/rr/nhs/timers/send-community が混在しても
+    それぞれ正しい neighbor に分離適用されること（取り違え防止・統合 pending 弱くないテスト）。
+    """
+    text = (
+        "hostname RR\n"
+        "router bgp 65001\n"
+        # neighbor A: timers + rr（remote-as 後）
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " neighbor 10.0.0.2 timers 10 30\n"
+        " neighbor 10.0.0.2 route-reflector-client\n"
+        # neighbor B: send-community + nhs + update-source（remote-as 前）
+        " neighbor 10.0.0.3 send-community both\n"
+        " neighbor 10.0.0.3 next-hop-self\n"
+        " neighbor 10.0.0.3 update-source Loopback0\n"
+        " neighbor 10.0.0.3 remote-as 65002\n"
+        # neighbor C: timers のみ（remote-as 前）
+        " neighbor 10.0.0.4 timers 20 60\n"
+        " neighbor 10.0.0.4 remote-as 65003\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert set(nb_map.keys()) == {"10.0.0.2", "10.0.0.3", "10.0.0.4"}
+
+    # neighbor A の検証（取り違え: timers/rr が A に、B の属性が混入しないこと）
+    a = nb_map["10.0.0.2"]
+    assert a.timers == (10, 30)
+    assert a.route_reflector_client is True
+    assert a.next_hop_self is False
+    assert a.send_community is None
+    assert a.update_source is None
+
+    # neighbor B の検証
+    b = nb_map["10.0.0.3"]
+    assert b.send_community == "both"
+    assert b.next_hop_self is True
+    assert b.update_source == "Loopback0"
+    assert b.timers is None
+    assert b.route_reflector_client is False
+
+    # neighbor C の検証
+    c = nb_map["10.0.0.4"]
+    assert c.timers == (20, 60)
+    assert c.send_community is None
+    assert c.route_reflector_client is False
+    assert c.next_hop_self is False
+
+
+def test_ios_bgp_timers_only_targets_named_neighbor():
+    """timers は指定 neighbor のみに適用され、他 neighbor の timers は None のままであること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " neighbor 10.0.0.2 timers 5 15\n"
+        " neighbor 10.0.0.3 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].timers == (5, 15)
+    assert nb_map["10.0.0.3"].timers is None
+
+
+def test_ios_bgp_send_community_only_targets_named_neighbor():
+    """send-community は指定 neighbor のみに適用され、他 neighbor の send_community は None のままであること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " neighbor 10.0.0.2 send-community extended\n"
+        " neighbor 10.0.0.3 remote-as 65002\n!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb_map = {n.neighbor_ip: n for n in dev.bgp}
+    assert nb_map["10.0.0.2"].send_community == "extended"
+    assert nb_map["10.0.0.3"].send_community is None
+
+
+# ---------------------------------------------------------------------------
+# 修正1: send-community large の silent 誤登録バグ修正テスト（実装壊すと赤）
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_send_community_large_not_registered():
+    """send-community large は未対応キーワードのため send_community を設定せず None のままであること。
+
+    修正前は group(2)=None → 'standard' に誤登録していた実バグ。
+    このテストは実装を壊すと必ず赤になる（壊すと 'standard' が返り None アサートが失敗）。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 send-community large\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert: large は未対応のためスキップ → None のまま（'standard' に誤登録しない）
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community is None, (
+        f"send-community large は未対応キーワード。'standard' などに誤登録してはならない。"
+        f"実際の値: {nb.send_community!r}"
+    )
+
+
+def test_ios_bgp_send_community_large_before_remote_as_not_registered():
+    """send-community large が remote-as より前に来ても pending に誤登録しないこと。
+
+    pending 経由で 'standard' 相当で適用されてしまう経路も塞ぐ。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 send-community large\n"
+        " neighbor 10.0.0.2 remote-as 65002\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community is None, (
+        f"send-community large が pending 経由で誤登録された。実際の値: {nb.send_community!r}"
+    )
+
+
+def test_ios_bgp_send_community_valid_after_large_skipped():
+    """同じ neighbor に large の後 valid キーワードが来ても、valid だけ正しく登録されること。
+
+    large 行はスキップ（return）のため次の send-community 行で上書きされる想定。
+    実際のコンフィグでこの組み合わせは稀だが、スキップが副作用を持たないことを確認。
+    """
+    # Arrange: large → both の順。large はスキップ、both は登録される
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " neighbor 10.0.0.2 send-community large\n"
+        " neighbor 10.0.0.2 send-community both\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "both", (
+        f"large はスキップ後に both が登録されるはず。実際の値: {nb.send_community!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 修正6: address-family 配下の timers / send-community 抽出テスト
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_timers_under_address_family():
+    """address-family 配下の neighbor timers も _parse_bgp_line を通じて正しく適用されること。
+
+    rrc_under_address_family / nhs_under_address_family_ipv6 と同様の address-family 配下テスト。
+    実装は af 配下行も _parse_bgp_line に委譲するため、そこで timers が処理されることを担保。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65001\n"
+        " address-family ipv4\n"
+        "  neighbor 10.0.0.2 timers 10 30\n"
+        " exit-address-family\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.timers == (10, 30), (
+        f"address-family 配下の timers が適用されていない。実際の値: {nb.timers!r}"
+    )
+
+
+def test_ios_bgp_timers_under_address_family_ipv6():
+    """address-family ipv6 配下の v6 neighbor timers も正しく適用されること。"""
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 2001:db8::2 remote-as 65002\n"
+        " address-family ipv6\n"
+        "  neighbor 2001:db8::2 activate\n"
+        "  neighbor 2001:db8::2 timers 5 15\n"
+        " exit-address-family\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = [n for n in dev.bgp if n.neighbor_ip == "2001:db8::2"][0]
+    assert nb.timers == (5, 15), (
+        f"address-family ipv6 配下の timers が適用されていない。実際の値: {nb.timers!r}"
+    )
+
+
+def test_ios_bgp_send_community_under_address_family():
+    """address-family 配下の neighbor send-community both も正しく適用されること。
+
+    rrc_under_address_family と同様の address-family 配下テスト（send-community 版）。
+    """
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.0.0.2 remote-as 65002\n"
+        " address-family ipv4\n"
+        "  neighbor 10.0.0.2 send-community both\n"
+        " exit-address-family\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.send_community == "both", (
+        f"address-family 配下の send-community が適用されていない。実際の値: {nb.send_community!r}"
+    )
+
+
+def test_ios_bgp_send_community_under_address_family_ipv6():
+    """address-family ipv6 配下の v6 neighbor send-community も正しく適用されること。"""
+    # Arrange
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 2001:db8::2 remote-as 65002\n"
+        " address-family ipv6\n"
+        "  neighbor 2001:db8::2 activate\n"
+        "  neighbor 2001:db8::2 send-community extended\n"
+        " exit-address-family\n!\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = [n for n in dev.bgp if n.neighbor_ip == "2001:db8::2"][0]
+    assert nb.send_community == "extended", (
+        f"address-family ipv6 配下の send-community が適用されていない。実際の値: {nb.send_community!r}"
+    )

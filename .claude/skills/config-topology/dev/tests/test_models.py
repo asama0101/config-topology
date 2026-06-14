@@ -246,3 +246,75 @@ def test_bgpneighbor_flags_false_leaves_base_keys_only():
     assert "next_hop_self" not in d
     # 既存フィールドは不変
     assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}
+
+
+# ---------------------------------------------------------------------------
+# C4b: BgpNeighbor.timers / send_community フィールドテスト
+# ---------------------------------------------------------------------------
+
+def test_bgpneighbor_timers_none_omits_key_from_dict():
+    """timers=None（デフォルト）のとき to_dict() に 'timers' キーが出ないこと（golden byte 不変）。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "timers" not in d
+
+
+def test_bgpneighbor_timers_tuple_appears_in_dict():
+    """timers=(10, 30) のとき to_dict() に {"keepalive": 10, "holdtime": 30} が出ること（厳密等価）。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", timers=(10, 30))
+    d = nb.to_dict()
+    assert "timers" in d
+    assert d["timers"] == {"keepalive": 10, "holdtime": 30}
+
+
+def test_bgpneighbor_timers_various_values():
+    """timers=(0, 0) / (60, 180) など任意の整数ペアが正しく出力されること。"""
+    nb0 = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", timers=(0, 0))
+    assert nb0.to_dict()["timers"] == {"keepalive": 0, "holdtime": 0}
+    nb1 = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", timers=(60, 180))
+    assert nb1.to_dict()["timers"] == {"keepalive": 60, "holdtime": 180}
+
+
+def test_bgpneighbor_send_community_none_omits_key_from_dict():
+    """send_community=None（デフォルト）のとき to_dict() に 'send_community' キーが出ないこと（golden byte 不変）。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    assert "send_community" not in d
+
+
+def test_bgpneighbor_send_community_standard_appears_in_dict():
+    """send_community='standard' のとき to_dict() に 'send_community': 'standard' が出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", send_community="standard")
+    d = nb.to_dict()
+    assert d.get("send_community") == "standard"
+
+
+def test_bgpneighbor_send_community_extended_appears_in_dict():
+    """send_community='extended' のとき to_dict() に 'send_community': 'extended' が出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", send_community="extended")
+    d = nb.to_dict()
+    assert d.get("send_community") == "extended"
+
+
+def test_bgpneighbor_send_community_both_appears_in_dict():
+    """send_community='both' のとき to_dict() に 'send_community': 'both' が出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4", send_community="both")
+    d = nb.to_dict()
+    assert d.get("send_community") == "both"
+
+
+def test_bgpneighbor_timers_and_send_community_combined():
+    """timers と send_community が同時に設定されたとき、両フィールドが to_dict() に出ること。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65001, af="v4",
+                     timers=(10, 30), send_community="both")
+    d = nb.to_dict()
+    assert d["timers"] == {"keepalive": 10, "holdtime": 30}
+    assert d["send_community"] == "both"
+
+
+def test_bgpneighbor_new_fields_none_leaves_base_keys_only():
+    """timers=None かつ send_community=None のとき、to_dict() に新規キーが混入しないこと（golden byte 不変）。"""
+    nb = BgpNeighbor(neighbor_ip="10.0.0.2", peer_as=65002, af="v4")
+    d = nb.to_dict()
+    # 新規フィールドがデフォルト状態では既存キーのみ
+    assert set(d.keys()) == {"neighbor_ip", "peer_as", "af"}

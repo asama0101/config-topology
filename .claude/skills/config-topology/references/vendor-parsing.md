@@ -24,6 +24,8 @@
 | | `update_source`（str \| None）| IOS: `update-source <ifname>` のインターフェース名。JunOS: `local-address <ip>` のローカル IP 文字列。未設定は None（to_dict では省略）。build.py の `_resolve_local_ip` がサブネット一致失敗時のフォールバックに使用。 |
 | | `route_reflector_client`（bool）| RR client フラグ（既定 False・True 時のみ to_dict 出力）。IOS `neighbor route-reflector-client` / JunOS `group cluster`。 |
 | | `next_hop_self`（bool）| next-hop-self フラグ（既定 False・True 時のみ to_dict 出力）。IOS `neighbor next-hop-self`。JunOS はポリシーベースで非対応（常に False）。 |
+| | `timers`（tuple[int,int] \| None）| `(keepalive, holdtime)`。IOS `neighbor <ip> timers <ka> <hold>`。to_dict では `{keepalive,holdtime}` dict 化・未設定は省略。JunOS 非対応。 |
+| | `send_community`（str \| None）| `"standard"`/`"extended"`/`"both"`。IOS `neighbor <ip> send-community [both\|standard\|extended]`（無印=standard）。未対応キーワード（large 等）はスキップ。to_dict では未設定省略。JunOS 非対応。 |
 | **OspfNetwork** | `process`（int \| None）| プロセス ID |
 | | `network`（str）| CIDR またはインターフェース名 |
 | | `area`（str）| エリア（正規化前） |
@@ -68,6 +70,8 @@
 | `neighbor <ip> update-source <ifname>` | BgpNeighbor.update_source | インターフェース名を格納（remote-as と順不同可）。address-family 配下も対応 |
 | `neighbor <ip> route-reflector-client` | BgpNeighbor.route_reflector_client | True（remote-as と順不同可。address-family 配下も対応）。他 neighbor には影響しない |
 | `neighbor <ip> next-hop-self` | BgpNeighbor.next_hop_self | True（remote-as と順不同可）。他 neighbor には影響しない |
+| `neighbor <ip> timers <ka> <hold>` | BgpNeighbor.timers | `(keepalive, holdtime)`（remote-as と順不同可。address-family 配下も対応） |
+| `neighbor <ip> send-community [both\|standard\|extended]` | BgpNeighbor.send_community | 無印=standard。large 等の未対応キーワードはスキップ（remote-as と順不同可。address-family 配下も対応） |
 | `address-family ipv6` + `neighbor ... activate` | BgpNeighbor.af | "v6" に更新 |
 | `router ospf <pid>` / `network ... area <a>` | OspfNetwork | (af="v4", area は§6.3で正規化) |
 | `ipv6 ospf <pid> area <a>` (IF内) | OspfNetwork | (af="v6", network は v6 CIDR または IF 名) |

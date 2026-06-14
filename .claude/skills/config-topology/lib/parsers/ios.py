@@ -146,15 +146,15 @@ def _parse_redistribute_line(dev: Device, s: str, into: str) -> bool:
 
 
 def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
-                    pending_update_source: dict, warnings: list,
-                    pending_rr: dict, pending_nhs: dict) -> None:
+                    pending_attrs: dict, warnings: list) -> None:
     """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate /
-    update-source / route-reflector-client / next-hop-self / redistribute。
+    update-source / route-reflector-client / next-hop-self / timers / send-community / redistribute。
 
-    pending_update_source: {nip: ifname} — remote-as より先に update-source が来たとき一時保持する。
-    pending_rr: {nip: True} — remote-as より先に route-reflector-client が来たとき一時保持する。
-    pending_nhs: {nip: True} — remote-as より先に next-hop-self が来たとき一時保持する。
-    3つの pending 引数はいずれも必須（呼び出し元 parse_ios が実 dict を渡す）。
+    pending_attrs: {nip: {"update_source": str, "rr": True, "nhs": True,
+                           "timers": (ka, hold), "send_community": str}}
+      — remote-as より先に各属性行が来たとき一時保持する統合 pending dict。
+      呼び出し元 parse_ios が実 dict を渡す（必須）。
+      キーの対応: rr=route-reflector-client, nhs=next-hop-self。
 
     孤立 pending の挙動:
       対応する remote-as が最後まで現れなかった pending エントリは
@@ -171,15 +171,18 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
             af = "v6" if ":" in ip else "v4"
             nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
             nb = BgpNeighbor(nip, peer, af)
-            # remote-as より先に update-source が来たケースを適用
-            if nip in pending_update_source:
-                nb.update_source = pending_update_source.pop(nip)
-            # remote-as より先に route-reflector-client が来たケースを適用
-            if nip in pending_rr:
-                nb.route_reflector_client = pending_rr.pop(nip)
-            # remote-as より先に next-hop-self が来たケースを適用
-            if nip in pending_nhs:
-                nb.next_hop_self = pending_nhs.pop(nip)
+            # remote-as より先に来た属性を pending_attrs から取り出して適用
+            attrs = pending_attrs.pop(nip, {})
+            if "update_source" in attrs:
+                nb.update_source = attrs["update_source"]
+            if attrs.get("rr"):
+                nb.route_reflector_client = True
+            if attrs.get("nhs"):
+                nb.next_hop_self = True
+            if "timers" in attrs:
+                nb.timers = attrs["timers"]
+            if "send_community" in attrs:
+                nb.send_community = attrs["send_community"]
             dev.bgp.append(nb)
             neighbors[nip] = nb
         except Exception as e:                       # noqa: BLE001
@@ -202,8 +205,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
             if nip in neighbors:
                 neighbors[nip].update_source = ifname
             else:
-                # remote-as がまだ現れていない — pending に積む
-                pending_update_source[nip] = ifname
+                pending_attrs.setdefault(nip, {})["update_source"] = ifname
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp update-source parse failed: %s (%s)" % (s, e))
         return
@@ -215,8 +217,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
             if nip in neighbors:
                 neighbors[nip].route_reflector_client = True
             else:
-                # remote-as がまだ現れていない — pending に積む
-                pending_rr[nip] = True
+                pending_attrs.setdefault(nip, {})["rr"] = True
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp route-reflector-client parse failed: %s (%s)" % (s, e))
         return
@@ -228,10 +229,37 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, neighbors: dict,
             if nip in neighbors:
                 neighbors[nip].next_hop_self = True
             else:
-                # remote-as がまだ現れていない — pending に積む
-                pending_nhs[nip] = True
+                pending_attrs.setdefault(nip, {})["nhs"] = True
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp next-hop-self parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+timers\s+(\d+)\s+(\d+)", s)
+    if m:
+        ip, ka, hold = m.group(1), int(m.group(2)), int(m.group(3))
+        try:
+            nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+            if nip in neighbors:
+                neighbors[nip].timers = (ka, hold)
+            else:
+                pending_attrs.setdefault(nip, {})["timers"] = (ka, hold)
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("bgp timers parse failed: %s (%s)" % (s, e))
+        return
+    m = re.match(r"^neighbor\s+(\S+)\s+send-community(?:\s+(\S+))?", s)
+    if m:
+        ip = m.group(1)
+        arg = m.group(2)
+        if arg is not None and arg not in ("both", "standard", "extended"):
+            return  # 未対応の community 種別（large 等）は誤分類せずスキップ
+        sc = arg if arg else "standard"
+        try:
+            nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+            if nip in neighbors:
+                neighbors[nip].send_community = sc
+            else:
+                pending_attrs.setdefault(nip, {})["send_community"] = sc
+        except Exception as e:                       # noqa: BLE001
+            warnings.append("bgp send-community parse failed: %s (%s)" % (s, e))
         return
     # `no redistribute ...` はスキップ（加算的変更のみ対象）
     if s.startswith("no redistribute"):
@@ -300,9 +328,9 @@ def parse_ios(text: str, warnings: list) -> Device:
     ospf_pid = None
     bgp_af = "v4"
     neighbors = {}
-    pending_update_source = {}  # {nip: ifname} — remote-as より先に update-source が来たとき一時保持
-    pending_rr = {}             # {nip: True} — remote-as より先に route-reflector-client が来たとき一時保持
-    pending_nhs = {}            # {nip: True} — remote-as より先に next-hop-self が来たとき一時保持
+    pending_attrs = {}   # {nip: {"update_source": str, "rr": True, "nhs": True,
+                         #         "timers": (ka, hold), "send_community": str}}
+                         # — remote-as より先に各属性行が来たとき一時保持する統合 pending dict
     pending_ospf3 = []   # [(iface, pid, area)] — IF アドレス確定後に network 解決
     passive_ifaces = []  # router ospf 配下の passive-interface 名リスト
     area_types = {}      # {(ospf_pid, norm_area): area_type_str} — area stub/nssa 宣言を収集し末尾で適用
@@ -388,7 +416,7 @@ def parse_ios(text: str, warnings: list) -> Device:
             elif s == "exit-address-family":
                 bgp_af = "v4"
             else:
-                _parse_bgp_line(dev, s, bgp_af, neighbors, pending_update_source, warnings, pending_rr, pending_nhs)
+                _parse_bgp_line(dev, s, bgp_af, neighbors, pending_attrs, warnings)
         elif context == "ospf":
             _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces, area_types)
 

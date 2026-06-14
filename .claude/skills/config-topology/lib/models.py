@@ -1,7 +1,7 @@
 """ベンダー中立の正規化データモデル（要件書 §4.1）。パイプライン全体の中心。"""
 import ipaddress
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -43,6 +43,15 @@ class BgpNeighbor:
     """IOS `neighbor next-hop-self`（True 時のみ to_dict() に出力）。
     JunOS は next-hop-self をポリシーベースで制御するため本実装では常に False（§6.2）。
     """
+    timers: Optional[Tuple[int, int]] = None
+    """IOS `neighbor timers <keepalive> <holdtime>`。(keepalive:int, holdtime:int) のタプル。
+    値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。JunOS 非対応（§6.2）。
+    """
+    send_community: Optional[str] = None
+    """IOS `neighbor send-community [both|standard|extended]`。
+    引数なしは "standard" として格納。値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
+    JunOS 非対応（§6.2）。
+    """
 
     def to_dict(self):
         d = {"neighbor_ip": self.neighbor_ip, "peer_as": self.peer_as, "af": self.af}
@@ -52,6 +61,10 @@ class BgpNeighbor:
             d["route_reflector_client"] = True
         if self.next_hop_self:
             d["next_hop_self"] = True
+        if self.timers is not None:
+            d["timers"] = {"keepalive": self.timers[0], "holdtime": self.timers[1]}
+        if self.send_community is not None:
+            d["send_community"] = self.send_community
         return d
 
 

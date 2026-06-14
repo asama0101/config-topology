@@ -260,3 +260,87 @@ def test_build_bgp_golden_unchanged_no_flags():
     # Assert: 既存フィールドのみ含むこと（新規フラグキーが混入しない）
     expected_keys = {"device", "local_as", "local_ip", "neighbor_ip", "peer_as", "type", "af"}
     assert set(e.keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# C4b: build_bgp — timers / send_community 透過テスト
+# ---------------------------------------------------------------------------
+
+def test_build_bgp_timers_emits_key():
+    """timers=(10, 30) の BgpNeighbor の build_bgp 出力に 'timers': {"keepalive": 10, "holdtime": 30} が含まれること。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65001, "v4", timers=(10, 30))])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "timers" in bgp[0]
+    assert bgp[0]["timers"] == {"keepalive": 10, "holdtime": 30}
+
+
+def test_build_bgp_timers_none_omits_key():
+    """timers=None（デフォルト）の場合、build_bgp 出力に 'timers' キーが出ないこと（golden byte 不変）。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "timers" not in bgp[0]
+
+
+def test_build_bgp_send_community_emits_key():
+    """send_community='both' の BgpNeighbor の build_bgp 出力に 'send_community': 'both' が含まれること。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4", send_community="both")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "send_community" in bgp[0]
+    assert bgp[0]["send_community"] == "both"
+
+
+def test_build_bgp_send_community_none_omits_key():
+    """send_community=None（デフォルト）の場合、build_bgp 出力に 'send_community' キーが出ないこと（golden byte 不変）。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert "send_community" not in bgp[0]
+
+
+def test_build_bgp_timers_and_send_community_combined():
+    """timers と send_community が同時に設定されたとき、build_bgp 出力に両キーが含まれること。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4",
+                           timers=(10, 30), send_community="standard")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    e = bgp[0]
+    # Assert
+    assert e["timers"] == {"keepalive": 10, "holdtime": 30}
+    assert e["send_community"] == "standard"
+
+
+def test_build_bgp_golden_unchanged_with_new_fields_absent():
+    """timers=None かつ send_community=None の場合、build_bgp 出力の既存キー集合が変わらないこと（golden byte 不変）。"""
+    # Arrange
+    r1 = _dev("R1", 65001,
+              [Interface(name="GigabitEthernet0/0",
+                         addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    e = bgp[0]
+    # Assert: 新規フィールドが混入しない（既存 golden と同一キー集合）
+    expected_keys = {"device", "local_as", "local_ip", "neighbor_ip", "peer_as", "type", "af"}
+    assert set(e.keys()) == expected_keys

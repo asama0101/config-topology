@@ -150,6 +150,7 @@ def build_bgp(id_dev):
 
     update_source は値があるときのみ出力（None は省略 → golden byte 不変）。
     route_reflector_client / next_hop_self は True のときのみ出力（False は省略 → golden byte 不変）。
+    timers / send_community も同様に omit-when-None で転記（None は省略 → golden byte 不変）。
     """
     out = []
     for dev_id, dev in id_dev:
@@ -166,6 +167,10 @@ def build_bgp(id_dev):
                 entry["route_reflector_client"] = True
             if nb.next_hop_self:
                 entry["next_hop_self"] = True
+            if nb.timers is not None:
+                entry["timers"] = {"keepalive": nb.timers[0], "holdtime": nb.timers[1]}
+            if nb.send_community is not None:
+                entry["send_community"] = nb.send_community
             out.append(entry)
     return out
 

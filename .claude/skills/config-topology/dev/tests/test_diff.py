@@ -1238,3 +1238,93 @@ def test_routing_bgp_rr_true_to_false_detected():
     assert len(changed) == 1
     assert "route_reflector_client" in changed[0]["fields"]
     assert changed[0]["fields"]["route_reflector_client"] == [True, None]
+
+
+# ===========================================================================
+# C4b: routing.bgp — timers / send_community diff テスト
+# ===========================================================================
+
+@pytest.mark.unit
+def test_routing_bgp_changed_timers():
+    """timers の変更（None → dict）が routing_bgp.changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    new["routing"]["bgp"][0]["timers"] = {"keepalive": 10, "holdtime": 30}
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1, "timers の変化は changed に出るはず"
+    ch = changed[0]
+    assert "timers" in ch["fields"], "timers フィールドが fields に含まれるはず"
+    assert ch["fields"]["timers"] == [None, {"keepalive": 10, "holdtime": 30}]
+
+
+@pytest.mark.unit
+def test_routing_bgp_changed_timers_value_update():
+    """timers が dict→別値に変わった場合も changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    old["routing"]["bgp"][0]["timers"] = {"keepalive": 10, "holdtime": 30}
+    new["routing"]["bgp"][0]["timers"] = {"keepalive": 5, "holdtime": 15}
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1
+    assert "timers" in changed[0]["fields"]
+    assert changed[0]["fields"]["timers"] == [
+        {"keepalive": 10, "holdtime": 30},
+        {"keepalive": 5, "holdtime": 15},
+    ]
+
+
+@pytest.mark.unit
+def test_routing_bgp_unchanged_timers_not_in_changed():
+    """timers が同一値のとき changed が空であること（false positive 防止）。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    old["routing"]["bgp"][0]["timers"] = {"keepalive": 10, "holdtime": 30}
+    new["routing"]["bgp"][0]["timers"] = {"keepalive": 10, "holdtime": 30}
+    diff = diff_mod.diff_topology(old, new)
+    assert diff["routing_bgp"]["changed"] == []
+
+
+@pytest.mark.unit
+def test_routing_bgp_changed_send_community():
+    """send_community の変更（None → 'both'）が routing_bgp.changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    new["routing"]["bgp"][0]["send_community"] = "both"
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1, "send_community の変化は changed に出るはず"
+    ch = changed[0]
+    assert "send_community" in ch["fields"], "send_community フィールドが fields に含まれるはず"
+    assert ch["fields"]["send_community"] == [None, "both"]
+
+
+@pytest.mark.unit
+def test_routing_bgp_changed_send_community_value_update():
+    """send_community が 'standard'→'extended' に変わった場合も changed に出ること。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    new = copy.deepcopy(old)
+    old["routing"]["bgp"][0]["send_community"] = "standard"
+    new["routing"]["bgp"][0]["send_community"] = "extended"
+    diff = diff_mod.diff_topology(old, new)
+    changed = diff["routing_bgp"]["changed"]
+    assert len(changed) == 1
+    assert "send_community" in changed[0]["fields"]
+    assert changed[0]["fields"]["send_community"] == ["standard", "extended"]
+
+
+@pytest.mark.unit
+def test_routing_bgp_unchanged_send_community_not_in_changed():
+    """send_community が同一値のとき changed が空であること（false positive 防止）。"""
+    diff_mod = _import_diff()
+    old = _base_topo()
+    old["routing"]["bgp"][0]["send_community"] = "both"
+    new = copy.deepcopy(old)  # old を deepcopy して new も同値にする
+    diff = diff_mod.diff_topology(old, new)
+    assert diff["routing_bgp"]["changed"] == []
