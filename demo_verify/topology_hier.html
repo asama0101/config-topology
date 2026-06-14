@@ -1,17 +1,5 @@
-"""CSS / BODY / JS アセット定数 — design-sample.html からの移植・適応（§8.1/§8.5/§8.7）.
-
-移植元: docs/design-sample.html（確認済みインタラクティブ挙動の正本）
-変更点:
-  - _CSS: dummy-data ribbon の CSS 規則を除去
-  - _BODY: id="ribbon" スパン・ステータスバーのサンプル固定テキストを除去
-  - _JS: const DATA / const POS リテラルを除去（template が globals として注入）
-         VIEWS グローバルでキーボードショートカットのタブ遷移を駆動
-         検索 corpus・各表に addrs[] を統合（secondary 表示。link-local は ADDRESSES 除外／INTERFACES・PHYSICAL は淡色表示）
-         SVG namespace 文字列を連結式に変更（literal http:// を排除）
-"""
-
-_CSS = """\
-
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Network Topology</title><style>
 /* ============================================================
    config-topology v2.0 design sample
    aesthetic: NOC instrument console (dark) / blueprint (light)
@@ -461,20 +449,11 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
 .stats-tbl-wrap { padding: 0 20px 14px; }
 
 
-"""
-
-_BODY = """\
-
+</style></head><body>
 
 <header>
   <div class="brand"><b>CONFIG-TOPOLOGY</b><span>v2.0 design sample</span></div>
-  <nav class="tabs" id="tabs">
-    <button data-view="physical" class="active">PHYSICAL<span class="k">1</span></button>
-    <button data-view="bgp">BGP<span class="k">2</span></button>
-    <button data-view="ospf">OSPF<span class="k">3</span></button>
-    <button data-view="addr">ADDRESSES<span class="k">4</span></button>
-    <button data-view="ifs">INTERFACES<span class="k">5</span></button>
-  </nav>
+  <nav class="tabs" id="tabs"><button data-view="physical">PHYSICAL<span class="k">1</span></button><button data-view="bgp">BGP<span class="k">2</span></button><button data-view="ospf">OSPF<span class="k">3</span></button><button data-view="stats">STATS<span class="k">4</span></button><button data-view="checks">CHECKS<span class="k">5</span></button><button data-view="addr">ADDRESSES<span class="k">6</span></button><button data-view="ifs">INTERFACES<span class="k">7</span></button><button data-view="usage">SUBNETS<span class="k">8</span></button></nav>
   <div class="toolbar">
     <select id="sfield" class="sfield" title="検索対象フィールドを選択（ALL = hostname・IP・description・AS・vendor・IF名を横断）。host: 等の記法を書かずに絞り込めます">
       <option value="all">ALL</option>
@@ -567,11 +546,7 @@ _BODY = """\
 </div>
 
 
-"""
-
-# _JS: BGP SESSIONS 表の attr 列は b.rr=route_reflector_client / b.nhs=next_hop_self をバッジ表示
-_JS = """\
-
+<script>const DATA={"bgpEdges":[{"a":"r1","afs":["v4"],"aip":"10.255.0.1","b":"r2","bip":"10.255.0.2","id":"be:lb:r1:r2","kind":"loopback","label":"iBGP","type":"ibgp"},{"a":"r1","afs":["v4"],"aip":"10.255.0.1","b":"r3","bip":"10.255.0.3","id":"be:lb:r1:r3","kind":"loopback","label":"iBGP","type":"ibgp"}],"checks":[{"kind":"bgp_unresolved_local_ip","message":"BGP neighbor 10.255.0.1 の local_ip が解決できませんでした（device: r3）","refs":["r3","10.255.0.1"],"severity":"warning"},{"kind":"ibgp_fullmesh_incomplete","message":"AS 65000 の iBGP full-mesh 未完成（RR なし）: r2 と r3 の間に iBGP セッションがありません","refs":["r2","r3","65000"],"severity":"warning"},{"kind":"ospf_area0_disconnected","message":"機器 r3 は area 0 (backbone) を持たず非バックボーン area 1 のみです（area0 混在環境）","refs":["r3","1"],"severity":"warning"}],"devices":{"r1":{"as":65000,"bgp":[{"af":"v4","link":"be:lb:r1:r2","lip":"10.255.0.1","nb":"10.255.0.2","nhs":null,"pas":65000,"rr":null,"src":"Loopback0","type":"ibgp"},{"af":"v4","link":"be:lb:r1:r3","lip":"10.255.0.1","nb":"10.255.0.3","nhs":null,"pas":65000,"rr":null,"src":"Loopback0","type":"ibgp"}],"bgp_rid":"10.255.0.1","degree":2,"hostname":"r1","ifs":[{"addrs":[{"af":"v4","ip":"10.255.0.1","prefix":32}],"d":null,"ip":"10.255.0.1/32","ip6":null,"mtu":null,"n":"Loopback0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.0.12.1","prefix":30}],"d":"link-to-r2","ip":"10.0.12.1/30","ip6":null,"mtu":null,"n":"GigabitEthernet0/0","ospf":{"cost":10},"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.0.13.1","prefix":30}],"d":"link-to-r3","ip":"10.0.13.1/30","ip6":null,"mtu":null,"n":"GigabitEthernet0/1","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"192.168.10.1","prefix":24}],"d":"LAN-segment","ip":"192.168.10.1/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/2","ospf":null,"sp":null,"st":"up"}],"ospf":[{"area":"0","at":null,"net":"10.0.12.0/30","proc":1},{"area":"0","at":null,"net":"10.0.13.0/30","proc":1},{"area":"0","at":null,"net":"10.255.0.1/32","proc":1},{"area":"0","at":null,"net":"192.168.10.0/24","proc":1}],"ospf_rid":"10.255.0.1","redistribute":[],"static":[],"vendor":"cisco_ios"},"r2":{"as":65000,"bgp":[{"af":"v4","link":"be:lb:r1:r2","lip":"10.255.0.2","nb":"10.255.0.1","nhs":null,"pas":65000,"rr":null,"src":"Loopback0","type":"ibgp"}],"bgp_rid":"10.255.0.2","degree":1,"hostname":"r2","ifs":[{"addrs":[{"af":"v4","ip":"10.255.0.2","prefix":32}],"d":null,"ip":"10.255.0.2/32","ip6":null,"mtu":null,"n":"Loopback0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.0.12.2","prefix":30}],"d":"link-to-r1","ip":"10.0.12.2/30","ip6":null,"mtu":null,"n":"GigabitEthernet0/0","ospf":{"cost":10},"sp":null,"st":"up"}],"ospf":[{"area":"0","at":null,"net":"10.0.12.0/30","proc":1},{"area":"0","at":null,"net":"10.255.0.2/32","proc":1}],"ospf_rid":"10.255.0.2","redistribute":[],"static":[],"vendor":"cisco_ios"},"r3":{"as":65000,"bgp":[{"af":"v4","link":"be:lb:r1:r3","lip":null,"nb":"10.255.0.1","nhs":null,"pas":65000,"rr":null,"src":null,"type":"ibgp"}],"bgp_rid":"10.255.0.3","degree":1,"hostname":"r3","ifs":[{"addrs":[{"af":"v4","ip":"10.255.0.3","prefix":32}],"d":null,"ip":"10.255.0.3/32","ip6":null,"mtu":null,"n":"lo0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.0.13.2","prefix":30}],"d":null,"ip":"10.0.13.2/30","ip6":null,"mtu":null,"n":"ge-0/0/1","ospf":null,"sp":null,"st":"up"}],"ospf":[{"area":"1","at":null,"net":"10.0.13.0/30","proc":null},{"area":"1","at":null,"net":"10.255.0.3/32","proc":null}],"ospf_rid":"10.255.0.3","redistribute":[],"static":[],"vendor":"juniper_junos"}},"extPeers":[],"links":[{"a":"r1","ai":"GigabitEthernet0/0","aip":"10.0.12.1","area":"0","b":"r2","bi":"GigabitEthernet0/0","bip":"10.0.12.2","id":"lnk:r1::GigabitEthernet0/0|r2::GigabitEthernet0/0","subnet":"10.0.12.0/30"},{"a":"r1","ai":"GigabitEthernet0/1","aip":"10.0.13.1","area":"0/1","b":"r3","bi":"ge-0/0/1","bip":"10.0.13.2","id":"lnk:r1::GigabitEthernet0/1|r3::ge-0/0/1","subnet":"10.0.13.0/30"}],"meta":{"generated_from":["r1.cfg","r2.cfg","r3.conf"]},"segments":[],"stats":{"bgp_sessions":2,"by_area":{"0":6,"1":2},"by_as":{"65000":3},"by_vendor":{"cisco_ios":2,"juniper_junos":1},"devices":3,"dualstack_ifs":0,"interfaces":8,"link_kinds":{"link":2,"segment":0,"stub":4},"links":2,"ospf_networks":8,"segments":0,"static_routes":0},"subnet_usage":[{"af":"v4","exhausted":true,"free":0,"subnet":"10.0.12.0/30","usable":2,"used":2,"util":1.0},{"af":"v4","exhausted":true,"free":0,"subnet":"10.0.13.0/30","usable":2,"used":2,"util":1.0},{"af":"v4","exhausted":false,"free":253,"subnet":"192.168.10.0/24","usable":254,"used":1,"util":0.0039}]};</script><script>const POS={"r1":{"x":0.0,"y":-120.0},"r2":{"x":0.0,"y":0.0},"r3":{"x":0.0,"y":120.0}};</script><script>const VIEWS=["physical","bgp","ospf","stats","checks","addr","ifs","usage"];</script><script>const DIFF=null;</script><script>
 "use strict";
 const _SVG_NS = "http" + "://www.w3.org/2000/svg";  /* assembled to avoid literal URL */
 
@@ -607,7 +582,7 @@ const AREA_PALETTE = ["#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f","#5b8def
 const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
 /* BGP セッション色はピア AS でなく種別で固定（eBGP/iBGP で統一。AS の識別は AS 枠の色が担う） */
 const BGP_COLOR = { ebgp:"#e8775a", ibgp:"#7aa2f7" };
-const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
+const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
 
 /* --- データ駆動凡例用 純関数 (B4) --- */
 /* presentAreas(data): data.links (非 admin_down かつ area あり) と data.segments (area あり) から
@@ -619,7 +594,7 @@ function presentAreas(data) {
   const collect = a => {
     if (a == null) return;
     for (const part of String(a).split("/")) {
-      const n = /^\\d+$/.test(part.trim()) ? +part.trim() : null;
+      const n = /^\d+$/.test(part.trim()) ? +part.trim() : null;
       if (n !== null) seen.add(n);
     }
   };
@@ -1098,13 +1073,12 @@ function render() {
       if (S.sel.has(e.id)) ecls.push("selected");
       else if (hoverNode === e.id) ecls.push("hovered");
       if (S.matches.includes(e.id)) ecls.push("search-hit");
-      // 外部ピアは hn（neighbor IP）の 1 行のみ。AS は vbar 色・枠ラベル・ホバー title で識別する。
-      // 機器ノード（hn + sub 2 行）と意図的に非対称。副ラベル行（class=sub）は存在しない。
       parts.push(`<g class="${ecls.join(" ")}" data-elem="ext" data-id="${e.id}">
         <title>${esc(e.label)}</title>
         <rect class="body" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}" rx="9"/>
         <rect class="vbar" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="5" height="${NODE_H}" rx="2.5" fill="${asColor(e.as)}"/>
-        <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(truncateLabel(e.sub, extMaxc))}</text>
+        <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(truncateLabel(e.label, extMaxc))}</text>
+        <text class="sub" x="${p.x-NODE_W/2+16}" y="${p.y+15}">${esc(truncateLabel(e.sub, extMaxc))}</text>
       </g>`);
     }
   }
@@ -1118,7 +1092,7 @@ function render() {
     if (S.matches.includes(id)) cls.push("search-hit");
     const vbarColor = S.view === "bgp" ? asColor(d.as) : (d.vendor === "cisco_ios" ? "#5b8def" : "#43b97f");
     const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
-      : S.view === "bgp" ? (d.bgp_rid ? `rid ${d.bgp_rid}` : "bgp rid なし") : d.vendor;
+      : S.view === "bgp" ? `AS ${d.as}${d.bgp_rid ? ` · rid ${d.bgp_rid}` : ""}` : d.vendor;
     const {w, h} = nodeScale(d.degree||0);
     const maxc = nodeLabelMaxChars(w);
     parts.push(`<g class="${cls.join(" ")}" data-elem="dev" data-id="${id}">
@@ -1420,7 +1394,7 @@ function renderTableView() {
 
 /* v4 subnet "a.b.c.d/p" → 範囲情報（IPAM 計算用）。パース不能なら null */
 function v4SubnetRange(net) {
-  const m = String(net).match(/^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)\\/(\\d+)$/);
+  const m = String(net).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
   if (!m) return null;
   const base = ((+m[1]<<24) | (+m[2]<<16) | (+m[3]<<8) | (+m[4])) >>> 0, p = +m[5];
   return { base, p, usable: p === 32 ? 1 : (p === 31 ? 2 : 2 ** (32 - p) - 2) };
@@ -1515,7 +1489,7 @@ function renderAddrTable() {
     ip:  r => r.ip  ? [0, ipToU32(r.ip.split("/")[0]), ""] : [1, 0, ""],
     ip6: r => r.ip6 ? [0, 0, r.ip6] : [1, 0, ""],
   };
-  const tsvLines = ["Network(v4)\\tNetwork(v6)\\tDevice\\tInterface\\tIPv4\\tIPv6\\tDescription\\tStatus"];
+  const tsvLines = ["Network(v4)\tNetwork(v6)\tDevice\tInterface\tIPv4\tIPv6\tDescription\tStatus"];
   const allCollapsed = keys.length > 0 && keys.every(k => S.collapsedNets.has(k));
   let html = `<div class="thead"><h3>ADDRESSES</h3><span class="cnt">${flt.length} 行 / ${keys.length} サブネット</span>
       <button class="tbtn" data-foldall="${allCollapsed?"open":"close"}">${allCollapsed?"全展開":"全折りたたみ"}</button>
@@ -1542,7 +1516,7 @@ function renderAddrTable() {
     html += `<tr class="grph" data-grp="${esc(key)}"><td colspan="6">${closed?"▸":"▾"} ${esc(label)}` +
       `<span class="usage">${esc(usage)}</span></td></tr>`;
     for (const r of members) {
-      tsvLines.push([r.netV4||"", r.netV6||"", r.dev, r.ifn, r.ip||"", r.ip6||"", r.desc||"", r.st].join("\\t"));
+      tsvLines.push([r.netV4||"", r.netV6||"", r.dev, r.ifn, r.ip||"", r.ip6||"", r.desc||"", r.st].join("\t"));
       if (closed) continue;
       const dup4 = dupOf(r, r.ip, "v4"), dup6 = dupOf(r, r.ip6, "v6");
       html += `<tr class="trow">
@@ -1554,7 +1528,7 @@ function renderAddrTable() {
         <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}</td></tr>`;
     }
   }
-  lastTsv = tsvLines.join("\\n");
+  lastTsv = tsvLines.join("\n");
   html += `</table>
     <div class="tnote">見出しクリックで折りたたみ（▾/▸） / 使用率 = 使用アドレス数/収容数（v4） /
     ⚠ 赤 = 重複IP（複数機器に同一アドレス） / オレンジの "—" = description 未設定 /
@@ -1586,7 +1560,7 @@ function connectedTo(devId, ifn) {
 /* IF 種別: unused（ip/ip6/desc すべて無し）/ loopback / connected / stub */
 function ifKind(devId, i) {
   if (!i.ip && !i.ip6 && !i.d) return "unused";
-  if (/^lo(opback)?\\d*$/i.test(i.n)) return "loopback";
+  if (/^lo(opback)?\d*$/i.test(i.n)) return "loopback";
   if (connectedTo(devId, i.n)) return "connected";
   return "stub";
 }
@@ -1594,7 +1568,7 @@ const IFK_LABEL = { connected:"接続", stub:"スタブ", unused:"未使用", lo
 const isPhysical = n => n.includes("/");                                  /* スロット番号を持つ物理ポート */
 const lineCard = n => n.includes("/") ? n.slice(0, n.lastIndexOf("/")) : "(virtual)";
 /* 自然順ソートキー: 数字部をゼロ埋めして文字列比較（Gi0/2 < Gi0/10） */
-const naturalKey = s => String(s).toLowerCase().replace(/\\d+/g, m => m.padStart(8, "0"));
+const naturalKey = s => String(s).toLowerCase().replace(/\d+/g, m => m.padStart(8, "0"));
 
 /* ---- ポートの運用状態（予約 / 使用不可）の手動指定。ブラウザ localStorage に永続化 ----
    実装版ではこれは config ではなく「運用アノテーション」として config と分離して保持する想定 */
@@ -1902,7 +1876,7 @@ function renderIfsTable() {
     sp:  r => r.sp == null ? [1, 0] : [0, +(SPEED_NORM[r.sp] || r.sp) || 0],
   };
   /* 機器ごとにグループ化（ADDRESSES の grph/折りたたみ基盤を流用。キーは "dev:<id>"） */
-  const tsvLines = ["Device\\tInterface\\tConnected to\\tType\\tPortState\\tIPv4\\tIPv6\\tDescription\\tStatus\\tMTU\\tSpeed\\t備考"];
+  const tsvLines = ["Device\tInterface\tConnected to\tType\tPortState\tIPv4\tIPv6\tDescription\tStatus\tMTU\tSpeed\t備考"];
   const connLabel = r => r.conn ? r.conn.label : (r.kind === "stub" ? "(stub)" : "—");
   /* カテゴリ別カウント（使用/予約/不可/空き）を非ゼロのみ色付きで連結 */
   const catSpans = c => ["used","reserved","disabled","free"].filter(k => c[k])
@@ -1925,7 +1899,7 @@ function renderIfsTable() {
     const cardLines = cardEntries.map(([c, list], idx) => {
       const tree = idx === cardEntries.length - 1 ? "└" : "├";
       return `${tree} ${esc(c.padEnd(22))} ${catSpans(tally(list))}  <span class="dim-t">(${list.length})</span>`;
-    }).join("\\n");
+    }).join("\n");
     body += `<tr class="grph" data-grp="dev:${esc(id)}"><td colspan="10"><span class="ghtop">${closed?"▸":"▾"} ${esc(d.hostname)} <span class="dim-t">[${esc(d.vendor)}]</span>` +
       `<span class="usage">物理${phys.length}ポート ${catSpans(devCat)}</span></span>` +
       (!closed && cardLines ? `<div class="cards2">${cardLines}</div>` : "") + `</td></tr>`;
@@ -1935,7 +1909,7 @@ function renderIfsTable() {
       const cl = connLabel(r);
       const eff = effRole(r.devId, r.ifn);
       const physical = isPhysical(r.ifn);
-      tsvLines.push([r.dev, r.ifn, cl, IFK_LABEL[r.kind], physical?CAT_LABEL[portCat(r.devId, DATA.devices[r.devId].ifs.find(x=>x.n===r.ifn))]:"", r.ip||"", r.ip6||"", r.desc||"", r.st, r.mtu==null?"":r.mtu, r.sp||"", noteOf(r.devId, r.ifn).replace(/\\t/g," ")].join("\\t"));
+      tsvLines.push([r.dev, r.ifn, cl, IFK_LABEL[r.kind], physical?CAT_LABEL[portCat(r.devId, DATA.devices[r.devId].ifs.find(x=>x.n===r.ifn))]:"", r.ip||"", r.ip6||"", r.desc||"", r.st, r.mtu==null?"":r.mtu, r.sp||"", noteOf(r.devId, r.ifn).replace(/\t/g," ")].join("\t"));
       if (closed) continue;
       const jump = r.conn && r.conn.peerDev;
       const connCell = jump
@@ -1967,7 +1941,7 @@ function renderIfsTable() {
         <td><input class="noteinput" data-note="${esc(r.devId)}:${esc(r.ifn)}" value="${esc(noteOf(r.devId, r.ifn))}" placeholder="メモ…" autocomplete="off"></td></tr>`;
     }
   }
-  lastTsv = tsvLines.join("\\n");
+  lastTsv = tsvLines.join("\n");
   const chip = (v, label) => `<button class="tbtn ${kf===v?"on":""}" data-ifk="${v}">${label}</button>`;
   /* 全展開/全折りたたみ判定は実描画したグループ（フィルタ後）で算出 */
   const allCollapsed = renderedKeys.length > 0 && renderedKeys.every(k => S.collapsedNets.has(k));
@@ -2480,7 +2454,7 @@ window.addEventListener("keydown", ev => {
   if (ev.key === "f" || ev.key === "F") zoomFit();
   else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
   else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }
-  else if (/^\\d$/.test(ev.key)) {
+  else if (/^\d$/.test(ev.key)) {
     const _vi = +ev.key - 1;
     if (_vi >= 0 && _vi < VIEWS.length) setView(VIEWS[_vi]);
   }
@@ -2513,4 +2487,4 @@ update();
 zoomFit();
 window.addEventListener("resize", () => schedule(render));
 
-"""
+</script></body></html>

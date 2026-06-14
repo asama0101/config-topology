@@ -1,0 +1,6 @@
+generated_from:
+- r1.cfg
+- r2.cfg
+- r3.conf
+schema_version: '1.0'
+title: Network Topology (config-derived)

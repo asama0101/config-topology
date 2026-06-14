@@ -2243,15 +2243,16 @@ def test_a5_device_node_title_before_rect():
 
 @pytest.mark.unit
 def test_a5_ext_node_uses_truncate_label():
-    """ext ノード（外部ピア）描画が truncateLabel を使って e.label を省略すること。
+    """ext ノード（外部ピア）描画が truncateLabel を使って e.sub（neighbor IP）を省略すること。
 
-    external peers セクションで truncateLabel(e.label, ...) が呼ばれていること。
+    BGP ビュー変更後: external peers セクションの hn テキストは truncateLabel(e.sub, ...) を使う。
+    e.label（AS xxx）は <title> ホバーにのみ残り、ノード上には表示されない。
     """
     ext_peers_start = assets._JS.find("/* --- external peers")
     assert ext_peers_start != -1, "external peers セクションが見つからない"
     ext_section = assets._JS[ext_peers_start:ext_peers_start + 1000]
-    assert "truncateLabel(e.label," in ext_section, \
-        "ext ノード描画で truncateLabel(e.label, ...) が呼ばれていない"
+    assert "truncateLabel(e.sub," in ext_section, \
+        "ext ノード描画で truncateLabel(e.sub, ...) が呼ばれていない（neighbor IP が主ラベルに使われていない）"
 
 
 @pytest.mark.unit
@@ -3500,3 +3501,143 @@ process.stdout.write("ok");
         f"toggleShortcutsOverlay DOM-stub テスト失敗:\n"
         f"stdout={r.stdout!r}\nstderr={r.stderr!r}"
     )
+
+
+# ===========================================================================
+# BGP ビュー ノード AS 番号表記削除（機器ノード副ラベル + 外部ピアノード主ラベル）
+# ===========================================================================
+
+@pytest.mark.unit
+def test_bgp_device_sub_uses_bgp_rid_not_as():
+    """機器ノードの BGP 分岐が bgp_rid を表示し、旧形 `AS ${d.as}` を含まないこと。
+
+    変更後の sub 式は:
+      S.view === "bgp" ? (d.bgp_rid ? `rid ${d.bgp_rid}` : "bgp rid なし")
+    を使う。旧形 `AS ${d.as}` が存在すると AS 番号がノード上に表示されてしまう。
+    """
+    js = assets._JS
+    # 新形: bgp_rid を使う分岐が存在すること（クォート種を問わず単一 assert）
+    assert 'd.bgp_rid ? `rid ${d.bgp_rid}`' in js, \
+        "機器ノード BGP 分岐に `rid ${d.bgp_rid}` 形式が含まれていない"
+    # 新形フォールバック: "bgp rid なし" が存在すること
+    assert '"bgp rid なし"' in js, \
+        "機器ノード BGP 分岐のフォールバック \"bgp rid なし\" が含まれていない"
+    # 旧形不在: `AS ${d.as}` が機器ノード描画箇所に残っていないこと（戻すと赤）
+    device_nodes_start = js.find("/* --- device nodes ---")
+    assert device_nodes_start != -1, "device nodes セクションが見つからない"
+    device_section = js[device_nodes_start:device_nodes_start + 1500]
+    assert '`AS ${d.as}`' not in device_section, \
+        "機器ノード BGP 分岐に旧形 `AS ${d.as}` が残っている（AS がノード上に表示されてしまう）"
+
+
+@pytest.mark.unit
+def test_bgp_device_sub_bgp_rid_fallback_present():
+    """機器ノード BGP 分岐: bgp_rid が無いとき "bgp rid なし" フォールバックが使われること。
+
+    壊すと赤: フォールバック文字列を変更・削除するとこのテストが失敗する。
+    """
+    assert '"bgp rid なし"' in assets._JS, \
+        "\"bgp rid なし\" が _JS に含まれていない（BGP rid フォールバックが消えている）"
+
+
+@pytest.mark.unit
+def test_bgp_device_sub_ospf_branch_unchanged():
+    """機器ノード OSPF 分岐が従来通り残っていること（回帰防止）。
+
+    OSPF ビューの sub は `rid ${d.ospf_rid}` または "ospf rid なし" のまま。
+    BGP 変更で OSPF 分岐が壊れていないことを確認する。
+    """
+    js = assets._JS
+    assert '`rid ${d.ospf_rid}`' in js, \
+        "OSPF 分岐 `rid ${d.ospf_rid}` が消えている（回帰）"
+    assert '"ospf rid なし"' in js, \
+        "OSPF フォールバック \"ospf rid なし\" が消えている（回帰）"
+
+
+@pytest.mark.unit
+def test_bgp_device_sub_vendor_branch_unchanged():
+    """機器ノードの物理ビュー分岐（d.vendor）が従来通り残っていること（回帰防止）。
+
+    physical ビューでは sub は d.vendor を表示する。BGP 変更で壊れていないことを確認する。
+    """
+    device_nodes_start = assets._JS.find("/* --- device nodes ---")
+    assert device_nodes_start != -1, "device nodes セクションが見つからない"
+    device_section = assets._JS[device_nodes_start:device_nodes_start + 1500]
+    assert "d.vendor" in device_section, \
+        "device nodes セクションに d.vendor が含まれていない（物理ビュー分岐が消えている）"
+
+
+@pytest.mark.unit
+def test_bgp_ext_peer_hn_uses_e_sub_not_e_label():
+    """外部ピアノードの主ラベル（hn）が e.sub（neighbor IP）を使うこと。
+
+    変更後: <text class="hn"> は truncateLabel(e.sub, ...) を表示する。
+    旧形: truncateLabel(e.label, ...) が hn に使われていた（AS xxx がノード上に表示されていた）。
+    壊すと赤: e.label を hn に戻すとこのテストが失敗する。
+    """
+    ext_peers_start = assets._JS.find("/* --- external peers")
+    assert ext_peers_start != -1, "external peers セクションが見つからない"
+    ext_section = assets._JS[ext_peers_start:ext_peers_start + 1000]
+    # 新形: hn が e.sub を使う
+    assert 'class="hn"' in ext_section and 'truncateLabel(e.sub,' in ext_section, \
+        "ext ノード hn に truncateLabel(e.sub, ...) が使われていない"
+    # 旧形不在: e.label が hn の <text>...</text> 内に使われていないこと（戻すと赤）
+    # 属性末尾の ">" ではなく "</text>" まで切り出すことでテンプレート本文を含める
+    hn_pos = ext_section.find('class="hn"')
+    assert hn_pos != -1, 'class="hn" が ext セクションに見つからない'
+    hn_elem_end = ext_section.find("</text>", hn_pos) + len("</text>")
+    hn_content = ext_section[hn_pos:hn_elem_end]
+    assert "truncateLabel(e.sub," in hn_content, \
+        "ext ノード hn テキストに truncateLabel(e.sub, ...) が含まれていない"
+    assert "truncateLabel(e.label," not in hn_content, \
+        "ext ノード hn テキストに旧形 truncateLabel(e.label, ...) が残っている（AS がノード主ラベルに表示される）"
+
+
+@pytest.mark.unit
+def test_bgp_ext_peer_sub_text_removed():
+    """外部ピアノードの副ラベル（<text class="sub">）が削除されていること。
+
+    変更後: <text class="sub"> の行は ext ブロックに存在しない。
+    旧形: sub に e.sub（neighbor IP）を表示していた行が残ると AS テキストが別途表示される。
+    壊すと赤: <text class="sub"> を ext ブロックに戻すとこのテストが失敗する。
+    """
+    ext_peers_start = assets._JS.find("/* --- external peers")
+    assert ext_peers_start != -1, "external peers セクションが見つからない"
+    ext_section = assets._JS[ext_peers_start:ext_peers_start + 1000]
+    assert '<text class="sub"' not in ext_section, \
+        "ext ノードに <text class=\"sub\"> が残っている（旧構造が残存している）"
+
+
+@pytest.mark.unit
+def test_bgp_ext_peer_title_preserved():
+    """外部ピアノードの <title>（ホバー）が e.label を保持していること（AS 文脈の維持）。
+
+    変更後も <title>${esc(e.label)}</title> は残す（ホバーで AS 情報を確認できる）。
+    壊すと赤: title を削除・変更するとこのテストが失敗する。
+    """
+    ext_peers_start = assets._JS.find("/* --- external peers")
+    assert ext_peers_start != -1, "external peers セクションが見つからない"
+    ext_section = assets._JS[ext_peers_start:ext_peers_start + 1000]
+    assert "<title>" in ext_section and "esc(e.label)" in ext_section, \
+        "ext ノードの <title>${esc(e.label)}</title> が消えている（ホバーで AS 文脈が失われる）"
+
+
+@pytest.mark.unit
+def test_as_identification_means_preserved():
+    """AS 識別手段（asColor・aslabel 枠ラベル・検索 as: 分岐）がソースに残っていること。
+
+    ノード上の AS テキスト削除後も AS の識別手段が残ることを担保する回帰テスト。
+    壊すと赤: asColor / aslabel / as: 検索のいずれかを削除するとこのテストが失敗する。
+    """
+    js = assets._JS
+    # AS 枠の色: device/ext 両 vbar で asColor( が使われていること（消すと赤）
+    assert "asColor(" in js, "asColor が _JS から消えている（AS 色識別が失われる）"
+    # AS 枠ラベル: aslabel テキスト内に "AS ${as}" が存在すること（消すと赤）
+    assert "AS ${as}" in js, \
+        "aslabel の \"AS ${as}\" が _JS から消えている（AS 枠ラベルが失われる）"
+    # 検索 corpus: device ノードで "AS"+d.as がインデックスされていること（消すと赤）
+    assert '"AS"+d.as' in js, \
+        'corpus の "AS"+d.as が _JS から消えている（AS による検索が失われる）'
+    # 検索クリック: clk(`as:${a}`) で AS フィルタリングできること（消すと赤）
+    assert 'clk(`as:' in js, \
+        "検索クリック clk(`as: が _JS から消えている（AS フィルタリングが失われる）"

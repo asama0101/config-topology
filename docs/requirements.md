@@ -876,7 +876,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 
 ノード幅に対して長いホスト名（例 `core-router-dc1-rack5-unit12`）は、ノード矩形からはみ出し視認性が低下する。
 
-- **省略**: device ノード・ext ノードの hostname/label ラベルは、ノード幅 `w` に基づく概算最大文字数（`nodeLabelMaxChars(w)`）で省略し、末尾に「…」（U+2026）を付加する。副ラベル（vendor / AS・router-id 等）も同じ `maxChars` で省略する。
+- **省略**: device ノード・ext ノードの hostname/label ラベルは、ノード幅 `w` に基づく概算最大文字数（`nodeLabelMaxChars(w)`）で省略し、末尾に「…」（U+2026）を付加する。副ラベル（ビュー別: 物理=vendor / OSPF=`rid <ospf_rid>` / BGP=`rid <bgp_rid>`）も同じ `maxChars` で省略する。外部ピアノードの主ラベルは neighbor IP。
 - **full text ホバー表示**: 各ノード `<g>` の最初の子として `<title>${esc(hostname)}</title>` を追加する。ブラウザネイティブの SVG ツールチップで full hostname がホバー時に表示される。
 - **省略は表示テキストのみ**: 検索 corpus・data-id・選択判定・クリック/ホバー判定等の内部ロジックは full 値のまま変更しない。検索が省略形に影響されないこと。
 - **純関数・決定的**: `nodeLabelMaxChars(w)` と `truncateLabel(text, maxChars)` は DOM 非依存の純関数。同一入力 → 同一出力（§9.1 の決定性維持）。
@@ -886,14 +886,14 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 
 | 要素 | 可視化要件 |
 |------|----------|
-| **機器** | ノード（矩形等）+ hostname ラベル + 副ラベル（ビュー別: vendor / AS・router-id 等）。**インターフェースチップは描画しない**（§8.4.1） |
+| **機器** | ノード（矩形等）+ hostname ラベル + 副ラベル（ビュー別: 物理=vendor / OSPF=`rid <ospf_router_id>` / BGP=`rid <bgp_router_id>`）。**BGP ビューは AS 番号を副ラベルに出さない**（AS の識別は §8.4 の AS 枠ラベル「AS xxx」と枠/ノードの色が担う）。**インターフェースチップは描画しない**（§8.4.1） |
 | **リンク** | 実線。選択・ライン選択・ライン hover 時に**線端の IF 名 / IPv4 / IPv6（GUA＋link-local を淡色併記）を改行で縦積み**表示し、中央に subnet（dual-stack は v4・v6 を併記）を表示（§8.5）。subnet ラベルはエッジの**法線方向**に決定的オフセット（`edgeNormalOffset`）を加えて配置し、エッジの角度によらず線との重なりを避ける（A2） |
 | **admin_down リンク** | 破線・淡色で区別 |
 | **dual-stack リンク** | 線種は分けない（通常の1本線）。v6 は IF 端ラベル・subnet ラベルに v4 と同形式で併記する |
 | **セグメント** | 中央ノード（楕円等）＋メンバー IF への放射状接続（spoke）。subnet ラベル。spoke にも IF 名 / IP ラベルを併記（選択・hover 時） |
 | **OSPF area** | OSPF ビューで area ごとの色分けと area / network（subnet・dual-stack は v6 も）注釈 |
 | **BGP セッション** | 種別（eBGP / iBGP）で**固定2色**に着色（ピア AS では着色しない。AS の識別は AS 枠の色が担う）。iBGP（loopback ピア）は破線等で区別。over-link（物理リンク上のセッション）は対応リンクと同じ端点で、loopback/external は対向ノードまで、それぞれ曲線等で描く |
-| **BGP AS** | AS 番号付きグループ枠。AS 間ピアリング線。**外部ピア（config 非存在の対向）は機器と同じノード描画＋点線枠で区別**し、凡例も機器とは別項目にする |
+| **BGP AS** | AS 番号付きグループ枠。AS 間ピアリング線。**外部ピア（config 非存在の対向）は機器と同じノード描画＋点線枠で区別**し、凡例も機器とは別項目にする。外部ピアノードの**主ラベルは neighbor IP**（AS 番号は枠ラベル・枠の色・ホバー `<title>` で識別）|
 | **凡例** | 現在のビューで使用中の記号・色の凡例パネル（表示/非表示切替可）。色付き線・破線の凡例項目は**クリックで該当要素を強調**（再クリックで解除）できる。凡例項目は**データ駆動**で生成する: OSPF ビューは**実在する area** を数値昇順で列挙（ハードコードしない）、BGP ビューは**実在する AS** を数値昇順で列挙し AS 別一括強調（`as:<n>` 強調）を提供する。area/AS 強調はビュー切替時にリセットする |
 
 #### 8.4.1 IF チップの廃止（v2.0）
