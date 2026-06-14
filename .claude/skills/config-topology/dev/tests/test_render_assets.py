@@ -4310,6 +4310,33 @@ def test_stub_validIds_and_view_cleanup():
 
 
 @pytest.mark.unit
+def test_stub_category_toggle_filters():
+    """loopback/stub のカテゴリ全体トグル（segment の #f-seg に相当）が実装されていること。
+
+    - 状態 S.filters に lo/stub
+    - ツールバー UI #f-lo / #f-stub（checked）
+    - onchange ハンドラ
+    - stubFiltered(id) ヘルパを visible()/selectable() で使用（カテゴリ非表示）
+    壊すと赤: どれかを消すと loopback/stub の全体表示トグルが効かなくなる。
+    """
+    js = assets._JS
+    body = assets._BODY
+    # 状態とUIとハンドラ
+    assert "filters:{seg:true, lo:true, stub:true, ext:true}" in js, \
+        "S.filters に lo/stub の初期値が無い"
+    assert 'id="f-lo"' in body, "ツールバーに #f-lo チェックボックスが無い"
+    assert 'id="f-stub"' in body, "ツールバーに #f-stub チェックボックスが無い"
+    assert '$("#f-lo").onchange' in js and '$("#f-stub").onchange' in js, \
+        "#f-lo / #f-stub の onchange ハンドラが無い"
+    # stubFiltered ヘルパと visible/selectable での使用
+    assert "function stubFiltered(id)" in js, "stubFiltered ヘルパが無い"
+    assert 'st.kind === "loopback" && !S.filters.lo' in js and 'st.kind === "stub" && !S.filters.stub' in js, \
+        "stubFiltered が kind ごとに S.filters.lo/stub を見ていない"
+    assert js.count("if (stubFiltered(id)) return false;") >= 2, \
+        "visible()/selectable() の両方で stubFiltered を使っていない"
+
+
+@pytest.mark.unit
 def test_stub_uses_areabadge_helper():
     """stub ブロックが areaBadge() ヘルパーを呼び出していること（OSPF area バッジ・DRY）。"""
     blk = _stub_block(assets._JS)

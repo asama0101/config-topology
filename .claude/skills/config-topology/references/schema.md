@@ -259,7 +259,7 @@ network 宣言 1 件につき 1 エントリ。
 | `area` | string \| null | OSPF area。IP を routing.ospf の network と `ipaddress` 内包判定し**最長プレフィックス一致**で採用（同長は area 昇順）。**OSPF 非参加は `None`**（スキップせず・OSPF ビューでのみ非描画） |
 | `kind` | string | `"loopback"`（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）/ `"stub"` |
 
-ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**ハイライトは segment と統一**: 楕円/スポーク hover で IF/IP ラベル（`stackLabel`）、クリックで `setHotNet`（subnet 連動選択＝親デバイス自動選択＋表行連動）。凡例に専用 `loopback`/`stub` 項目（クリックで該当群を強調・他を dim）。表示ノードパネルで個別非表示可。**stub は POS 非登録＝非ドラッグ（mousedown は POS 存在ガードで pan にフォールバック）**。adj/検索 corpus 非参加のため connectedOnly 時は非表示・検索中は dim（最小変更のため許容）。
+ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**ハイライトは segment と統一**: 楕円/スポーク hover で IF/IP ラベル（`stackLabel`）、クリックで `setHotNet`（subnet 連動選択＝親デバイス自動選択＋表行連動）。凡例に専用 `loopback`/`stub` 項目（クリックで該当群を強調・他を dim）。表示ノードパネルで個別非表示可、**ツールバーの loopback / スタブ チェックボックスでカテゴリ全体の表示/非表示を一括切替**（`S.filters.lo`/`S.filters.stub`・`stubFiltered(id)` が `visible()`/`selectable()` で判定・segment の `S.filters.seg` と対）。**stub は POS 非登録＝非ドラッグ（mousedown は POS 存在ガードで pan にフォールバック）**。adj/検索 corpus 非参加のため connectedOnly 時は非表示・検索中は dim（最小変更のため許容）。
 
 ---
 

@@ -501,6 +501,8 @@ _BODY = """\
     </div>
     <span class="tsep gonly"></span>
     <label class="tchk gonly"><input type="checkbox" id="f-seg" checked>セグメント</label>
+    <label class="tchk gonly"><input type="checkbox" id="f-lo" checked>loopback</label>
+    <label class="tchk gonly"><input type="checkbox" id="f-stub" checked>スタブ</label>
     <label class="tchk gonly"><input type="checkbox" id="f-ext" checked>外部ピア</label>
     <span class="tsep gonly"></span>
     <button class="tbtn gonly" id="btn-nodes" title="表示するノードを個別に指定">表示ノード</button>
@@ -650,7 +652,7 @@ const S = {
   sel:new Set(), search:"", matches:[], mi:-1,
   connectedOnly:false,
   focusMode:false, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
-  filters:{seg:true, ext:true},
+  filters:{seg:true, lo:true, stub:true, ext:true},
   hiddenNodes:new Set(), nodePanel:false,
   legend:true, minimap:true, legendHot:null,
   sort:{addr:null, ifs:null},
@@ -1287,6 +1289,7 @@ function applyVisibility() {
   const visible = id => {
     if (S.hiddenNodes.has(id)) return false;   /* 表示ノードパネルで個別に非表示指定されたノード */
     if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
+    if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
     if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
     if (S.connectedOnly && S.sel.size) {
       if (S.sel.has(id)) return true;
@@ -2230,6 +2233,13 @@ function lpId(st) { return st.dev + ":" + st.ifn; }
 /* stub/loopback ノードを id（dev:ifn）で O(1) 引きするための索引（DATA 不変なので一度だけ構築。
    segById が hover/click/applyVisibility のホットパスで線形 find しないため）。 */
 const STUB_BY_ID = new Map((DATA.stub_nodes || []).map(st => [lpId(st), st]));
+/* stub/loopback ノードがカテゴリトグル（S.filters.lo / S.filters.stub）で非表示か。
+   segment の S.filters.seg と対をなす全体表示トグル（visible/selectable 共用）。 */
+function stubFiltered(id) {
+  const st = STUB_BY_ID.get(id);
+  if (!st) return false;
+  return (st.kind === "loopback" && !S.filters.lo) || (st.kind === "stub" && !S.filters.stub);
+}
 /* id から segment 相当オブジェクトを引く。DATA.segments に無ければ stub_nodes を
    segment 形（members 1件）に正規化して返す（hover/click/詳細パネルで segment ロジックを共用） */
 function segById(id) {
@@ -2272,6 +2282,7 @@ let autoNetSel = new Set(), autoBgpSel = new Set();
 function selectable(id) {
   if (S.hiddenNodes.has(id)) return false;
   if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
+  if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
   if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
   return true;
 }
@@ -2398,6 +2409,8 @@ $("#search").addEventListener("keydown", ev => {
 
 /* filters / actions */
 $("#f-seg").onchange = e => { S.filters.seg = e.target.checked; render(); };
+$("#f-lo").onchange = e => { S.filters.lo = e.target.checked; render(); };
+$("#f-stub").onchange = e => { S.filters.stub = e.target.checked; render(); };
 $("#f-ext").onchange = e => { S.filters.ext = e.target.checked; render(); };
 $("#btn-connected").onclick = function() { S.connectedOnly = !S.connectedOnly; this.classList.toggle("on", S.connectedOnly); render(); };
 $("#btn-focus").onclick = function() { S.focusMode = !S.focusMode; this.classList.toggle("on", S.focusMode); render(); };
