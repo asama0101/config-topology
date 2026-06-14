@@ -246,19 +246,20 @@ network 宣言 1 件につき 1 エントリ。
 
 集計対象は interface address のうち **af=="v4"・非 link-local・prefix≠32**（`/32` ホスト/ループバックは除外）。同一サブネットは host IP の set で重複排除（複数 IF/device 跨ぎでも二重計上なし）。ソートは **util 降順 → subnet 文字列昇順**で決定的。
 
-### DATA.ospf_stubs（OSPF loopback スタブ）
+### DATA.stub_nodes（stub / loopback ノード）
 
-`build_ospf_stubs(topo)` が返す **OSPF 参加 loopback** のリスト。`DATA.ospf_stubs` として HTML に埋め込まれ、render() が **OSPF ビュー限定**で各機器ノード脇に **segment 様式のノード**（`.segnode` 点線楕円 `rx=62 ry=26`＋subnet テキスト＋area-badge＋`.lk` スポーク）を描画する。**ホバーで IF 名 + IP を `<title>` 表示**し、**クリックで親デバイスを選択**できる（`data-dev`＋専用ハンドラ。親デバイス選択状態に連動して楕円を `selected`/`hovered` 強調）。**層別 YAML スキーマ外の render 層導出**。
+`build_stub_nodes(topo)` が返す **対向のない IF（stub / loopback）** のリスト。link（異機器2メンバー）にも segment（≥3メンバー）にも属さない IF-サブネットを抽出する（単独 IF サブネット・LAN 側・loopback /32・同一機器2メンバーを含む）。`DATA.stub_nodes` として HTML に埋め込まれ、render() が **segment 様式のノード**（`.segnode` 点線楕円 `rx=62 ry=26`＋subnet テキスト＋area-badge＋`.lk` スポーク＋`.lk-hit`）を描画する。**ビュー規則は segment と同じ**: Physical=全件 / OSPF=area あり（OSPF 参加）のみ / BGP=出さない。**`data-elem="seg"`・`data-id=dev:ifn`（=lpId・esc 済み）で segment と同じ hittest/選択/可視性/詳細パネル/凡例 dim に乗る**（`segById` が DATA.segments を引けないとき stub_nodes を members 1件に正規化してフォールバック。索引 `STUB_BY_ID` で O(1)）。色は `kind` で区別（`.lpnode`=loopback / `.stubnode`=stub）。**層別 YAML スキーマ外の render 層導出**。
 
 | フィールド | 型 | 説明 |
 |-----------|----|------|
 | `dev` | string | device ID |
-| `ifn` | string | loopback IF 名（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）。内部 id（`data-deco`）とソート/dedup 用、かつ `<title>` に出して**ホバーで IF 名を表示** |
-| `ip` | string | loopback の v4 host IP（非 secondary・非 link-local） |
-| `area` | string | OSPF area。loopback IP を routing.ospf の network と `ipaddress` 内包判定し**最長プレフィックス一致**で採用（同長は area 昇順） |
-| `net` | string | loopback の subnet（`ip/prefix`・通常 `/32`）。segnode 中央に表示。prefix 欠如時はキー省略（描画は `ip` フォールバック） |
+| `ifn` | string | IF 名。`lpId(st)=dev:ifn` で安定 id を作る（描画・選択・可視性の単位） |
+| `ip` | string | v4 host IP（非 secondary・非 link-local） |
+| `subnet` | string | `str(ipaddress.ip_network(f"{ip}/{prefix}", strict=False))`（例 `/32`→`10.0.0.1/32`・`192.168.1.100/24`→`192.168.1.0/24`）。segnode 中央に表示。**prefix 欠如はスキップ** |
+| `area` | string \| null | OSPF area。IP を routing.ospf の network と `ipaddress` 内包判定し**最長プレフィックス一致**で採用（同長は area 昇順）。**OSPF 非参加は `None`**（スキップせず・OSPF ビューでのみ非描画） |
+| `kind` | string | `"loopback"`（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）/ `"stub"` |
 
-OSPF 非参加（area 引け不能）の loopback はスキップ。ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**選択は `data-dev`（親デバイス id）＋専用 click/hover ハンドラ経由**（`data-elem` は付けない＝seg 用 hittest/詳細パネルと非衝突）。クリックで親デバイスを選択し既存の機器詳細パネルを表示。凡例 dim 連動は対象外（常設・data-deco lpstub は decoState 非登録）。
+ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**ハイライトは segment と統一**: 楕円/スポーク hover で IF/IP ラベル（`stackLabel`）、クリックで `setHotNet`（subnet 連動選択＝親デバイス自動選択＋表行連動）。凡例に専用 `loopback`/`stub` 項目（クリックで該当群を強調・他を dim）。表示ノードパネルで個別非表示可。**stub は POS 非登録＝非ドラッグ（mousedown は POS 存在ガードで pan にフォールバック）**。adj/検索 corpus 非参加のため connectedOnly 時は非表示・検索中は dim（最小変更のため許容）。
 
 ---
 

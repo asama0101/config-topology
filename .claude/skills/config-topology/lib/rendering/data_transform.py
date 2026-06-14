@@ -811,7 +811,7 @@ def _natural_key(s):
     例: "Loopback10" → ["Loopback", 10, ""] / "lo0" → ["lo", 0, ""]。決定的・副作用なし。
 
     注意: JS の naturalKey とは大文字小文字扱い・方式が異なる Python 専用 sort ヘルパー
-    （ospf_stubs のソートは Python 単独責務のため実害なし）。
+    （stub_nodes のソートは Python 単独責務のため実害なし）。
     isdigit() ではなく isdecimal() を使う: 上付き数字（'²' 等）は isdigit()=True だが
     int() 変換で ValueError になる差異を解消するため。ASCII の 0-9 では挙動は同一。
     """
@@ -821,20 +821,33 @@ def _natural_key(s):
     return parts
 
 
-def build_ospf_stubs(topo):
-    """OSPF 参加 loopback を [{dev, ifn, ip, area, net}] で返す（dev→ifn 自然順で安定ソート）。
+def build_stub_nodes(topo):
+    """対向のない IF（stub / loopback）を segment 様式ノード化するための
+    [{dev, ifn, ip, subnet, area, kind}] を返す（dev→ifn 自然順で安定ソート）。
 
-    loopback IF（_LOOPBACK_RE 一致）の v4 ホスト IP を、同一 device・af=="v4" の
-    routing.ospf entry と ipaddress 内包判定で照合し、最長プレフィックス一致の area を採用
-    （同長は str(area) 昇順）。area が引けない（OSPF 非参加）loopback はスキップ。
+    「stub」= link（異機器2メンバー）にも segment（≥3メンバー）にも属さない IF-サブネット。
+    判定は build.infer_links_segments と整合する: links/segments が占有する cidr 集合を作り、
+    それ以外の IF-サブネット（v4・非 secondary・非 link-local）の各メンバーを stub ノードにする。
+    単独 IF サブネット（LAN 側・loopback /32 等）と同一機器2メンバーが該当する。
+
+    各フィールド:
+      - kind: IF 名が _LOOPBACK_RE 一致なら "loopback"、それ以外は "stub"。
+      - subnet: str(ipaddress.ip_network(f"{ip}/{prefix}", strict=False))（segment と同じ中央表示用）。
+      - area: 同一 device・af=="v4" の routing.ospf entry と ipaddress 内包判定で最長プレフィックス一致
+              （同長は str(area) 昇順）。OSPF 非参加なら None（OSPF ビューでは area あり=参加のみ描画）。
+
     返り値は (dev, natural_key(ifn)) で安定ソート（決定的）。
-
-    各結果要素の net フィールド: loopback の subnet 表記
-    （str(ipaddress.ip_network(f"{ip}/{prefix}", strict=False))）。
-    /32 loopback では "10.0.0.1/32" のようにホスト IP のまま。
-    prefix 欠如時は net フィールドを含まない（スキップしない）。
     """
-    # device → ospf entries (v4 のみ) をあらかじめ整理
+    # links/segments が占有する cidr 集合（これ以外の IF-サブネットが stub）
+    linked_cidrs = set()
+    for l in topo.get("links", []):
+        if l.get("subnet"):
+            linked_cidrs.add(l["subnet"])
+    for s in topo.get("segments", []):
+        if s.get("subnet"):
+            linked_cidrs.add(s["subnet"])
+
+    # device → ospf entries (v4 のみ) をあらかじめ整理（area 引き当て用）
     ospf_by_dev = {}
     for e in topo["routing"].get("ospf", []):
         if e.get("af") != "v4":
@@ -850,10 +863,9 @@ def build_ospf_stubs(topo):
 
     results = []
     for itf in topo["interfaces"]:
-        # loopback 名かどうかをチェック
-        if not _LOOPBACK_RE.match(itf["name"]):
-            continue
         dev = itf["device"]
+        is_loopback = bool(_LOOPBACK_RE.match(itf["name"]))
+        seen = set()  # 同一 IF 内の cidr 重複除去
         # v4 かつ非 link-local かつ非 secondary のアドレスを対象
         for a in itf.get("addresses", []):
             if a.get("af") != "v4":
@@ -863,39 +875,37 @@ def build_ospf_stubs(topo):
             if a.get("secondary"):
                 continue
             ip_str = a.get("ip")
-            if not ip_str:
+            prefix = a.get("prefix")
+            if not ip_str or prefix is None:
                 continue
+            try:
+                net_obj = ipaddress.ip_network(f"{ip_str}/{prefix}", strict=False)
+            except ValueError:
+                continue
+            cidr = str(net_obj)
+            if cidr in linked_cidrs:
+                continue  # link/segment 所属 → stub ではない
+            if cidr in seen:
+                continue
+            seen.add(cidr)
+
+            # 同一 device の OSPF entry で最長プレフィックス一致の area を引く（無ければ None）
             try:
                 ip_addr = ipaddress.ip_address(ip_str)
             except ValueError:
                 continue
+            candidates = [(net.prefixlen, area)
+                          for net, area in ospf_by_dev.get(dev, []) if ip_addr in net]
+            area = None
+            if candidates:
+                candidates.sort(key=lambda x: (-x[0], x[1]))
+                area = candidates[0][1]
 
-            # 同一 device の OSPF entry で最長プレフィックス一致を探す
-            candidates = []
-            for net, area in ospf_by_dev.get(dev, []):
-                if ip_addr in net:
-                    candidates.append((net.prefixlen, area))
-
-            if not candidates:
-                continue  # OSPF 非参加 → スキップ
-
-            # 最長プレフィックス→同長は area 昇順で決定的に選択
-            candidates.sort(key=lambda x: (-x[0], x[1]))
-            best_area = candidates[0][1]
-
-            entry = {"dev": dev, "ifn": itf["name"], "ip": ip_str, "area": best_area}
-
-            # net: loopback の subnet 表記（segment 様式の subnet 中央表示用）
-            # prefix が存在する場合のみ付与（欠如時はフィールド自体を省略）
-            prefix = a.get("prefix")
-            if prefix is not None:
-                try:
-                    net_obj = ipaddress.ip_network(f"{ip_str}/{prefix}", strict=False)
-                    entry["net"] = str(net_obj)
-                except ValueError:
-                    pass  # prefix 不正の場合は net フィールドを省略
-
-            results.append(entry)
+            results.append({
+                "dev": dev, "ifn": itf["name"], "ip": ip_str,
+                "subnet": cidr, "area": area,
+                "kind": "loopback" if is_loopback else "stub",
+            })
 
     # (dev, natural_key(ifn)) で安定ソート
     results.sort(key=lambda r: (r["dev"], _natural_key(r["ifn"])))
@@ -903,7 +913,7 @@ def build_ospf_stubs(topo):
 
 
 def build_data(topo):
-    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/subnet_usage/ospf_stubs）。決定的。"""
+    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/subnet_usage/stub_nodes）。決定的。"""
     devices = build_devices(topo)
     links = build_links(topo)
     segments = build_segments(topo)
@@ -923,5 +933,5 @@ def build_data(topo):
         "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
         "checks": build_checks(topo, links=links),
         "subnet_usage": build_subnet_usage(topo),
-        "ospf_stubs": build_ospf_stubs(topo),
+        "stub_nodes": build_stub_nodes(topo),
     }

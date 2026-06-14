@@ -12,7 +12,7 @@
 4. **結線 / セグメント判定**:
    - **メンバー = 2**（異機器）→ `links` に 1 本（point-to-point）。`a_device` < `b_device` で辞書式安定化。
    - **メンバー ≥ 3** → `segments` に 1 ノード生成し、全メンバー IF を接続。
-   - **メンバー = 1** → スタブ（リンク化しない）。loopback（`/32`）や LAN 側 IF に該当。
+   - **メンバー = 1**（または同一機器2メンバー）→ スタブ（`links`/`segments` に出さない）。loopback（`/32`）や LAN 側 IF に該当。**層別 YAML には出力しない**が、render 層の `build_stub_nodes`（`data_transform.py`）が link/segment 非所属の IF-サブネットを再抽出し、`DATA.stub_nodes` として Physical/OSPF 両ビューに **segment 様式ノード**で描画する（§ schema.md DATA.stub_nodes 参照）。
 5. `/30`・`/31` は典型的な P2P だが、**判定はメンバー数のみで統一**（マスク長に特別扱いなし）。
 
 **admin_down フラグ（§7.2）**:

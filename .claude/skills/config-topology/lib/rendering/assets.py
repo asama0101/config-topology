@@ -34,6 +34,8 @@ _CSS = """\
   --link: #54657a;
   --link-dim: #2c3743;
   --seg-fill: #1a2230;
+  --lp-edge: #b07fd6; --lp-fill: #241a30;       /* loopback ノード（紫系） */
+  --stub-edge: #6fae8f; --stub-fill: #16241d;   /* stub ノード（緑系） */
   --shadow: 0 10px 30px rgba(0,0,0,.45);
   --grid-size: 26px;
 }
@@ -55,6 +57,8 @@ html[data-theme="light"] {
   --link: #7c8aa0;
   --link-dim: #c3cad4;
   --seg-fill: #eef1ea;
+  --lp-edge: #8a5cd0; --lp-fill: #efe9f6;       /* loopback ノード（紫系） */
+  --stub-edge: #3f8f6a; --stub-fill: #e8f2ec;   /* stub ノード（緑系） */
   --shadow: 0 8px 24px rgba(40,50,70,.18);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -195,9 +199,11 @@ g.node.hovered rect.body { stroke: var(--accent); stroke-width: 2.4; filter: dro
 g.segnode { cursor: pointer; }
 g.segnode ellipse { fill: var(--seg-fill); stroke: var(--node-edge); stroke-width: 1.2; stroke-dasharray: 3 3; }
 g.segnode text { fill: var(--ink-dim); font-size: 10px; }
+/* loopback / stub は色で区別（selected/hovered/search-hit は同詳細度・後勝ちで stroke を上書きするためこの2行より後に置く） */
+g.segnode.lpnode ellipse { fill: var(--lp-fill); stroke: var(--lp-edge); }
+g.segnode.stubnode ellipse { fill: var(--stub-fill); stroke: var(--stub-edge); }
 g.segnode.selected ellipse, g.segnode.hovered ellipse { stroke: var(--accent); stroke-width: 2; }
 g.segnode.search-hit ellipse { stroke: var(--search); stroke-width: 2; }
-/* loopback stub（data-dev 付き）はクリックで親デバイスを選択 → segnode の pointer カーソルを継承（default 上書きはしない） */
 
 /* 外部ピアは機器と同じノード描画（g.node スタイルを共用）。枠だけ点線で区別（凡例と対応） */
 g.node.ext rect.body { stroke-dasharray: 6 4; }
@@ -328,6 +334,8 @@ tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, va
 #legend .sw.dash { border-top-style: dashed; }
 #legend .sw.box { height: 10px; border: 1.4px solid var(--node-edge); background: var(--node-fill); border-radius: 2px; }
 #legend .sw.seg { height: 10px; border: 1.2px dashed var(--node-edge); border-radius: 50%; background: var(--seg-fill); }
+#legend .sw.lp { height: 10px; border: 1.2px dashed var(--lp-edge); border-radius: 50%; background: var(--lp-fill); }
+#legend .sw.stub2 { height: 10px; border: 1.2px dashed var(--stub-edge); border-radius: 50%; background: var(--stub-fill); }
 #minimap {
   position: absolute; right: 14px; bottom: 38px; z-index: 20;
   width: 180px; height: 120px;
@@ -351,12 +359,11 @@ tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, va
 /* BGP ビューのアドレス・ソースIF ラベルは .iflabel（他ビューの IF ラベル）と同一スタイルを共用 */
 g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 60%, transparent)); }
 
-/* ---------- OSPF ビュー: loopback stub 描画 ---------- */
-/* OSPF ビュー限定で描画。物理/BGP ビューには出さない。専用 CSS は持たず
-   segment 様式（.segnode 楕円 + .lk スポーク + .area-badge）を再利用する（CSS ルールなし＝下記は注記のみ）。
-   loopback はクリックで親デバイスを選択できる（cursor は g.segnode の pointer を継承。default 上書きはしない。
-   選択/hover 強調・title 表示・data-dev は _JS 側 render() の loopback ブロックで実装）。
-   凡例 area dim 連動は非対応（stub は常設・data-deco lpstub は decoState 非登録）。*/
+/* ---------- stub / loopback ノード ---------- */
+/* stub / loopback は segment 様式（.segnode 楕円 + .lk スポーク + .area-badge）を再利用し、
+   data-elem="seg"・data-id=dev:ifn で segment と同じ hittest/選択/可視性/詳細パネル/凡例 dim に乗る。
+   色のみ kind で区別（.lpnode=loopback / .stubnode=stub。上の g.segnode.lpnode/.stubnode ルール参照）。
+   描画・ハイライト・IF/IP ラベルは _JS 側 render() の stub ノードブロック（segment ロジックと共通）。*/
 
 /* 詳細パネル: リサイズハンドルと最小化 */
 #resizer { width: 6px; flex: none; cursor: col-resize; background: transparent; border-left: 1px solid var(--panel-edge); }
@@ -812,6 +819,7 @@ function applyStateFromHash() {
       ...Object.keys(DATA.devices),
       ...DATA.segments.map(s => s.id),
       ...DATA.extPeers.map(e => e.id),
+      ...(DATA.stub_nodes || []).map(lpId),
     ]);
     S.sel.clear();
     for (const id of sel) { if (validIds.has(id)) S.sel.add(id); }
@@ -822,6 +830,8 @@ function applyStateFromHash() {
   const v = S.view;
   if (v === "bgp") for (const s of DATA.segments) S.sel.delete(s.id);
   if (v === "ospf") for (const s of DATA.segments) if (!s.area) S.sel.delete(s.id);
+  if (v === "bgp") for (const st of (DATA.stub_nodes || [])) S.sel.delete(lpId(st));
+  if (v === "ospf") for (const st of (DATA.stub_nodes || [])) if (!st.area) S.sel.delete(lpId(st));
   if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
 }
 
@@ -1132,43 +1142,59 @@ function render() {
     </g>`);
   }
 
-  /* --- OSPF ビュー: loopback stub 描画（改修①） ---
-     OSPF ビュー限定で描画。物理/BGP ビューには出さない。
-     segment 様式（.segnode 点線楕円 + .lk スポーク + .area-badge）を再利用。
-     凡例 area dim 連動は初版では非対応（stub は常設・複雑化回避）。
-     device ノードの後（前面）・labelParts 統合の前に挿入する。
-     DATA.ospf_stubs は [{dev, ifn, ip, area, net}]（Python build_ospf_stubs が dev→ifn 順にソート済み）。
-     同一 device 内の stub index i を JS 側でカウントし、扇状に決定的配置する。
-     座標は Math.round で小数第1位に丸めて決定性を保証。
-     data-elem は付けず data-dev（親デバイス id）を持たせる（クリックで親デバイスを選択。
-     DATA.segments に無いノードなので seg 用 hittest/詳細パネルとは衝突しない＝専用ハンドラ経由）。
-     labelParts は使わない（subnet は segnode 内・area は area-badge = いずれも parts。segment と同じ）。 */
-  if (S.view === "ospf") {
-    /* dev ごとのカウンタ（同一 device の複数 stub を扇状に並べるため） */
+  /* --- stub / loopback ノード描画（segment 様式に統一）---
+     対向のない IF（stub / loopback）を segment と同じ .segnode 楕円 + .lk スポーク + area-badge で描画。
+     ビュー規則は segment と同じ: Physical=全件 / OSPF=area あり（OSPF 参加）のみ / BGP=出さない。
+     id は dev:ifn（lpId）。data-elem="seg"・data-id でセグメントと同じ hittest/選択/可視性/詳細パネルに乗る
+     （segById が DATA.segments を引けないとき stub_nodes をフォールバック）。
+     同一 device 内の index を扇状に決定的配置（Math.round で決定化）。
+     ハイライト・IF/IP ラベル（hover/選択/hot 時に stackLabel）も segment と完全に共通。
+     色は kind で区別（lpnode=loopback / stubnode=stub）。device ノードの後（前面）・labelParts 統合の前。 */
+  if (S.view !== "bgp") {
     const _stubIdx = {};
-    for (const st of (DATA.ospf_stubs || [])) {
+    for (const st of (DATA.stub_nodes || [])) {
+      if (S.view === "ospf" && !st.area) continue;   /* OSPF ビューは OSPF 参加（area あり）のみ */
       const base = POS[st.dev];
       if (!base) continue;   /* POS に無い dev はスキップ */
+      const sid = lpId(st);
+      /* data 属性に出す id/dev は config 由来の IF 名（生値）を含むため esc する（属性ブレイク防止）。
+         esc は dataset 読出しでデコードされるため decoState キー一致は保たれる。 */
+      const esid = esc(sid), edev = esc(st.dev);
       const i = (_stubIdx[st.dev] = (_stubIdx[st.dev] || 0));
       _stubIdx[st.dev]++;
-      /* 扇状配置: ang は -45° から 32° 刻み（決定的）。R=115 px（segment 同寸の楕円が被らない距離）。座標を round で決定化 */
+      /* 扇状配置: ang は -45° から 32° 刻み（決定的）。R=115 px。座標を round で決定化 */
       const ang = (-45 + i * 32) * Math.PI / 180;
       const R = 115;
       const sx = Math.round((base.x + R * Math.cos(ang)) * 10) / 10;
       const sy = Math.round((base.y + R * Math.sin(ang)) * 10) / 10;
-      const deco = `lpstub:${esc(st.dev)}:${esc(st.ifn)}`;
-      /* スポーク線（device → stub 楕円）: .lk クラスで area 色付き */
-      parts.push(`<line class="lk" data-deco="${deco}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}" stroke="${areaColor(String(st.area))}"/>`);
-      /* stub 楕円ノード: segment と同寸（点線楕円 rx62/ry26 + subnet テキスト）。
-         data-elem は付けず data-dev（親デバイス id）を持たせる ＝ クリックで親デバイスを選択
-         （専用ハンドラが data-dev を見る。drag/可視性/常設 invariant は不変＝data-deco lpstub は decoState 非登録のまま）。
-         title 要素で IF 名 + IP をホバー表示。selected/hovered は親デバイス選択状態に連動して楕円を強調。 */
-      const _lpSel = S.sel.has(st.dev);
-      parts.push(`<g class="segnode${_lpSel?" selected":hoverNode===st.dev?" hovered":""}" data-deco="${deco}" data-dev="${esc(st.dev)}"><title>${esc(st.ifn)} ${esc(st.ip)}</title><ellipse cx="${sx}" cy="${sy}" rx="62" ry="26"/><text x="${sx}" y="${sy+3}" text-anchor="middle">${esc(st.net || st.ip)}</text></g>`);
-      /* area badge: segment の area-badge と同形（areaBadge ヘルパー使用） */
-      const {txt, fill: _c} = areaBadge(String(st.area));
-      const _w = txt.length*6.4+12;
-      parts.push(`<g class="area-badge" data-deco="${deco}"><rect x="${sx-_w/2}" y="${sy-48}" width="${_w}" height="15" fill="${_c}"/><text x="${sx}" y="${sy-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
+      const segSel = hl.has(sid);
+      const segHot = netHot(st.subnet);
+      /* スポーク線（device → stub 楕円）: segment の seglink と同形（hittest 用 .lk-hit も併設） */
+      const edge = !multiSel && (segSel || hl.has(st.dev));
+      const stroke = (showOspf && st.area) ? `stroke="${areaColor(String(st.area))}"` : "";
+      parts.push(`<line class="lk ${edge?"sel-edge":""} ${segHot?"bgp-hot":""} ${hoverLink===sid?"lk-hover":""}" data-elem="seglink" data-id="${esid}" data-mem="${edev}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}" ${stroke}/>`);
+      parts.push(`<line class="lk-hit" data-elem="seglink" data-id="${esid}" data-mem="${edev}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}"/>`);
+      /* IF/IP ラベル: 選択/ホバー/hot 時に segment と同じ stackLabel（楕円 hover でもスポーク hover でも出る） */
+      const showIf = S.sel.has(sid) || S.sel.has(st.dev) || hoverLink === sid || segHot;
+      if (showIf) {
+        const t = 0.62;
+        const lx = base.x + (sx-base.x)*t, ly = base.y + (sy-base.y)*t - 8;
+        const lines = [st.ifn, st.ip].filter(Boolean);
+        stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${esid}:${edev}`});
+      }
+      /* stub 楕円ノード: segment と同寸（点線楕円 rx62/ry26 + subnet テキスト）。色は kind で区別 */
+      const segCls = ["segnode", st.kind === "loopback" ? "lpnode" : "stubnode"];
+      if (S.sel.has(sid)) segCls.push("selected");
+      else if (hoverNode === sid) segCls.push("hovered");
+      if (segHot) segCls.push("bgp-hot");
+      if (S.matches.includes(sid)) segCls.push("search-hit");
+      parts.push(`<g class="${segCls.join(" ")}" data-elem="seg" data-id="${esid}"><ellipse cx="${sx}" cy="${sy}" rx="62" ry="26"/><text x="${sx}" y="${sy+3}" text-anchor="middle">${esc(st.subnet)}</text></g>`);
+      /* area badge（OSPF ビューで area あり時のみ）: segment の area-badge と同形 */
+      if (showOspf && st.area) {
+        const {txt, fill: _c} = areaBadge(String(st.area));
+        const _w = txt.length*6.4+12;
+        parts.push(`<g class="area-badge" data-deco="seg:${esid}"><rect x="${sx-_w/2}" y="${sy-48}" width="${_w}" height="15" fill="${_c}"/><text x="${sx}" y="${sy-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
+      }
     }
   }
 
@@ -1224,8 +1250,10 @@ function applyVisibility() {
         return DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id && e.type === lg);
       }
       if (el.dataset.elem === "seglink") {
-        const s = DATA.segments.find(x=>x.id===el.dataset.id);
+        const s = segById(el.dataset.id);
         if (lg.startsWith("area:")) return !!s && areaHit(s.area);
+        /* loopback/stub 凡例強調時は該当 kind の stub スポークを許容 */
+        if (lg === "loopback" || lg === "stub") return !!s && s.kind === lg;
         /* segment 自体は AS を持たない。なお BGP ビューでは segment が描画されないため as: 強調時にこの seglink 分岐は実際には非到達 */
         if (lg.startsWith("as:")) { return !!s && asHit(el.dataset.mem); }
         return false;
@@ -1244,6 +1272,10 @@ function applyVisibility() {
     } else if (lg.startsWith("area:")) {
       for (const l of DATA.links) if (!l.admin_down && areaHit(l.area)) { lgNodes.add(l.a); lgNodes.add(l.b); }
       for (const s of DATA.segments) if (areaHit(s.area)) { lgNodes.add(s.id); for (const m of s.members) lgNodes.add(m.dev); }
+      for (const st of (DATA.stub_nodes || [])) if (areaHit(st.area)) { lgNodes.add(lpId(st)); lgNodes.add(st.dev); }
+    } else if (lg === "loopback" || lg === "stub") {
+      /* loopback/stub 一括強調: 該当 kind の stub ノード自身＋親デバイスを lgNodes に追加 */
+      for (const st of (DATA.stub_nodes || [])) if (st.kind === lg) { lgNodes.add(lpId(st)); lgNodes.add(st.dev); }
     } else if (lg.startsWith("as:")) {
       /* AS 別一括強調: 該当 AS の device / extPeer を lgNodes に追加 (B4) */
       for (const [id,d] of Object.entries(DATA.devices)) if (String(d.as) === asN) lgNodes.add(id);
@@ -1262,9 +1294,9 @@ function applyVisibility() {
     }
     return true;
   };
-  /* ラベル・バッジ（data-deco="<elem>:<id>[:<mem>]"）へ親要素と同じ可視性を伝播するための記録 */
-  /* 注意: lpstub: プレフィックスの deco は decoState 非登録 = 常設・凡例 dim 非対応
-     （render() の stub ブロック参照。凡例 area dim との連動は将来課題として留保中）*/
+  /* ラベル・バッジ（data-deco="<elem>:<id>[:<mem>]"）へ親要素と同じ可視性を伝播するための記録。
+     stub/loopback ノードは data-elem="seg"・area-badge は data-deco="seg:<id>" なので
+     segment と同じ経路で hidden/dim・凡例 dim が伝播する（旧 lpstub 常設特例は廃止）。*/
   const decoState = {};
   world.querySelectorAll("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']").forEach(el => {
     const id = el.dataset.id;
@@ -1362,9 +1394,9 @@ function renderDetails() {
   }
   for (const id of sel) {
     const d = DATA.devices[id];
-    if (!d) { /* segment / ext peer */
-      const s = DATA.segments.find(x=>x.id===id);
-      if (s) html.push(`<div class="card"><div class="chead"><b>${esc(s.subnet)}</b><span class="badge">segment</span></div>
+    if (!d) { /* segment / stub / loopback / ext peer */
+      const s = segById(id);
+      if (s) html.push(`<div class="card"><div class="chead"><b>${esc(s.subnet)}</b><span class="badge">${esc(s.kind || "segment")}</span>${s.area?`<span class="badge as">area ${esc(s.area)}</span>`:""}</div>
         <div class="csec"><h4>MEMBERS</h4><table class="dt">${s.members.map(m=>`<tr><td>${esc(DATA.devices[m.dev].hostname)}</td><td>${esc(m.ifn)}</td><td class="dim-t">${esc(m.ip)}</td></tr>`).join("")}</table></div></div>`);
       const e = DATA.extPeers.find(x=>x.id===id);
       if (e) html.push(`<div class="card"><div class="chead"><b>${esc(e.label)}</b><span class="badge">external peer</span></div>
@@ -2031,10 +2063,14 @@ function renderLegend() {
   L.style.display = (S.legend && !isTableView()) ? "" : "none";
   /* clk 付きの項目はクリックで該当要素を強調（再クリックで解除） */
   const clk = (lg, sw, label) => `<div class="li clk${S.legendHot===lg?" on":""}" data-lg="${lg}">${sw}${label}</div>`;
+  /* stub/loopback ノードが現在のビューで描画されるか（OSPF は area あり=参加のみ） */
+  const stubVisible = kind => (DATA.stub_nodes || []).some(st => st.kind === kind && (S.view !== "ospf" || st.area));
   /* 現在のビューに描画される要素だけ凡例に載せる */
   let rows = `<h4>LEGEND — ${S.view.toUpperCase()}</h4>
     <div class="li"><span class="sw box"></span>機器</div>
     ${S.view !== "bgp" ? '<div class="li"><span class="sw seg"></span>セグメント</div>' : ""}
+    ${S.view !== "bgp" && stubVisible("stub") ? clk("stub",'<span class="sw stub2"></span>',"スタブ") : ""}
+    ${S.view !== "bgp" && stubVisible("loopback") ? clk("loopback",'<span class="sw lp"></span>',"loopback") : ""}
     <div class="li"><span class="sw"></span>リンク</div>
     ${S.view === "physical" ? clk("admin-down",'<span class="sw dash"></span>',"admin_down") : ""}`;
   /* 表示条件は render の showBgp/showOspf と同一式（凡例と描画の不一致防止） */
@@ -2083,11 +2119,15 @@ const canvas = $("#canvas");
 let drag = null, didDrag = false;
 canvas.addEventListener("mousedown", ev => {
   const g = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  /* POS に座標を持つノード（device/segment/ext）のみドラッグ対象。
+     stub/loopback も data-elem="seg" だが POS 非登録（親デバイスからの派生扇状配置）なので
+     node=null＝pan にフォールバック（POS[id] undefined 参照のクラッシュ防止＝非ドラッグ仕様）。 */
+  const node = (g && POS[g.dataset.id]) ? g.dataset.id : null;
   drag = {
     sx: ev.clientX, sy: ev.clientY, moved: false,
-    node: g ? g.dataset.id : null,
-    ox: g ? POS[g.dataset.id].x : S.tx,
-    oy: g ? POS[g.dataset.id].y : S.ty,
+    node,
+    ox: node ? POS[node].x : S.tx,
+    oy: node ? POS[node].y : S.ty,
   };
   canvas.classList.add("dragging");
 });
@@ -2104,8 +2144,6 @@ window.addEventListener("mousemove", ev => {
   /* ノード hover = 選択と同じハイライトでプレビュー */
   const ng = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
   let nid = ng ? ng.dataset.id : null;
-  /* loopback stub（data-dev）ホバーは親デバイスを選択と同じハイライトでプレビュー */
-  if (!nid) { const lp = ev.target.closest("g.segnode[data-dev]"); if (lp) nid = lp.dataset.dev; }
   let need = nid !== hoverNode;
   hoverNode = nid;
   /* ライン/セグメント hover はハイライト＋IF/IP ラベルのみ（説明ツールチップは出さない） */
@@ -2117,9 +2155,9 @@ window.addEventListener("mousemove", ev => {
     if (hoverBgp) { hoverBgp = null; need = true; }
   } else if ((lk && lk.dataset.elem === "seglink") || seg) {
     const sid = seg ? seg.dataset.id : lk.dataset.id;
-    const s = DATA.segments.find(x=>x.id===sid);
-    /* IF/IP ラベルはライン（spoke）hover のみ。楕円（ノード）hover はライン強調だけ */
-    const want = (lk && lk.dataset.elem === "seglink") ? s.id : null;
+    const s = segById(sid);
+    /* 楕円（ノード）hover もスポーク hover と同じく IF/IP ラベルを出す（hoverLink=s.id） */
+    const want = s ? s.id : sid;
     if (hoverLink !== want) { hoverLink = want; need = true; }
     if (hoverBgp) { hoverBgp = null; need = true; }
   } else if (lk && lk.dataset.elem === "bgpedge") {
@@ -2139,22 +2177,12 @@ window.addEventListener("mouseup", () => { canvas.classList.remove("dragging");
 /* click = 選択トグル（複数可・修飾キー不要。もう一度クリックで解除） */
 canvas.addEventListener("click", ev => {
   if (didDrag) { didDrag = false; return; }   /* ドラッグ終端の click では選択しない */
-  /* loopback stub（data-dev）クリック → 親デバイスを選択トグル（既存の選択機構を再利用）。
-     seg ノード（subnet そのもの）と違い loopback は機器に帰属するため、setHotNet ではなく
-     親デバイス id を直接 S.sel に流す（= dev ノードクリックと同じ挙動）。 */
-  const lp = ev.target.closest("g.segnode[data-dev]");
-  if (lp) {
-    const id = lp.dataset.dev;
-    if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id);
-    autoNetSel.delete(id); autoBgpSel.delete(id);
-    update(); return;
-  }
   const g = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
   if (g) {
     const id = g.dataset.id;
-    /* セグメントは subnet そのもの → 楕円クリックも線クリックと同じ「ライン選択」に統一 */
+    /* セグメント/stub/loopback は subnet そのもの → 楕円クリックも線クリックと同じ「ライン選択」に統一 */
     if (g.dataset.elem === "seg") {
-      const s = DATA.segments.find(x=>x.id===id);
+      const s = segById(id);
       if (s) setHotNet(netHot(s.subnet) ? null : s.subnet);
       return;
     }
@@ -2176,13 +2204,13 @@ canvas.addEventListener("click", ev => {
     }
     const net = le.dataset.elem === "link"
       ? (DATA.links.find(x=>x.id===le.dataset.id) || {}).subnet
-      : (DATA.segments.find(x=>x.id===le.dataset.id) || {}).subnet;
+      : (segById(le.dataset.id) || {}).subnet;
     if (net) setHotNet(netHot(net) ? null : net);
   }
 });
 /* dblclick: 空白のみ=全解除（選択・ライン選択・BGP連動・凡例強調をすべてクリア。ノード上の個別解除は廃止） */
 canvas.addEventListener("dblclick", ev => {
-  if (ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext'],[data-elem='bgpedge'],[data-elem='link'],[data-elem='seglink'],g.segnode[data-dev]")) return;
+  if (ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext'],[data-elem='bgpedge'],[data-elem='link'],[data-elem='seglink']")) return;
   S.sel.clear();
   hotBgp = null; hotNet = null; S.legendHot = null;
   autoNetSel = new Set(); autoBgpSel = new Set();
@@ -2197,6 +2225,21 @@ document.addEventListener("click", ev => {
   const nrow = ev.target.closest("tr.ospfrow[data-net], tr.ifrow[data-net], .linkpair[data-net]");
   if (nrow) setHotNet(netHot(nrow.dataset.net) ? null : nrow.dataset.net);   /* v4/v6 の対の行でも同一ラインとして解除 */
 });
+/* stub/loopback ノードの安定 id（dev:ifn）。segment 様式ノードとして描画・選択する単位 */
+function lpId(st) { return st.dev + ":" + st.ifn; }
+/* stub/loopback ノードを id（dev:ifn）で O(1) 引きするための索引（DATA 不変なので一度だけ構築。
+   segById が hover/click/applyVisibility のホットパスで線形 find しないため）。 */
+const STUB_BY_ID = new Map((DATA.stub_nodes || []).map(st => [lpId(st), st]));
+/* id から segment 相当オブジェクトを引く。DATA.segments に無ければ stub_nodes を
+   segment 形（members 1件）に正規化して返す（hover/click/詳細パネルで segment ロジックを共用） */
+function segById(id) {
+  const s = DATA.segments.find(x => x.id === id);
+  if (s) return s;
+  const st = STUB_BY_ID.get(id);
+  if (st) return { id, subnet: st.subnet, area: st.area, kind: st.kind,
+                   members: [{ dev: st.dev, ifn: st.ifn, ip: st.ip }] };
+  return undefined;
+}
 /* subnet に接続するノード集合（ライン選択時の端点自動選択用。v6=dual も同一ライン扱い） */
 function netNodes(net) {
   const ids = new Set();
@@ -2204,6 +2247,11 @@ function netNodes(net) {
   for (const s of DATA.segments) if (s.subnet === net) {
     if (S.view !== "bgp") ids.add(s.id);   /* BGP ビューではセグメントノードを描画しないため除外 */
     for (const m of s.members) ids.add(m.dev);
+  }
+  /* stub/loopback ノードも segment と同様に subnet 連動選択（BGP ビューでは描画しないため除外） */
+  for (const st of (DATA.stub_nodes || [])) if (st.subnet === net) {
+    if (S.view !== "bgp") ids.add(lpId(st));
+    ids.add(st.dev);
   }
   return ids;
 }
@@ -2303,6 +2351,8 @@ function setView(v) {
   /* ビューに描画されないノードが選択に残ると図とパネルが乖離するため除外 */
   if (v === "bgp") for (const s of DATA.segments) S.sel.delete(s.id);
   if (v === "ospf") for (const s of DATA.segments) if (!s.area) S.sel.delete(s.id);
+  if (v === "bgp") for (const st of (DATA.stub_nodes || [])) S.sel.delete(lpId(st));
+  if (v === "ospf") for (const st of (DATA.stub_nodes || [])) if (!st.area) S.sel.delete(lpId(st));
   /* 表ビューは何も描画しないビューなので選択は据え置く（BGP→表→BGP の往復で消えないように） */
   if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
   update();   /* 配置(POS)は共通 → タブ切替で座標は変わらない */
@@ -2358,10 +2408,11 @@ function renderNodePanel() {
   np.style.display = S.nodePanel ? "block" : "none";
   if (!S.nodePanel) return;
   const row = (id, label, type) =>
-    `<label><input type="checkbox" data-nid="${id}" ${S.hiddenNodes.has(id)?"":"checked"}> ${esc(label)}<span class="ntype">${type}</span></label>`;
+    `<label><input type="checkbox" data-nid="${esc(id)}" ${S.hiddenNodes.has(id)?"":"checked"}> ${esc(label)}<span class="ntype">${type}</span></label>`;
   np.innerHTML = `<h4>表示するノード</h4>`
     + Object.entries(DATA.devices).map(([id,d]) => row(id, d.hostname, "機器")).join("")
     + DATA.segments.map(s => row(s.id, s.subnet, "seg")).join("")
+    + (DATA.stub_nodes || []).map(st => row(lpId(st), st.ifn + " (" + st.ip + ")", st.kind === "loopback" ? "loopback" : "stub")).join("")
     + DATA.extPeers.map(e => row(e.id, e.label, "ext")).join("");
 }
 $("#nodepanel").addEventListener("change", ev => {
@@ -2384,7 +2435,8 @@ $("#btn-theme").onclick = () => {
 
 /* エクスポート: 現在の表示状態（配置・ハイライト込み）を SVG / PNG で保存 */
 const SVG_VARS = ["--bg","--bg-dot","--panel","--panel-edge","--panel-glow","--ink","--ink-dim","--ink-faint",
-  "--accent","--search","--danger","--node-fill","--node-edge","--node-ink","--link","--link-dim","--seg-fill"];
+  "--accent","--search","--danger","--node-fill","--node-edge","--node-ink","--link","--link-dim","--seg-fill",
+  "--lp-edge","--lp-fill","--stub-edge","--stub-fill"];
 function svgSnapshot() {
   const r = canvas.getBoundingClientRect();
   const clone = canvas.cloneNode(true);
@@ -2488,7 +2540,7 @@ function update() {
   /* 凡例強調はビュー変更で項目が消えたら無効化（全画面 dim の固着防止） */
   if (S.legendHot) {
     const lg = S.legendHot;
-    if (((lg === "ebgp" || lg === "ibgp" || lg.startsWith("as:")) && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf")) S.legendHot = null;
+    if (((lg === "ebgp" || lg === "ibgp" || lg.startsWith("as:")) && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf") || ((lg === "loopback" || lg === "stub" || lg === "admin-down") && S.view === "bgp")) S.legendHot = null;
   }
   render(); renderDetails(); renderLegend();
   syncHashToState();  /* URL ハッシュを現在の view+sel に同期（B3） */
