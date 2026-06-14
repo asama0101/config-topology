@@ -350,6 +350,13 @@ tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, va
 /* BGP ビューのアドレス・ソースIF ラベルは .iflabel（他ビューの IF ラベル）と同一スタイルを共用 */
 g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 60%, transparent)); }
 
+/* ---------- OSPF ビュー: loopback stub 描画（改修④） ---------- */
+/* OSPF ビュー限定で描画。物理/BGP ビューには出さない。
+   凡例 area dim 連動は初版では非対応（stub は常設・複雑化回避）。*/
+.lpstub { fill: transparent; stroke: none; }
+.lpstub-spoke { stroke: var(--ink-faint); stroke-width: 1; fill: none; opacity: .7; }
+.lpstub-label { font-size: 9px; fill: var(--ink-dim); pointer-events: none; }
+
 /* 詳細パネル: リサイズハンドルと最小化 */
 #resizer { width: 6px; flex: none; cursor: col-resize; background: transparent; border-left: 1px solid var(--panel-edge); }
 #resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -1124,6 +1131,37 @@ function render() {
     </g>`);
   }
 
+  /* --- OSPF ビュー: loopback stub 描画（改修④） ---
+     OSPF ビュー限定で描画。物理/BGP ビューには出さない。
+     凡例 area dim 連動は初版では非対応（stub は常設・複雑化回避）。
+     device ノードの後（前面）・labelParts 統合の前に挿入する。
+     DATA.ospf_stubs は [{dev, ifn, ip, area}]（Python build_ospf_stubs が dev→ifn 順にソート済み）。
+     同一 device 内の stub index i を JS 側でカウントし、扇状に決定的配置する。
+     座標は Math.round で小数第1位に丸めて決定性を保証。 */
+  if (S.view === "ospf") {
+    /* dev ごとのカウンタ（同一 device の複数 stub を扇状に並べるため） */
+    const _stubIdx = {};
+    for (const st of (DATA.ospf_stubs || [])) {
+      const base = POS[st.dev];
+      if (!base) continue;   /* POS に無い dev はスキップ */
+      const i = (_stubIdx[st.dev] = (_stubIdx[st.dev] || 0));
+      _stubIdx[st.dev]++;
+      /* 扇状配置: ang は -45° から 32° 刻み（決定的）。R=78 px。座標を round で決定化 */
+      const ang = (-45 + i * 32) * Math.PI / 180;
+      const R = 78;
+      const sx = Math.round((base.x + R * Math.cos(ang)) * 10) / 10;
+      const sy = Math.round((base.y + R * Math.sin(ang)) * 10) / 10;
+      const c = areaColor(String(st.area));
+      const deco = `lpstub:${esc(st.dev)}:${esc(st.ifn)}`;
+      /* スポーク線（device → stub 円） */
+      parts.push(`<line class="lpstub-spoke" data-deco="${deco}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}"/>`);
+      /* stub 円（area 色で塗る）。title で完全 IP をホバー表示 */
+      parts.push(`<circle class="lpstub" data-deco="${deco}" cx="${sx}" cy="${sy}" r="10" fill="${c}" stroke="${c}" stroke-width="1.2" opacity=".85"><title>${esc(st.ifn)} ${esc(st.ip)}</title></circle>`);
+      /* ラベル（ifn area N）を labelParts に push（改修② 前面レイヤーに乗せる）*/
+      labelParts.push(`<text class="lpstub-label" data-deco="${deco}" x="${sx}" y="${sy+22}" text-anchor="middle">${esc(st.ifn)} area ${esc(st.area)}</text>`);
+    }
+  }
+
   /* ラベルをノードより前面に: labelParts を全ノード描画後に統合（z-order 再構成 改修②）*/
   parts.push(labelParts.join(""));
   world.innerHTML = parts.join("");
@@ -1215,6 +1253,8 @@ function applyVisibility() {
     return true;
   };
   /* ラベル・バッジ（data-deco="<elem>:<id>[:<mem>]"）へ親要素と同じ可視性を伝播するための記録 */
+  /* 注意: lpstub: プレフィックスの deco は decoState 非登録 = 常設・凡例 dim 非対応
+     （render() の stub ブロック参照。凡例 area dim との連動は将来課題として留保中）*/
   const decoState = {};
   world.querySelectorAll("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']").forEach(el => {
     const id = el.dataset.id;

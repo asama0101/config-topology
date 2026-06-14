@@ -193,6 +193,84 @@ def test_device_card_ipv4_ipv6_columns():
     assert 'v6.map(x=>x.ll?' in assets._JS                           # IPv6 セルが全 v6 を ll 条件で淡色併記
 
 
+# ---------------------------------------------------------------------------
+# 改修④ OSPF スタブ loopback 描画 — アセット構造テスト
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_ospf_stub_render_guarded_by_ospf_view():
+    """assets._JS に OSPF スタブ描画の必須要素が揃い、DATA.ospf_stubs が ospf ガードの内側にあること。
+
+    確認項目:
+      - DATA.ospf_stubs 参照: Python が組んだ stubs を JS が消費する
+      - S.view === "ospf" ガード: OSPF ビューに限定
+      - Math.round(: 座標決定化（round 固定）
+      - areaColor(: stub 円の色付け
+    修正5: DATA.ospf_stubs の文字列位置が S.view === "ospf" ガードの後（内側）であること
+           を index 比較で確認（存在のみの弱いアサーションから強化）。
+    """
+    js = assets._JS
+    assert "DATA.ospf_stubs" in js, "DATA.ospf_stubs が _JS に存在しない"
+    assert 'S.view === "ospf"' in js, "ospf view ガードが _JS に存在しない"
+    assert "Math.round(" in js, "座標決定化 Math.round が _JS に存在しない"
+    assert "areaColor(" in js, "areaColor( が _JS に存在しない"
+    # 修正5: DATA.ospf_stubs の出現位置が S.view === "ospf" ガードより後（内側）であること
+    guard_pos = js.find('S.view === "ospf"')
+    stubs_pos = js.find("DATA.ospf_stubs")
+    assert stubs_pos > guard_pos, (
+        "DATA.ospf_stubs が S.view === \"ospf\" ガードより前に現れている"
+        " (内側ではなく外側に配置されているため OSPF ビュー以外でも実行される可能性がある)"
+    )
+
+
+@pytest.mark.unit
+def test_css_has_lpstub_rules():
+    """_CSS に loopback stub 用 3 クラスが存在し、.lpstub-label に pointer-events:none が含まれること。
+
+    修正3: 弱い "none" in _CSS → 3 ルールの存在 + .lpstub-label の pointer-events:none を
+    正規表現で検証（消すと赤になる）。
+    """
+    # .lpstub / .lpstub-spoke / .lpstub-label の3ルールが存在すること
+    assert ".lpstub" in assets._CSS, ".lpstub ルールが _CSS に存在しない"
+    assert ".lpstub-spoke" in assets._CSS, ".lpstub-spoke ルールが _CSS に存在しない"
+    assert ".lpstub-label" in assets._CSS, ".lpstub-label ルールが _CSS に存在しない"
+    # .lpstub-label ルールブロック内に pointer-events: none が含まれること
+    m = re.search(r'\.lpstub-label\s*\{[^}]*pointer-events\s*:\s*none', assets._CSS)
+    assert m is not None, (
+        ".lpstub-label ルール内に pointer-events: none が見つからない"
+    )
+
+
+@pytest.mark.unit
+def test_ospf_stub_uses_data_deco():
+    """stub 要素の data-deco 属性が JS に出力されること（lpstub: プレフィックス）。"""
+    assert 'lpstub:' in assets._JS, "data-deco='lpstub:...' が _JS に存在しない"
+
+
+@pytest.mark.unit
+def test_ospf_stub_label_in_label_parts():
+    """stub ラベルが labelParts に push されること（改修② の前面レイヤーに乗る）。"""
+    # labelParts.push を含む文脈で lpstub が現れること
+    js = assets._JS
+    # labelParts への push が stub コンテキストで使われている
+    lpstub_idx = js.find("lpstub:")
+    assert lpstub_idx != -1, "lpstub: が _JS に存在しない"
+    # lpstub の周辺 2000 文字以内に labelParts.push または parts.push が存在
+    context = js[max(0, lpstub_idx - 500):lpstub_idx + 1500]
+    assert "labelParts" in context or "parts.push" in context, \
+        "stub の周辺に labelParts/parts.push が存在しない"
+
+
+@pytest.mark.unit
+def test_ospf_stub_spoke_uses_esc():
+    """stub の SVG 要素に esc() が使われていること（XSS 対策）。"""
+    js = assets._JS
+    lpstub_idx = js.find("lpstub:")
+    assert lpstub_idx != -1
+    context = js[max(0, lpstub_idx - 200):lpstub_idx + 1500]
+    assert "esc(" in context, "stub 周辺に esc() が存在しない"
+
+
 def test_link_end_label_includes_link_local():
     # リンク端ラベルが端点 IF の link-local を ifV6List 経由で抽出し、faint 行として描く。
     assert 'ifV6List(itf).filter(x=>x.ll)' in assets._JS   # リンク端ラベル固有の抽出

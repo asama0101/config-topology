@@ -246,6 +246,19 @@ network 宣言 1 件につき 1 エントリ。
 
 集計対象は interface address のうち **af=="v4"・非 link-local・prefix≠32**（`/32` ホスト/ループバックは除外）。同一サブネットは host IP の set で重複排除（複数 IF/device 跨ぎでも二重計上なし）。ソートは **util 降順 → subnet 文字列昇順**で決定的。
 
+### DATA.ospf_stubs（改修④ OSPF loopback スタブ）
+
+`build_ospf_stubs(topo)` が返す **OSPF 参加 loopback** のリスト。`DATA.ospf_stubs` として HTML に埋め込まれ、render() が **OSPF ビュー限定**で各機器ノード脇に扇状のスタブ図形（小円＋スポーク線＋ラベル）を描画する。**層別 YAML スキーマ外の render 層導出**。
+
+| フィールド | 型 | 説明 |
+|-----------|----|------|
+| `dev` | string | device ID |
+| `ifn` | string | loopback IF 名（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準） |
+| `ip` | string | loopback の v4 host IP（非 secondary・非 link-local） |
+| `area` | string | OSPF area。loopback IP を routing.ospf の network と `ipaddress` 内包判定し**最長プレフィックス一致**で採用（同長は area 昇順） |
+
+OSPF 非参加（area 引け不能）の loopback はスキップ。ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**凡例 area クリックの dim 連動は非対応**（スタブは常設）。
+
 ---
 
 ## diff ツール出力構造（独立ツール・HTML とは別）

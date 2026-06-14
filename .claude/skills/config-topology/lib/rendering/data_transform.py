@@ -1,5 +1,6 @@
 """topology dict → DATA（JS が消費する形）。pure・決定的。"""
 import ipaddress
+import re
 from collections import defaultdict
 
 # static_dangling_next_hop ルールでスキップする特殊ネクストホップ値。
@@ -10,6 +11,11 @@ _SPECIAL_NH = frozenset(["0.0.0.0", "::", "255.255.255.255"])
 # サブネット使用率 exhausted 判定閾値（util >= この値 → exhausted=True）。
 # assets.py の renderSubnetUsageView tnote 文言「exhausted = 使用率 80% 以上」と同値。
 _EXHAUSTED_THRESHOLD = 0.8
+
+# loopback インタフェース名の判定正規表現。JS の ifKind 判定 /^lo(opback)?\d*$/i と同一基準。
+# 一致例: lo / lo0 / Loopback0 / Lo10 / loopback1 / LOOPBACK0
+# 非一致例: GigabitEthernet0/0 / Gi0/0 / ge-0/0/0 / eth0 / Vlan1
+_LOOPBACK_RE = re.compile(r"^lo(opback)?\d*$", re.IGNORECASE)
 
 
 def _primary_ip6(addresses):
@@ -800,8 +806,87 @@ def build_subnet_usage(topo):
     return results
 
 
+def _natural_key(s):
+    """文字列を「数値部を整数・非数値部を文字列」で交互に分割したリストで返す（自然順ソート用）。
+    例: "Loopback10" → ["Loopback", 10, ""] / "lo0" → ["lo", 0, ""]。決定的・副作用なし。
+
+    注意: JS の naturalKey とは大文字小文字扱い・方式が異なる Python 専用 sort ヘルパー
+    （ospf_stubs のソートは Python 単独責務のため実害なし）。
+    isdigit() ではなく isdecimal() を使う: 上付き数字（'²' 等）は isdigit()=True だが
+    int() 変換で ValueError になる差異を解消するため。ASCII の 0-9 では挙動は同一。
+    """
+    parts = []
+    for tok in re.split(r"(\d+)", s):
+        parts.append(int(tok) if tok.isdecimal() else tok)
+    return parts
+
+
+def build_ospf_stubs(topo):
+    """OSPF 参加 loopback を [{dev, ifn, ip, area}] で返す（dev→ifn 自然順で安定ソート）。
+
+    loopback IF（_LOOPBACK_RE 一致）の v4 ホスト IP を、同一 device・af=="v4" の
+    routing.ospf entry と ipaddress 内包判定で照合し、最長プレフィックス一致の area を採用
+    （同長は str(area) 昇順）。area が引けない（OSPF 非参加）loopback はスキップ。
+    返り値は (dev, natural_key(ifn)) で安定ソート（決定的）。
+    """
+    # device → ospf entries (v4 のみ) をあらかじめ整理
+    ospf_by_dev = {}
+    for e in topo["routing"].get("ospf", []):
+        if e.get("af") != "v4":
+            continue
+        dev = e["device"]
+        try:
+            net = ipaddress.ip_network(e["network"], strict=False)
+        except ValueError:
+            continue
+        if net.version != 4:
+            continue
+        ospf_by_dev.setdefault(dev, []).append((net, str(e["area"])))
+
+    results = []
+    for itf in topo["interfaces"]:
+        # loopback 名かどうかをチェック
+        if not _LOOPBACK_RE.match(itf["name"]):
+            continue
+        dev = itf["device"]
+        # v4 かつ非 link-local かつ非 secondary のアドレスを対象
+        for a in itf.get("addresses", []):
+            if a.get("af") != "v4":
+                continue
+            if a.get("scope") == "link-local":
+                continue
+            if a.get("secondary"):
+                continue
+            ip_str = a.get("ip")
+            if not ip_str:
+                continue
+            try:
+                ip_addr = ipaddress.ip_address(ip_str)
+            except ValueError:
+                continue
+
+            # 同一 device の OSPF entry で最長プレフィックス一致を探す
+            candidates = []
+            for net, area in ospf_by_dev.get(dev, []):
+                if ip_addr in net:
+                    candidates.append((net.prefixlen, area))
+
+            if not candidates:
+                continue  # OSPF 非参加 → スキップ
+
+            # 最長プレフィックス→同長は area 昇順で決定的に選択
+            candidates.sort(key=lambda x: (-x[0], x[1]))
+            best_area = candidates[0][1]
+
+            results.append({"dev": dev, "ifn": itf["name"], "ip": ip_str, "area": best_area})
+
+    # (dev, natural_key(ifn)) で安定ソート
+    results.sort(key=lambda r: (r["dev"], _natural_key(r["ifn"])))
+    return results
+
+
 def build_data(topo):
-    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/subnet_usage）。決定的。"""
+    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/subnet_usage/ospf_stubs）。決定的。"""
     devices = build_devices(topo)
     links = build_links(topo)
     segments = build_segments(topo)
@@ -821,4 +906,5 @@ def build_data(topo):
         "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
         "checks": build_checks(topo, links=links),
         "subnet_usage": build_subnet_usage(topo),
+        "ospf_stubs": build_ospf_stubs(topo),
     }

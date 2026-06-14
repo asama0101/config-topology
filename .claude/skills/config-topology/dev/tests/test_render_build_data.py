@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.topology_io import load_topology
-from lib.rendering.data_transform import build_data, build_links, build_bgp_topology, _build_if, build_checks, build_devices, build_subnet_usage, _EXHAUSTED_THRESHOLD
+from lib.rendering.data_transform import build_data, build_links, build_bgp_topology, _build_if, build_checks, build_devices, build_subnet_usage, _EXHAUSTED_THRESHOLD, build_ospf_stubs, _LOOPBACK_RE
 
 pytestmark = pytest.mark.integration
 
@@ -3445,3 +3445,337 @@ def test_checks_sorted_with_mismatch():
     assert any(c["kind"] == "ospf_area_mismatch" for c in result)
     assert any(c["kind"] == "ospf_area0_disconnected" for c in result)
     assert any(c["kind"] == "duplicate_ip" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# 改修④ OSPF スタブ loopback 描画 — build_ospf_stubs テスト
+# ---------------------------------------------------------------------------
+
+def _make_topo(devices=None, interfaces=None, ospf=None, links=None, segments=None):
+    """テスト用 topo dict の最小骨格を組み立てるヘルパー。"""
+    return {
+        "meta": {"generated_from": []},
+        "devices": devices or [],
+        "interfaces": interfaces or [],
+        "links": links or [],
+        "segments": segments or [],
+        "routing": {
+            "bgp": [],
+            "ospf": ospf or [],
+            "static": [],
+            "redistribute": [],
+        },
+    }
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_extracts_loopback_area():
+    """loopback IF の /32 が OSPF network に含まれる場合、area を返す。"""
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[{
+            "id": "r1::Loopback0", "name": "Loopback0", "device": "r1",
+            "ip": "10.10.0.4/32",
+            "addresses": [{"af": "v4", "ip": "10.10.0.4", "prefix": 32}],
+            "admin_status": "up", "description": None, "mtu": None, "speed": None,
+            "admin_down": False,
+        }],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "10.10.0.4/32",
+            "area": "2", "af": "v4",
+        }],
+    )
+    result = build_ospf_stubs(topo)
+    assert result == [{"dev": "r1", "ifn": "Loopback0", "ip": "10.10.0.4", "area": "2"}]
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_skips_non_ospf_loopback():
+    """loopback IF が存在しても OSPF network に一致しなければ空を返す。"""
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[{
+            "id": "r1::Loopback0", "name": "Loopback0", "device": "r1",
+            "ip": "10.10.0.4/32",
+            "addresses": [{"af": "v4", "ip": "10.10.0.4", "prefix": 32}],
+            "admin_status": "up", "description": None, "mtu": None, "speed": None,
+            "admin_down": False,
+        }],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "192.168.1.0/24",
+            "area": "0", "af": "v4",
+        }],
+    )
+    result = build_ospf_stubs(topo)
+    assert result == []
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_longest_prefix():
+    """loopback IP が複数の OSPF network に含まれる場合、最長プレフィックスの area を採用する。"""
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[{
+            "id": "r1::Loopback0", "name": "Loopback0", "device": "r1",
+            "ip": "10.10.0.4/32",
+            "addresses": [{"af": "v4", "ip": "10.10.0.4", "prefix": 32}],
+            "admin_status": "up", "description": None, "mtu": None, "speed": None,
+            "admin_down": False,
+        }],
+        ospf=[
+            # /24 が先に来ても最長(/32)が採用されること
+            {"device": "r1", "process": 1, "network": "10.10.0.0/24", "area": "0", "af": "v4"},
+            {"device": "r1", "process": 1, "network": "10.10.0.4/32", "area": "1", "af": "v4"},
+        ],
+    )
+    result = build_ospf_stubs(topo)
+    assert len(result) == 1
+    assert result[0]["area"] == "1"   # /32 の area "1" が採用される
+
+
+@pytest.mark.integration
+def test_build_ospf_stubs_golden_empty():
+    """golden topo の loopback は OSPF 非参加 → build_ospf_stubs は空リストを返す。"""
+    topo = load_topology(str(GOLDEN))
+    result = build_ospf_stubs(topo)
+    assert result == []
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_deterministic():
+    """同じ topo を2回呼び出して同じ結果が得られること（決定性）。"""
+    topo = _make_topo(
+        devices=[
+            {"id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+             "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": []},
+            {"id": "r2", "hostname": "R2", "vendor": "cisco_ios",
+             "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": []},
+        ],
+        interfaces=[
+            {"id": "r1::Loopback0", "name": "Loopback0", "device": "r1",
+             "ip": "10.1.0.1/32",
+             "addresses": [{"af": "v4", "ip": "10.1.0.1", "prefix": 32}],
+             "admin_status": "up", "description": None, "mtu": None, "speed": None,
+             "admin_down": False},
+            {"id": "r2::lo0", "name": "lo0", "device": "r2",
+             "ip": "10.2.0.1/32",
+             "addresses": [{"af": "v4", "ip": "10.2.0.1", "prefix": 32}],
+             "admin_status": "up", "description": None, "mtu": None, "speed": None,
+             "admin_down": False},
+        ],
+        ospf=[
+            {"device": "r1", "process": 1, "network": "10.1.0.1/32", "area": "0", "af": "v4"},
+            {"device": "r2", "process": 1, "network": "10.2.0.1/32", "area": "0", "af": "v4"},
+        ],
+    )
+    a = build_ospf_stubs(topo)
+    b = build_ospf_stubs(topo)
+    assert a == b
+    # dev → ifn 自然順ソート: r1 が r2 より先
+    assert a[0]["dev"] == "r1"
+    assert a[1]["dev"] == "r2"
+
+
+@pytest.mark.unit
+def test_loopback_regex_matches():
+    """_LOOPBACK_RE が JS ifKind 基準の loopback 名に一致し、通常 IF に一致しないこと。"""
+    # 一致すべきパターン
+    for name in ["Loopback0", "lo0", "Lo10", "lo", "loopback1", "LOOPBACK0"]:
+        assert _LOOPBACK_RE.match(name), f"_LOOPBACK_RE が '{name}' に一致しない"
+    # 一致しないパターン
+    for name in ["GigabitEthernet0/0", "Gi0/0", "ge-0/0/0", "eth0", "Vlan1"]:
+        assert not _LOOPBACK_RE.match(name), f"_LOOPBACK_RE が '{name}' に誤一致"
+
+
+@pytest.mark.integration
+def test_build_data_has_ospf_stubs_key():
+    """build_data の返り値に 'ospf_stubs' キーが存在すること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    assert "ospf_stubs" in data
+    assert isinstance(data["ospf_stubs"], list)
+
+
+# ---------------------------------------------------------------------------
+# 修正1: secondary アドレス除外（壊すと赤テスト付き）
+# ---------------------------------------------------------------------------
+
+def _make_loopback_if(dev, name, addresses):
+    """loopback 用最小 interface dict を生成するヘルパー。"""
+    return {
+        "id": f"{dev}::{name}",
+        "device": dev,
+        "name": name,
+        "ip": None,
+        "vlan": None,
+        "description": None,
+        "shutdown": False,
+        "admin_status": "up",
+        "oper_status": None,
+        "mtu": None,
+        "speed": None,
+        "duplex": None,
+        "l2_l3": None,
+        "switchport": None,
+        "encapsulation": None,
+        "source": "parsed",
+        "addresses": addresses,
+    }
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_excludes_secondary():
+    """loopback に primary + secondary v4 があり両方 OSPF network 内包でも primary 1件のみを返すこと。
+
+    壊すと赤: secondary フィルタを削除すると 2 件返る → assert len == 1 で赤。
+    修正1 の回帰ガード。
+    """
+    # Arrange: Loopback0 に primary 10.10.0.1/32 と secondary 10.10.0.2/32
+    # OSPF network 10.10.0.0/30 が両方を内包する
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [
+                {"af": "v4", "ip": "10.10.0.1", "prefix": 32},               # primary
+                {"af": "v4", "ip": "10.10.0.2", "prefix": 32, "secondary": True},  # secondary
+            ]),
+        ],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "10.10.0.0/30",
+            "area": "1", "af": "v4",
+        }],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert: primary 1 件のみ（secondary は除外）
+    assert len(result) == 1, (
+        f"secondary アドレスが除外されず {len(result)} 件返った（期待: 1 件 primary のみ）"
+    )
+    assert result[0]["ip"] == "10.10.0.1", (
+        f"返ったのが primary でない: {result[0]['ip']}"
+    )
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_secondary_excluded_detail():
+    """secondary=True の IP は OSPF stubs に含まれないこと（secondary フィールドの詳細確認）。
+
+    secondary の IP が結果に含まれないことを明示的に検証する。
+    壊すと赤: secondary を含めると "10.10.0.2" が結果に出現する。
+    """
+    # Arrange
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [
+                {"af": "v4", "ip": "10.1.0.1", "prefix": 32},
+                {"af": "v4", "ip": "10.1.0.2", "prefix": 32, "secondary": True},
+            ]),
+        ],
+        ospf=[{
+            "device": "r1", "process": 1, "network": "10.1.0.0/30",
+            "area": "0", "af": "v4",
+        }],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert
+    ips_in_result = [r["ip"] for r in result]
+    assert "10.1.0.2" not in ips_in_result, (
+        f"secondary IP 10.1.0.2 が stubs に含まれている（除外されるべき）: {ips_in_result}"
+    )
+    assert "10.1.0.1" in ips_in_result, (
+        f"primary IP 10.1.0.1 が stubs に含まれていない: {ips_in_result}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 修正4: 決定性テスト — 自然順ソート安定性
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_ospf_stubs_natural_sort_order():
+    """同一 device の Loopback0/Loopback10/Loopback2 が自然順（0,2,10）で安定ソートされること。
+
+    壊すと赤: _natural_key を辞書順（str sort）に変えると Loopback0/Loopback10/Loopback2 になる。
+    修正4（決定性テスト）の回帰ガード。
+    """
+    # Arrange: 3 loopback を意図的に非自然順で登録
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback10", [{"af": "v4", "ip": "10.0.10.1", "prefix": 32}]),
+            _make_loopback_if("r1", "Loopback2",  [{"af": "v4", "ip": "10.0.2.1",  "prefix": 32}]),
+            _make_loopback_if("r1", "Loopback0",  [{"af": "v4", "ip": "10.0.0.1",  "prefix": 32}]),
+        ],
+        ospf=[
+            {"device": "r1", "process": 1, "network": "10.0.0.0/8", "area": "0", "af": "v4"},
+        ],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert: 自然順 Loopback0, Loopback2, Loopback10
+    assert len(result) == 3, f"3 件返ることを期待: {result}"
+    ifnames = [r["ifn"] for r in result]
+    assert ifnames == ["Loopback0", "Loopback2", "Loopback10"], (
+        f"自然順 (Loopback0, Loopback2, Loopback10) でない: {ifnames}"
+        " (辞書順なら [Loopback0, Loopback10, Loopback2] になるバグを弾く)"
+    )
+
+
+@pytest.mark.unit
+def test_build_ospf_stubs_area_tiebreak_ascending():
+    """同一 loopback IP が同長プレフィックスで area "0" と "1" の 2 entry に一致する場合、
+    area 昇順の "0" が採用されること。
+
+    壊すと赤: sort の tiebreak を逆にすると area "1" が選ばれる。
+    修正4（area tiebreak 決定性）の回帰ガード。
+    """
+    # Arrange: /32 が area "0" と area "1" の両方の network に含まれる（同長プレフィックス）
+    topo = _make_topo(
+        devices=[{
+            "id": "r1", "hostname": "R1", "vendor": "cisco_ios",
+            "as": 65001, "ospf_router_id": None, "bgp_router_id": None, "sections": [],
+        }],
+        interfaces=[
+            _make_loopback_if("r1", "Loopback0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 32}]),
+        ],
+        ospf=[
+            # 同一プレフィックス /32 で area "1" を先に登録（逆順で意図的）
+            {"device": "r1", "process": 1, "network": "10.0.0.1/32", "area": "1", "af": "v4"},
+            {"device": "r1", "process": 1, "network": "10.0.0.1/32", "area": "0", "af": "v4"},
+        ],
+    )
+
+    # Act
+    result = build_ospf_stubs(topo)
+
+    # Assert: 同長プレフィックスの tiebreak は area 昇順 → "0" が採用
+    assert len(result) == 1
+    assert result[0]["area"] == "0", (
+        f"area tiebreak で昇順 '0' が選ばれるべきだが '{result[0]['area']}' が返った"
+    )
