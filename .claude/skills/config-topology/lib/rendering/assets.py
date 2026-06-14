@@ -1149,21 +1149,21 @@ function render() {
       if (!base) continue;   /* POS に無い dev はスキップ */
       const i = (_stubIdx[st.dev] = (_stubIdx[st.dev] || 0));
       _stubIdx[st.dev]++;
-      /* 扇状配置: ang は -45° から 32° 刻み（決定的）。R=95 px（楕円が被らない距離）。座標を round で決定化 */
+      /* 扇状配置: ang は -45° から 32° 刻み（決定的）。R=115 px（segment 同寸の楕円が被らない距離）。座標を round で決定化 */
       const ang = (-45 + i * 32) * Math.PI / 180;
-      const R = 95;
+      const R = 115;
       const sx = Math.round((base.x + R * Math.cos(ang)) * 10) / 10;
       const sy = Math.round((base.y + R * Math.sin(ang)) * 10) / 10;
       const deco = `lpstub:${esc(st.dev)}:${esc(st.ifn)}`;
       /* スポーク線（device → stub 楕円）: .lk クラスで area 色付き */
       parts.push(`<line class="lk" data-deco="${deco}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}" stroke="${areaColor(String(st.area))}"/>`);
-      /* stub 楕円ノード: .segnode を再利用（点線楕円 + subnet テキスト + title でホバー）
-         data-elem は付けない（ヒットテスト対象外） */
-      parts.push(`<g class="segnode" data-deco="${deco}"><ellipse cx="${sx}" cy="${sy}" rx="46" ry="20"/><text x="${sx}" y="${sy+3}" text-anchor="middle">${esc(st.net || st.ip)}</text><title>${esc(st.ifn)} ${esc(st.ip)}</title></g>`);
+      /* stub 楕円ノード: segment と同一表記（点線楕円 rx62/ry26 + subnet テキストのみ）。
+         data-elem は付けない（非選択・ヒットテスト対象外）。IF 名は表示しない（title なし） */
+      parts.push(`<g class="segnode" data-deco="${deco}"><ellipse cx="${sx}" cy="${sy}" rx="62" ry="26"/><text x="${sx}" y="${sy+3}" text-anchor="middle">${esc(st.net || st.ip)}</text></g>`);
       /* area badge: segment の area-badge と同形（areaBadge ヘルパー使用） */
       const {txt, fill: _c} = areaBadge(String(st.area));
       const _w = txt.length*6.4+12;
-      parts.push(`<g class="area-badge" data-deco="${deco}"><rect x="${sx-_w/2}" y="${sy-40}" width="${_w}" height="15" fill="${_c}"/><text x="${sx}" y="${sy-29}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
+      parts.push(`<g class="area-badge" data-deco="${deco}"><rect x="${sx-_w/2}" y="${sy-48}" width="${_w}" height="15" fill="${_c}"/><text x="${sx}" y="${sy-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
     }
   }
 

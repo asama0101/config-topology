@@ -4207,6 +4207,10 @@ def test_loopback_uses_segment_style():
     assert '<circle class="lpstub"' not in stub_ctx, \
         "loopback ブロックに旧 <circle class=\"lpstub\" が残っている（segment 様式に置換されていない）"
 
+    # ellipse は segment と同寸法（rx=62 ry=26）＝見た目を segment と一致させる
+    assert 'rx="62"' in stub_ctx and 'ry="26"' in stub_ctx, \
+        "loopback ellipse が segment と同寸法（rx=62 ry=26）でない"
+
 
 @pytest.mark.unit
 def test_lpstub_css_removed():
@@ -4296,22 +4300,29 @@ def test_loopback_data_deco_uses_lpstub_prefix():
 
 
 @pytest.mark.unit
-def test_loopback_title_shows_ifn_and_ip():
-    """loopback segnode に <title> 要素があり ifn と ip をホバー表示すること。
+def test_loopback_no_title_no_ifn_displayed():
+    """loopback segnode に <title> が無く、IF 名（st.ifn）が描画に出ないこと。
 
-    壊すと赤: <title> を削除するとホバー情報がなくなる。
+    segment と同一表記の要件: IF 名はどこにも表示しない（ホバー title も無し）。
+    st.ifn は data-deco（lpstub:${dev}:${ifn}）の id 部分にのみ使われ、表示テキスト・
+    title には出さない。中央テキストは subnet（st.net || st.ip）のみ。
+
+    壊すと赤: <title>${esc(st.ifn)}...</title> を戻すと IF 名がホバー表示され失敗する。
     """
     js = assets._JS
     stub_start = js.find("DATA.ospf_stubs")
     assert stub_start != -1
     stub_ctx = js[stub_start:stub_start + 3000]
-    assert "<title>" in stub_ctx, \
-        "loopback segnode に <title> 要素が存在しない（ホバー情報なし）"
-    # ifn と ip の両方が title 内にあること
-    assert "st.ifn" in stub_ctx, \
-        "loopback title に st.ifn が存在しない"
-    assert "st.ip" in stub_ctx, \
-        "loopback title に st.ip が存在しない"
+    # loopback ブロックに <title> 要素が無いこと（IF 名のホバー表示を廃止）
+    assert "<title>" not in stub_ctx, \
+        "loopback ブロックに <title> が残っている（IF 名がホバー表示される）"
+    # st.ifn が deco キー以外で使われていないこと（deco の `lpstub:...:${esc(st.ifn)}` は許容）
+    deco_line = next((ln for ln in stub_ctx.splitlines() if "lpstub:" in ln and "deco" in ln), "")
+    others = stub_ctx.replace(deco_line, "")
+    assert "st.ifn" not in others, \
+        "loopback の描画 markup（deco キー以外）に st.ifn が使われている（IF 名が表示される）"
+    # 中央テキストは subnet（フォールバック含む）
+    assert "st.net" in stub_ctx, "loopback 中央テキストに st.net（subnet）が無い"
 
 
 @pytest.mark.unit
