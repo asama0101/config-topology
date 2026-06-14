@@ -226,3 +226,8 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 ### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4,B5 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D2c,D3,D3b,D3c,D4。
 ### 計画 6 項目（C4b/C1b/A3/D2c/D4/B5）完了。残バックログ: A1b（要設計・見送り）/ B2（要差別化）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
 推奨順序の残り目安: D2c or B2 → C4b → A3 → A1b(要設計) → 残り。
+
+## UI 改修（HTML レビュー反映・2026-06-14）
+demo2 HTML レビューの指摘に対応（render 層のみ・層別 YAML 不変）。
+- UI③ #nodepanel スクロール対応（max-height + overflow-y）。✅
+- UI⑦ INTERFACES Status 列の OSPF バッジ削除。✅ **注意（情報損失）**: IF レベル OSPF パラメータ（cost/network_type/passive）はこの ospfBadge が唯一の表示箇所だったため、削除後はどこにも表示されない（ユーザー要望で許容）。将来必要なら詳細パネルへ移設を検討。

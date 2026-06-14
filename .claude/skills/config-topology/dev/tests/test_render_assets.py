@@ -207,27 +207,42 @@ def test_link_end_label_includes_link_local():
 
 
 # ---------------------------------------------------------------------------
-# 修正 1: OSPF バッジ title 属性のエスケープ正確性テスト
+# 改修⑦: INTERFACES 表 Status 列の ospfBadge 削除
 # ---------------------------------------------------------------------------
 
-def test_ospf_badge_builds_from_raw_not_esc_parts():
-    """ospfBadge が生値の配列 raw[] から組み立て、title と本文を別々に esc() すること。
+def _extract_render_ifs_table_js(js: str) -> str:
+    """_JS から renderIfsTable 関数のソースを切り出して返す。"""
+    start = js.find("function renderIfsTable(")
+    assert start != -1, "renderIfsTable 関数が見つからない"
+    # 次の function 定義（または末尾）まで
+    next_fn = js.find("\nfunction ", start + 1)
+    return js[start:] if next_fn == -1 else js[start:next_fn]
 
-    旧実装は esc() 済みの parts 要素を再 join して title に渡すため、
-    network_type に特殊文字が入ると二重エスケープまたは属性破壊のリスクがあった。
-    修正後は const raw = [] から生値を収集し、
-      title="OSPF: ${esc("OSPF: " + raw.join(" | "))}" の形式で一括エスケープすること。
+
+def test_ifs_status_no_ospf_badge():
+    """renderIfsTable の Status セルに ospfBadge が存在しないこと。
+
+    改修⑦で削除。消し忘れ（${ospfBadge} や const ospfBadge が残る）と赤になる。
     """
-    # raw 配列から生値を収集するパターン
-    assert 'const raw = [];' in assets._JS
-    # title は raw.join(" | ") の生値を esc() で一括エスケープ
-    assert 'esc("OSPF: " + raw.join(" | "))' in assets._JS
-    # 本文は raw.join(" ") を esc() で一括エスケープ
-    assert 'esc(raw.join(" "))' in assets._JS
-    # cost は != null チェック（0でも表示）
-    assert 'r.ospf.cost != null' in assets._JS
-    # 旧実装の esc(String(r.ospf.cost)) が parts[] に push される形式は消えていること
-    assert 'parts.push(`cost ${esc(String(r.ospf.cost))}`' not in assets._JS
+    fn_src = _extract_render_ifs_table_js(assets._JS)
+    assert "${ospfBadge}" not in fn_src, \
+        "Status セルに ${ospfBadge} が残っている（削除もれ）"
+    assert "const ospfBadge" not in fn_src, \
+        "renderIfsTable 内に const ospfBadge 計算ブロックが残っている（削除もれ）"
+
+
+def test_ifs_status_keeps_kind_and_role_badge():
+    """renderIfsTable の Status セルに IFK_LABEL[r.kind] と ovBadge が残ること。
+
+    ospfBadge を削除しても up/down・種別バッジ・予約/使用不可バッジは維持される。
+    """
+    fn_src = _extract_render_ifs_table_js(assets._JS)
+    assert "IFK_LABEL[r.kind]" in fn_src, \
+        "種別バッジ IFK_LABEL[r.kind] が消えている（回帰）"
+    assert "${ovBadge}" in fn_src, \
+        "予約/使用不可バッジ ${ovBadge} が消えている（回帰）"
+    assert "${esc(r.st)}" in fn_src, \
+        "up/down ステータス ${esc(r.st)} が消えている（回帰）"
 
 
 # ---------------------------------------------------------------------------
