@@ -3706,3 +3706,115 @@ def test_nodepanel_scrollable():
         "#nodepanel CSS ブロックに overflow-y が含まれていない（スクロール対応未実装）"
     assert 'max-height' in nodepanel_block, \
         "#nodepanel CSS ブロックに max-height が含まれていない（スクロール対応未実装）"
+
+
+# ===========================================================================
+# 改修① OSPF area 不一致バッジ簡素化 — assets 構造アサート
+# ===========================================================================
+
+@pytest.mark.unit
+def test_area_badge_mismatch_uses_neq_link():
+    """リンク area-badge の描画に '/' 分岐と '≠' 表記・警告色が存在すること。
+
+    DRY 化後は '≠' / 分岐 / 警告色は areaBadge 共通ヘルパーに集約される。
+    リンク badge セクションが areaBadge を呼び出し、areaBadge 定義に '≠' が
+    含まれることで出力不変を担保する。
+
+    壊すと赤: areaBadge 呼び出しが削除された場合、または areaBadge 定義から '≠' が
+    消えた場合に失敗する。
+    """
+    js = assets._JS
+
+    # リンク badge セクションが areaBadge(l.area) を呼び出していること
+    badge_start = js.find("/* OSPF area badge */")
+    assert badge_start != -1, "_JS に '/* OSPF area badge */' コメントが存在しない"
+    badge_section = js[badge_start:badge_start + 600]
+    assert "areaBadge(l.area)" in badge_section, (
+        "リンク area-badge セクションが areaBadge(l.area) を呼び出していない: %r"
+        % badge_section[:200]
+    )
+
+    # areaBadge 関数定義に '≠' / '/' 分岐 / 警告色が存在すること
+    area_badge_start = js.find("function areaBadge(")
+    assert area_badge_start != -1, "_JS に function areaBadge が存在しない"
+    area_badge_def = js[area_badge_start:area_badge_start + 300]
+
+    assert "≠" in area_badge_def, (
+        "areaBadge 定義に '≠' (\\u2260) 文字が存在しない: %r" % area_badge_def[:200]
+    )
+    has_slash_branch = (
+        'split("/")' in area_badge_def or
+        'includes("/")' in area_badge_def or
+        '.indexOf("/")' in area_badge_def
+    )
+    assert has_slash_branch, (
+        "areaBadge 定義に '/' 含む場合の分岐が存在しない: %r" % area_badge_def[:200]
+    )
+    assert "var(--danger)" in area_badge_def, (
+        "areaBadge 定義に var(--danger) 警告色が存在しない: %r" % area_badge_def[:200]
+    )
+
+    # 旧形（分岐なし const txt = "area " + l.area）が badge セクションに残っていないこと
+    old_form_match = re.search(
+        r'const\s+txt\s*=\s*["\']area\s+["\'][^;]*l\.area\s*[,;]',
+        badge_section
+    )
+    assert old_form_match is None, (
+        "リンク area-badge に分岐なし旧形 'const txt = \"area \" + l.area' が残っている: %r"
+        % old_form_match.group(0)
+    )
+
+
+@pytest.mark.unit
+def test_area_badge_mismatch_uses_neq_segment():
+    """セグメント area-badge の描画に '/' 分岐と '≠' 表記・警告色が存在すること。
+
+    DRY 化後はセグメント badge セクションも areaBadge 共通ヘルパーを呼び出す。
+    areaBadge の定義に '≠' / 分岐 / 警告色があることで出力不変を担保する。
+
+    壊すと赤: areaBadge(s.area) 呼び出しが消えた場合に失敗する。
+    """
+    js = assets._JS
+
+    # セグメント badge セクションが areaBadge(s.area) を呼び出していること
+    seg_badge_start = js.find("if (showOspf && s.area)")
+    assert seg_badge_start != -1, "_JS に 'if (showOspf && s.area)' が存在しない"
+    seg_badge_section = js[seg_badge_start:seg_badge_start + 400]
+    assert "areaBadge(s.area)" in seg_badge_section, (
+        "セグメント area-badge セクションが areaBadge(s.area) を呼び出していない: %r"
+        % seg_badge_section[:200]
+    )
+
+    # areaBadge 関数定義の検証はリンク側テストで担保済み（DRY）
+    # セグメント側の '/' 分岐・警告色は areaBadge に集約されているため個別検証不要。
+    # ただし areaBadge 定義に var(--danger) があることは呼び出し元と独立してガード：
+    area_badge_start = js.find("function areaBadge(")
+    assert area_badge_start != -1, "_JS に function areaBadge が存在しない"
+    area_badge_def = js[area_badge_start:area_badge_start + 300]
+    assert "var(--danger)" in area_badge_def, (
+        "areaBadge 定義に var(--danger) 警告色が存在しない: %r" % area_badge_def[:200]
+    )
+
+
+@pytest.mark.unit
+def test_area_stroke_uses_area_color_unchanged():
+    """stroke の areaColor(l.area) は変更されていないこと（color/凡例整合維持）。
+
+    壊すと赤: stroke 側まで ≠ 分岐が混入した場合（例: fill="var(--danger)" に
+    変えてしまった場合）に失敗する。_JS 全体検索ではなく stroke= を含む行に限定して
+    areaColor 参照を確認するため、badge 側の areaBadge 呼び出しでは通過しない。
+    """
+    js = assets._JS
+    # stroke 決定行（リンク）: stroke="${areaColor(l.area)}" を含む行が存在すること
+    # _JS 全体検索では badge 内の areaColor でも通過するため、stroke= 文脈に限定する
+    link_stroke_ok = bool(re.search(r'stroke=.*areaColor\(l\.area\)', js))
+    assert link_stroke_ok, (
+        "stroke 側の areaColor(l.area) が消えている（stroke は split[0] 基準維持）。"
+        "stroke= を含む文脈でのみ検証する。"
+    )
+    # セグメント stroke: stroke="${areaColor(s.area)}" を含む行が存在すること
+    seg_stroke_ok = bool(re.search(r'stroke=.*areaColor\(s\.area\)', js))
+    assert seg_stroke_ok, (
+        "セグメント stroke 側の areaColor(s.area) が消えている。"
+        "stroke= を含む文脈でのみ検証する。"
+    )

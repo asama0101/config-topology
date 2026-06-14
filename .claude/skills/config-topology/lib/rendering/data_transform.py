@@ -399,6 +399,59 @@ def _check_ospf_area0_connectivity(topo):
     return results
 
 
+def _check_ospf_area_mismatch(topo, resolved_links):
+    """OSPF area 不一致のリンク・セグメントを検出し check エントリのリストを返す。
+
+    引数:
+      topo           : topology dict
+      resolved_links : build_links(topo) の計算済み結果（二重計算回避のため build_checks から受け取る）
+
+    build.py::aggregate_areas が複数 area を "/" で結合して "0/1" 等の形式で
+    ospf_area フィールドに格納する。この形式は実機上で OSPF 隣接が確立できない
+    設定誤りを示す。
+
+    発火条件:
+      - リンク（resolved_links）の area フィールドに "/" を含む。
+      - セグメント（topo["segments"]）の ospf_area フィールドに "/" を含む。
+
+    返り値: [{"severity": "warning", "kind": "ospf_area_mismatch", ...}, ...]
+      - リンク refs = sorted([ln["a"], ln["b"]]) + [subnet]（subnet 優先で v4 > v6 > ""）
+      - セグメント refs = [seg_id, subnet]
+    """
+    results = []
+
+    # ---- リンク ----
+    for ln in resolved_links:
+        area_str = str(ln.get("area") or "")
+        if "/" not in area_str:
+            continue
+        # 両端 device を辞書順ソートして決定的な refs にする
+        devices = sorted([ln["a"], ln["b"]])
+        subnet_ref = ln.get("subnet") or ln.get("dual") or ""
+        results.append({
+            "severity": "warning",
+            "kind": "ospf_area_mismatch",
+            "message": "OSPF area 不一致: %s — %s 間のリンク（%s）で area が %s に混在しています" % (
+                devices[0], devices[1], subnet_ref, area_str),
+            "refs": devices + ([subnet_ref] if subnet_ref else []),
+        })
+
+    # ---- セグメント ----
+    for seg in topo["segments"]:
+        area_str = str(seg.get("ospf_area") or "")
+        if "/" not in area_str:
+            continue
+        results.append({
+            "severity": "warning",
+            "kind": "ospf_area_mismatch",
+            "message": "OSPF area 不一致: セグメント %s（%s）で area が %s に混在しています" % (
+                seg["id"], seg["subnet"], area_str),
+            "refs": [seg["id"], seg["subnet"]],
+        })
+
+    return results
+
+
 def _check_ibgp_fullmesh(topo):
     """iBGP full-mesh 未完成ペアを検出し check エントリのリストを返す（保守的判定）。
 
@@ -521,6 +574,9 @@ def build_checks(topo, links=None):
       8. ibgp_fullmesh_incomplete (warning): iBGP full-mesh 未完成ペア（RR なし AS のみ）。
          いずれかのセッションに route_reflector_client=True があれば AS 全体をスキップ（RR 構成）。
          解決不能 neighbor_ip を持つ device が絡むペアもスキップ（偽陽性抑制）。
+      9. ospf_area_mismatch (warning): リンクまたはセグメントの ospf_area が "/" 連結（例 "0/1"）。
+         build.py::aggregate_areas が両端の area を "/" で結合するため、不一致時に検出可能。
+         実機では area 不一致リンクで OSPF 隣接は張れない＝設定誤り。
     """
     results = []
 
@@ -664,6 +720,11 @@ def build_checks(topo, links=None):
     # ---- ルール 8: ibgp_fullmesh_incomplete ----
     # iBGP full-mesh 未完成ペアを警告（RR 構成 AS はスキップ・解決不能 neighbor も偽陽性抑制）。
     results.extend(_check_ibgp_fullmesh(topo))
+
+    # ---- ルール 9: ospf_area_mismatch ----
+    # リンク/セグメントの ospf_area が "/" 連結（例 "0/1"）＝両端 area 不一致を警告。
+    # resolved_links を再利用（二重計算回避）。
+    results.extend(_check_ospf_area_mismatch(topo, resolved_links))
 
     # ---- 安定ソート: severity(error→warning)→kind→refs 文字列 ----
     _SEV_ORDER = {"error": 0, "warning": 1}

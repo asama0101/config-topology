@@ -3168,3 +3168,280 @@ def test_build_data_no_stats_key():
     topo = load_topology(str(GOLDEN))
     data = build_data(topo)
     assert "stats" not in data, "'stats' キーがまだ残っている: %s" % list(data.keys())
+
+
+# ===========================================================================
+# 改修① OSPF area 不一致 CHECK ルール9: ospf_area_mismatch
+# ===========================================================================
+
+def _make_link(a_dev, a_if, b_dev, b_if, subnet, ospf_area=None):
+    """最小 link dict（topo["links"] 用）を生成するヘルパー。"""
+    ln = {
+        "a_device": a_dev, "a_if": a_if,
+        "b_device": b_dev, "b_if": b_if,
+        "subnet": subnet,
+    }
+    if ospf_area is not None:
+        ln["ospf_area"] = ospf_area
+    return ln
+
+
+def _make_segment(seg_id, subnet, members, ospf_area=None):
+    """最小 segment dict（topo["segments"] 用）を生成するヘルパー。"""
+    seg = {"id": seg_id, "subnet": subnet, "members": members}
+    if ospf_area is not None:
+        seg["ospf_area"] = ospf_area
+    return seg
+
+
+# ---------------------------------------------------------------------------
+# ルール9: ospf_area_mismatch — リンク発火
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_check_ospf_area_mismatch_link_fires():
+    """リンクの ospf_area が "0/1"（不一致）のとき ospf_area_mismatch が 1 件発火すること。
+
+    壊すと赤: ospf_area_mismatch 発火の最小ケース。
+    実機では area 不一致リンクで OSPF 隣接は張れない＝設定誤り。
+    """
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+        links=[
+            _make_link("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30", ospf_area="0/1"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    chk = [c for c in result if c["kind"] == "ospf_area_mismatch"]
+    assert len(chk) == 1, "area 不一致リンクで ospf_area_mismatch が 1 件発火すること: %s" % chk
+    c = chk[0]
+    assert c["severity"] == "warning"
+    # refs = sorted([a_device, b_device]) + [subnet]
+    assert c["refs"][:2] == sorted(["r1", "r2"])
+    assert "10.0.0.0/30" in c["refs"]
+    # message に area 値を含む
+    assert "0/1" in c["message"]
+
+
+@pytest.mark.unit
+def test_check_ospf_area_mismatch_link_refs_deterministic():
+    """refs の順序が決定的であること（sorted([a, b]) + [subnet]）。
+
+    壊すと赤: refs を dict 挿入順に生成すると a/b の順序が不定になる。
+    """
+    # Arrange: b_device < a_device の辞書順になる設定
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+        links=[
+            # a_device="r2", b_device="r1"（逆順）でも refs は sorted
+            _make_link("r2", "Gi0", "r1", "Gi0", "10.0.0.0/30", ospf_area="0/1"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    chk = [c for c in result if c["kind"] == "ospf_area_mismatch"]
+    assert len(chk) == 1
+    # refs[0] < refs[1] (辞書順)
+    assert chk[0]["refs"][0] == "r1"
+    assert chk[0]["refs"][1] == "r2"
+
+
+# ---------------------------------------------------------------------------
+# ルール9: ospf_area_mismatch — セグメント発火
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_check_ospf_area_mismatch_segment_fires():
+    """セグメントの ospf_area が "0/2"（不一致）のとき ospf_area_mismatch が 1 件発火すること。
+
+    壊すと赤: セグメント経路での発火テスト。
+    """
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "192.168.1.1", "prefix": 24}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "192.168.1.2", "prefix": 24}]),
+            _make_if("r3", "Gi0", [{"af": "v4", "ip": "192.168.1.3", "prefix": 24}]),
+        ],
+        segments=[
+            _make_segment(
+                "seg::192.168.1.0/24", "192.168.1.0/24",
+                members=["r1::Gi0", "r2::Gi0", "r3::Gi0"],
+                ospf_area="0/2",
+            ),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    chk = [c for c in result if c["kind"] == "ospf_area_mismatch"]
+    assert len(chk) == 1, "area 不一致 segment で ospf_area_mismatch が 1 件発火すること: %s" % chk
+    c = chk[0]
+    assert c["severity"] == "warning"
+    # refs = [seg_id, subnet]（完全一致）
+    assert c["refs"] == ["seg::192.168.1.0/24", "192.168.1.0/24"]
+    # message に area 値を含む
+    assert "0/2" in c["message"]
+
+
+# ---------------------------------------------------------------------------
+# ルール9: ospf_area_mismatch — 非発火（単一 area）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_check_ospf_area_mismatch_single_area_silent():
+    """area が単一値（"0"）で "/" を含まないとき ospf_area_mismatch が出ないこと。
+
+    壊すと赤: 正常リンクに誤検知が出るバグを防ぐ。
+    """
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+        links=[
+            _make_link("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30", ospf_area="0"),
+        ],
+        segments=[
+            _make_segment(
+                "seg::10.1.0.0/24", "10.1.0.0/24",
+                members=["r1::Gi0"],
+                ospf_area="1",
+            ),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    chk = [c for c in result if c["kind"] == "ospf_area_mismatch"]
+    assert chk == [], (
+        "単一 area (0 or 1) で ospf_area_mismatch が誤検知された（偽陽性）: %s" % chk
+    )
+
+
+@pytest.mark.unit
+def test_check_ospf_area_mismatch_no_ospf_silent():
+    """ospf_area フィールドがないリンク/セグメントでは ospf_area_mismatch が出ないこと。"""
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+        links=[
+            _make_link("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30"),  # ospf_area なし
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    assert not any(c["kind"] == "ospf_area_mismatch" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# ルール9: ospf_area_mismatch — golden 非発火
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_check_ospf_area_mismatch_golden_silent():
+    """golden topo（OSPF リンク無し）では ospf_area_mismatch が 0 件であること。
+
+    golden の DATA.checks が不変であることの根拠テスト。
+    """
+    # Arrange
+    topo = load_topology(str(GOLDEN))
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    chk = [c for c in result if c["kind"] == "ospf_area_mismatch"]
+    assert chk == [], (
+        "golden では ospf_area_mismatch が出ないはず: %s" % chk
+    )
+    # 全 checks が 0 件（既存アサート維持）
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# ルール9: ospf_area_mismatch — 安定ソート
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_checks_sorted_with_mismatch():
+    """ospf_area_mismatch 混在でも severity→kind→refs 安定ソートが維持されること。
+
+    duplicate_ip(error) + ospf_area_mismatch(warning) + ospf_area0_disconnected(warning) が
+    共存したとき、error が先頭・warning が kind 昇順に並ぶこと。
+    """
+    # Arrange
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            # duplicate_ip 発火用（r1 と r2 で同一 IP）
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+        links=[
+            # area 不一致リンク
+            _make_link("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30", ospf_area="0/1"),
+        ],
+        routing={
+            "bgp": [],
+            "ospf": [
+                # r1=area0, r2=area1 → ospf_area0_disconnected for r2
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.0.0.0/30", "area": "1", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: error が全て warning より前
+    severities = [c["severity"] for c in result]
+    last_error_idx = max(
+        (i for i, s in enumerate(severities) if s == "error"), default=-1
+    )
+    first_warning_idx = min(
+        (i for i, s in enumerate(severities) if s == "warning"), default=len(result)
+    )
+    assert last_error_idx < first_warning_idx
+
+    # warning が kind 昇順: ospf_area0_disconnected と ospf_area_mismatch の比較
+    # 辞書順: "ospf_area0_disconnected" < "ospf_area_mismatch"
+    warning_kinds = [c["kind"] for c in result if c["severity"] == "warning"]
+    assert warning_kinds == sorted(warning_kinds)
+
+    # 両方が存在すること
+    assert any(c["kind"] == "ospf_area_mismatch" for c in result)
+    assert any(c["kind"] == "ospf_area0_disconnected" for c in result)
+    assert any(c["kind"] == "duplicate_ip" for c in result)

@@ -225,6 +225,7 @@ network 宣言 1 件につき 1 エントリ。
 | `static_dangling_next_hop` | warning | static の next_hop がトポロジー全体のどの IF サブネットにも属さず、どの IF のホスト IP とも一致しない。スキップ対象: 特殊値（`0.0.0.0`・`::`・`255.255.255.255`）、デフォルトルート prefix（`0.0.0.0/0`・`::/0`）、IF 名等の非 IP 文字列（Null0 等）。link-local アドレスは all_subnets から除外（fe80:: 帯への誤属を防ぐ） |
 | `ospf_area0_disconnected` | warning | area 0（backbone）を持つ device が 1 台以上存在する混在環境で、OSPF area を持つが area 0 を持たない device を列挙。area 0 不在環境では非発火（偽陽性抑制）。結線でなく **config 保有 area で近似**。ABR（area0＋他 area）は対象外。`refs` = `[device] + 数値優先ソートした非0 area 群` |
 | `ibgp_fullmesh_incomplete` | warning | RR 不在の AS 内 iBGP で full-mesh が崩れているピア対。いずれかのセッションに `route_reflector_client=True` があれば当該 AS をスキップ（RR 構成は full-mesh 不要）。neighbor_ip を IF ホスト IP で device 解決し、解決不能 neighbor を持つ device が絡むペアはスキップ（偽陽性抑制）。`refs` = `[di, dj, str(asn)]`（di<dj 昇順） |
+| `ospf_area_mismatch` | warning | リンク/セグメントの両端が異なる OSPF area を宣言（`ospf_area` が `aggregate_areas` により `"0/1"` 等の `/` 連結値になる）。実機では area 不一致で OSPF 隣接が張れない＝設定誤り。リンク `refs` = `sorted([a_device, b_device]) + [subnet]`、セグメント `refs` = `[seg_id, subnet]` |
 
 `build_data()` は `"checks": build_checks(topo, links=links)` を返り値に追加するため、
 埋め込み `DATA.checks` として HTML に含まれ、ブラウザ側の `renderChecksView()` が描画する。

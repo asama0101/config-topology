@@ -596,6 +596,10 @@ const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
 /* BGP セッション色はピア AS でなく種別で固定（eBGP/iBGP で統一。AS の識別は AS 枠の色が担う） */
 const BGP_COLOR = { ebgp:"#e8775a", ibgp:"#7aa2f7" };
 const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
+/* area-badge 表示文字列・塗り色を返す共通ヘルパー。
+   "/" 連結（不一致）なら "area X≠Y" ＋ 警告色、単一 area なら "area X" ＋ areaColor。
+   w（幅）の計算は呼び出し側で行う（txt.length*6.4+12）。 */
+function areaBadge(area){ const m=String(area).includes("/"); return { txt: m ? "area "+String(area).split("/").join("≠") : "area "+area, fill: m ? "var(--danger)" : areaColor(area) }; }
 
 /* --- データ駆動凡例用 純関数 (B4) --- */
 /* presentAreas(data): data.links (非 admin_down かつ area あり) と data.segments (area あり) から
@@ -965,8 +969,8 @@ function render() {
     /* OSPF area badge */
     if (showOspf && l.area && !l.admin_down) {
       const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
-      const c = areaColor(l.area);
-      const txt = "area " + l.area, w = txt.length*6.4+12;
+      const {txt, fill: c} = areaBadge(l.area);
+      const w = txt.length*6.4+12;
       parts.push(`<g class="area-badge" data-deco="link:${l.id}"><rect x="${mx-w/2}" y="${my-21}" width="${w}" height="15" fill="${c}"/>` +
         `<text x="${mx}" y="${my-10}" text-anchor="middle" fill="#fff">${esc(txt)}</text>` +
         `<text class="subnet-tag" x="${mx}" y="${my+14}" text-anchor="middle">${esc(l.subnet)}</text>` +
@@ -1015,7 +1019,8 @@ function render() {
       <ellipse cx="${p.x}" cy="${p.y}" rx="62" ry="26"/>
       <text x="${p.x}" y="${p.y+3}" text-anchor="middle">${esc(s.subnet)}</text></g>`);
     if (showOspf && s.area) {
-      const c = areaColor(s.area), txt = "area "+s.area, w = txt.length*6.4+12;
+      const {txt, fill: c} = areaBadge(s.area);
+      const w = txt.length*6.4+12;
       parts.push(`<g class="area-badge" data-deco="seg:${s.id}"><rect x="${p.x-w/2}" y="${p.y-48}" width="${w}" height="15" fill="${c}"/>` +
         `<text x="${p.x}" y="${p.y-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
     }
