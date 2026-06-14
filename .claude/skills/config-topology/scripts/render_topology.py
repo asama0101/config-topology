@@ -24,6 +24,9 @@ def main(argv=None):
     p.add_argument("--diff-against-history", action="store_true",
                    help="直近 history スナップショットとの差分を自動表示する。"
                         "--diff-against が明示されている場合はそちらを優先する。")
+    p.add_argument("--layout", choices=["force", "hierarchical"], default="force",
+                   help="レイアウトモード（force: デフォルト force-directed, "
+                        "hierarchical: AS 列グリッド）。省略時は force（既存挙動不変）。")
     args = p.parse_args(argv)
 
     try:
@@ -62,7 +65,7 @@ def main(argv=None):
             return 1
         diff = diff_topology(prev, topo)
 
-    html = render_html(topo, diff=diff)
+    html = render_html(topo, diff=diff, layout=args.layout)
 
     # §10.3 既存 HTML を退避（生成前）
     retained = retain_for_render(Path(args.output), current_timestamp())

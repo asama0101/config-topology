@@ -31,7 +31,7 @@ def _inject_tabs(body, nav_html):
     return new_body
 
 
-def render_html(topo, diff=None):
+def render_html(topo, diff=None, layout="force"):
     """topology dict → 自己完結 HTML 文字列（決定的）。
 
     Parameters
@@ -42,9 +42,13 @@ def render_html(topo, diff=None):
         diff_topology() の戻り値（省略可）。
         指定時は DIFF タブが追加され const DIFF=<json>; が埋め込まれる。
         省略時（None）は DIFF タブなし・const DIFF=null; のみ埋め込む（既存挙動を維持）。
+    layout : str
+        "force"（既定）: 決定的 force-directed レイアウト（既存挙動）。
+        "hierarchical": AS 列グリッドレイアウト（A3）。
+        省略時は "force" で従来通り（既定 force → golden byte 不変）。
     """
     data = build_data(topo)
-    pos = compute_positions(data)
+    pos = compute_positions(data, mode=layout)
     tabs = build_tabs(topo["routing"], has_diff=diff is not None)
     views = [t["view"] for t in tabs]
 

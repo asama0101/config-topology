@@ -1,9 +1,14 @@
-"""決定的 force-directed レイアウト（要件書 §8.3）。乱数・時刻不使用。"""
+"""決定的レイアウト（force-directed と hierarchical グリッド）（要件書 §8.3）。乱数・時刻不使用。"""
 import math
 
 NODE_W, NODE_H = 148.0, 56.0
 _ITER = 200
 _AREA = 1_000_000.0
+
+# 階層レイアウトの列間隔・行間隔
+# COL_GAP=240: NODE_W=148・片側余白46px / ROW_GAP=120: NODE_H=56・片側余白32px
+COL_GAP = 240.0
+ROW_GAP = 120.0
 
 
 def _initial_circle_ordered(ordered_ids):
@@ -30,6 +35,22 @@ def _initial_circle(node_ids):
     式を変更する際は _initial_circle_ordered のみ修正すれば良い。
     """
     return _initial_circle_ordered(sorted(node_ids))
+
+
+def _group_by_asn(dev_ids, devices):
+    """device を AS でグループ化し (as_groups, sorted_asns) を返す。
+
+    as_groups: {asn: [dev_id,...]}（挿入順）。
+    sorted_asns: (asn is None, asn) 昇順キー（None 末尾・数値昇順・決定的）。
+
+    devices に存在しない dev_id は AS=None として扱う（.get 安全アクセス）。
+    """
+    as_groups: dict = {}
+    for did in dev_ids:
+        asn = devices.get(did, {}).get("as")
+        as_groups.setdefault(asn, []).append(did)
+    sorted_asns = sorted(as_groups.keys(), key=lambda asn: (asn is None, asn))
+    return as_groups, sorted_asns
 
 
 def cluster_order(dev_ids, devices, seg_ids, ext_ids):
@@ -60,11 +81,8 @@ def cluster_order(dev_ids, devices, seg_ids, ext_ids):
     Returns:
         全ノード ID を決定的順序で並べたリスト。
     """
-    # AS グループの構築（.get("as") で安全に読む）
-    as_groups: dict = {}
-    for did in dev_ids:
-        asn = devices.get(did, {}).get("as")
-        as_groups.setdefault(asn, []).append(did)
+    # AS グループの構築（_group_by_asn で .get("as") 安全アクセス・DRY）
+    as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
 
     # 発動ガード: 2台以上の device を含む AS グループが存在するか
     has_cluster = any(
@@ -81,8 +99,6 @@ def cluster_order(dev_ids, devices, seg_ids, ext_ids):
     # 発動: AS グループ順序でソート
     # None を末尾に、非 None を asn 数値昇順に並べる
     # (asn is None, asn) タプル: False < True なので非 None が先、同値は asn 昇順で決定的
-    sorted_asns = sorted(as_groups.keys(), key=lambda asn: (asn is None, asn))
-
     ordered_devs = []
     for asn in sorted_asns:
         # 同一 AS 内は id 昇順
@@ -91,18 +107,80 @@ def cluster_order(dev_ids, devices, seg_ids, ext_ids):
     return ordered_devs + sorted(seg_ids) + sorted(ext_ids)
 
 
-def compute_positions(data):
+def _hierarchical_positions(data):
+    """決定的グリッドレイアウト（要件書 A3）。乱数・時刻不使用。
+
+    列(x)構成（左から）:
+      1. device 列群: AS ごとに 1 列。AS は (asn is None, asn) キーで昇順。同 AS 内 device は
+         degree 降順 → id 昇順（(-degree, id) キーで安定ソート）。
+      2. segment 列: segment が存在する場合のみ（id 昇順）。
+      3. ext 列: extPeers が存在する場合のみ（id 昇順）。
+
+    座標:
+      x = (col_index - (n_cols - 1) / 2.0) * COL_GAP   （原点中心）
+      y = (row_index - (col_len - 1) / 2.0) * ROW_GAP  （列ごとに縦中央寄せ）
+      全座標 round(.,1)。
+
+    空入力（node 無し）は {} を返す。
+    """
+    devices = data.get("devices", {})
+    seg_ids = [s["id"] for s in data.get("segments", [])]
+    ext_ids = [e["id"] for e in data.get("extPeers", [])]
+
+    if not devices and not seg_ids and not ext_ids:
+        return {}
+
+    # ---- device を AS グループに分類（_group_by_asn で .get("as") 安全アクセス・DRY）----
+    as_groups, sorted_asns = _group_by_asn(list(devices.keys()), devices)
+
+    # 各 AS グループ内を (-degree, id) キーで安定ソート
+    columns = []
+    for asn in sorted_asns:
+        members = sorted(
+            as_groups[asn],
+            key=lambda did: (-devices[did].get("degree", 0), did),
+        )
+        columns.append(members)
+
+    # segment 列・ext 列（存在する場合のみ追加）
+    if seg_ids:
+        columns.append(sorted(seg_ids))
+    if ext_ids:
+        columns.append(sorted(ext_ids))
+
+    n_cols = len(columns)
+    pos = {}
+    for col_index, col_members in enumerate(columns):
+        col_len = len(col_members)
+        x = round((col_index - (n_cols - 1) / 2.0) * COL_GAP, 1)
+        for row_index, nid in enumerate(col_members):
+            y = round((row_index - (col_len - 1) / 2.0) * ROW_GAP, 1)
+            pos[nid] = {"x": x, "y": y}
+
+    return pos
+
+
+def compute_positions(data, mode="force"):
     """全ノード（device + segment + ext）の決定的 POS を返す（座標は round(.,1)）。
 
-    AS クラスタリング初期配置（2台以上の AS グループがある時のみ発動・非該当時は現行円周 no-op・決定的）:
-    いずれかの AS グループが 2 台以上の device を含む場合、同一 AS の device が円周上で隣接するよう
-    初期配置順序を決定する。それ以外の場合は従来の sorted(node_ids) による円周配置（no-op）。
+    Parameters
+    ----------
+    data : dict
+        build_data() が返す DATA dict。
+    mode : str
+        "force"（既定）: 決定的 Fruchterman-Reingold force-directed レイアウト。
+        "hierarchical": AS 列グリッドレイアウト（A3）。
 
-    引力エッジは物理リンクに加えセグメント↔メンバー・iBGP ループバックからも張る。
-    外部ピアは extPeers[].from ではなく external bgpEdges の全接続元から引力を張ることで、
-    複数デバイスが同一ピアへ接続する場合も偏らず中間に配置される。
-    （孤立ノードが斥力のみで発散するのを防ぐため）
+    Raises
+    ------
+    ValueError
+        mode が "force" または "hierarchical" 以外の場合。
     """
+    if mode == "hierarchical":
+        return _hierarchical_positions(data)
+    if mode != "force":
+        raise ValueError("unknown layout mode: %r" % (mode,))
+    # mode == "force"（既定）: 以下は既存 force-directed 本体（無変更）。
     dev_ids = list(data["devices"].keys())
     seg_ids = [s["id"] for s in data.get("segments", [])]
     ext_ids = [e["id"] for e in data.get("extPeers", [])]

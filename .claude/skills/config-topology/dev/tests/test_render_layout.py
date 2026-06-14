@@ -2,7 +2,7 @@
 import math
 import pytest
 
-from lib.rendering.layout import compute_positions, cluster_order
+from lib.rendering.layout import compute_positions, cluster_order, _group_by_asn
 
 pytestmark = pytest.mark.unit
 
@@ -414,3 +414,355 @@ def test_ext_peer_anchored_to_all_source_devices():
     assert dist("ext:E", "d1") < 2000
     assert dist("ext:E", "d2") < 2000
     assert abs(dist("ext:E", "d1") - dist("ext:E", "d2")) < 200   # 両接続元の中間に配置
+
+
+# ---------------------------------------------------------------------------
+# A3: 階層レイアウトモード（_hierarchical_positions）
+# ---------------------------------------------------------------------------
+
+def _hier_data(dev_as_degree_map, seg_ids=(), ext_ids=()):
+    """hierarchical テスト用の data を生成するヘルパー。
+
+    dev_as_degree_map: {dev_id: (asn_or_None, degree)}
+    data["devices"][id] に "as" と "degree" を設定する。
+    """
+    devices = {}
+    for dev_id, (asn, deg) in dev_as_degree_map.items():
+        entry = {"degree": deg}
+        if asn is not None:
+            entry["as"] = asn
+        devices[dev_id] = entry
+    return {
+        "devices": devices,
+        "segments": [{"id": s, "members": []} for s in seg_ids],
+        "extPeers": [{"id": e} for e in ext_ids],
+        "links": [],
+        "bgpEdges": [],
+    }
+
+
+class TestHierarchicalLayout:
+    """_hierarchical_positions の動作テスト（A3）。"""
+
+    # ----------------------------------------------------------------
+    # mode 分岐・デフォルト一致
+    # ----------------------------------------------------------------
+
+    def test_compute_positions_default_is_force(self):
+        """compute_positions(data) と compute_positions(data, mode='force') が完全一致。"""
+        # Arrange
+        data = _data(["r1", "r2", "r3"], seg_ids=["seg-a"], ext_ids=["ext:x"])
+        # Act & Assert
+        assert compute_positions(data) == compute_positions(data, mode="force")
+
+    def test_compute_positions_force_unchanged_regression(self):
+        """mode='force' の POS が 2 回呼んで一致し、省略時と同一（既定=force 回帰）。"""
+        # Arrange: 複数 device + segment
+        data = _data_with_as(
+            {"a1": 65001, "a2": 65001, "b1": 65002},
+            seg_ids=["seg-x"],
+            ext_ids=["ext:y"],
+        )
+        # Act: 3通りで呼ぶ
+        pos_default = compute_positions(data)
+        pos_force = compute_positions(data, mode="force")
+        pos_force2 = compute_positions(data, mode="force")
+        # Assert: 全一致（mode 省略=force・決定的）
+        assert pos_default == pos_force
+        assert pos_force == pos_force2
+
+    # ----------------------------------------------------------------
+    # 決定性
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_deterministic(self):
+        """同一 data を 2 回 mode='hierarchical' で呼んで完全一致（決定性）。"""
+        # Arrange
+        data = _hier_data(
+            {"r1": (65001, 3), "r2": (65001, 1), "r3": (65002, 2)},
+            seg_ids=["seg-a"],
+            ext_ids=["ext:e1"],
+        )
+        # Act & Assert
+        pos1 = compute_positions(data, mode="hierarchical")
+        pos2 = compute_positions(data, mode="hierarchical")
+        assert pos1 == pos2
+
+    # ----------------------------------------------------------------
+    # AS グループが x 列を決定する
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_as_columns(self):
+        """2つの AS の device が異なる x を持ち、同一 AS は同一 x を持つこと。"""
+        # Arrange: AS65001 に r1/r2、AS65002 に r3/r4
+        data = _hier_data(
+            {"r1": (65001, 2), "r2": (65001, 1), "r3": (65002, 2), "r4": (65002, 1)},
+        )
+        # Act
+        pos = compute_positions(data, mode="hierarchical")
+        # Assert: 同一 AS は同じ x
+        assert pos["r1"]["x"] == pos["r2"]["x"], (
+            f"AS65001 の r1,r2 が異なる x: {pos['r1']['x']} vs {pos['r2']['x']}"
+        )
+        assert pos["r3"]["x"] == pos["r4"]["x"], (
+            f"AS65002 の r3,r4 が異なる x: {pos['r3']['x']} vs {pos['r4']['x']}"
+        )
+        # 異なる AS は異なる x
+        assert pos["r1"]["x"] != pos["r3"]["x"], (
+            f"AS65001 と AS65002 の x が同じ: {pos['r1']['x']}"
+        )
+
+    # ----------------------------------------------------------------
+    # degree 降順 → id 昇順の y 順序
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_row_order_degree_then_id(self):
+        """同一列内で degree 降順→id 昇順の y 順序になること（壊すと赤）。
+
+        fixture: 1列（AS65001）に r_high(degree=5), r_mid_a(degree=2), r_mid_b(degree=2), r_low(degree=0)
+          (-degree, id) でソートすると: r_high(-5), r_mid_a(-2,'a'), r_mid_b(-2,'b'), r_low(0)
+          y は row_index に比例するので:
+            r_high.y < r_mid_a.y < r_mid_b.y < r_low.y
+          （列が上から下へ index 0,1,2,3 に並ぶため）
+        """
+        # Arrange: 全員が AS65001（1列）
+        data = _hier_data({
+            "r_high": (65001, 5),
+            "r_mid_a": (65001, 2),
+            "r_mid_b": (65001, 2),
+            "r_low":  (65001, 0),
+        })
+        # Act
+        pos = compute_positions(data, mode="hierarchical")
+        # Assert: degree 降順→id 昇順で y が増加
+        assert pos["r_high"]["y"] < pos["r_mid_a"]["y"], (
+            f"degree 5 の r_high が degree 2 の r_mid_a より下: "
+            f"r_high.y={pos['r_high']['y']}, r_mid_a.y={pos['r_mid_a']['y']}"
+        )
+        assert pos["r_mid_a"]["y"] < pos["r_mid_b"]["y"], (
+            f"id 昇順で r_mid_a が r_mid_b より下（同 degree）: "
+            f"r_mid_a.y={pos['r_mid_a']['y']}, r_mid_b.y={pos['r_mid_b']['y']}"
+        )
+        assert pos["r_mid_b"]["y"] < pos["r_low"]["y"], (
+            f"degree 2 の r_mid_b が degree 0 の r_low より下: "
+            f"r_mid_b.y={pos['r_mid_b']['y']}, r_low.y={pos['r_low']['y']}"
+        )
+
+    # ----------------------------------------------------------------
+    # round(.,1) 精度
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_round_1(self):
+        """全 x,y が round(.,1) であること（小数2桁以上が出ない）。"""
+        # Arrange
+        data = _hier_data(
+            {"r1": (65001, 3), "r2": (65001, 1), "r3": (65002, 2)},
+            seg_ids=["seg-a"],
+            ext_ids=["ext:e1"],
+        )
+        # Act
+        pos = compute_positions(data, mode="hierarchical")
+        # Assert
+        for nid, p in pos.items():
+            assert round(p["x"], 1) == p["x"], (
+                f"{nid}.x={p['x']} は round(.,1) でない"
+            )
+            assert round(p["y"], 1) == p["y"], (
+                f"{nid}.y={p['y']} は round(.,1) でない"
+            )
+
+    # ----------------------------------------------------------------
+    # 空入力
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_empty(self):
+        """node 無し → {} を返すこと。"""
+        # Arrange
+        data = _data([])
+        # Act & Assert
+        assert compute_positions(data, mode="hierarchical") == {}
+
+    # ----------------------------------------------------------------
+    # segment / ext は id 昇順で別列
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_segment_ext_separate_columns(self):
+        """segment 列は device 列と異なる x を持ち、ext 列も独立した x を持つこと。"""
+        # Arrange: 1 AS の device 1台 + segment 1個 + ext 1個
+        data = _hier_data(
+            {"r1": (65001, 1)},
+            seg_ids=["seg-a"],
+            ext_ids=["ext:e1"],
+        )
+        # Act
+        pos = compute_positions(data, mode="hierarchical")
+        # Assert: device/segment/ext はそれぞれ異なる x 列
+        assert pos["r1"]["x"] != pos["seg-a"]["x"], (
+            "device と segment が同じ x 列にある"
+        )
+        assert pos["seg-a"]["x"] != pos["ext:e1"]["x"], (
+            "segment と ext が同じ x 列にある"
+        )
+
+    # ----------------------------------------------------------------
+    # 全 node ID が返り値に含まれる
+    # ----------------------------------------------------------------
+
+    def test_hierarchical_all_node_ids_present(self):
+        """hierarchical mode でも全ノード ID が POS に含まれること。"""
+        # Arrange
+        data = _hier_data(
+            {"r1": (65001, 2), "r2": (65001, 0), "r3": (None, 1)},
+            seg_ids=["seg-x"],
+            ext_ids=["ext:z"],
+        )
+        # Act
+        pos = compute_positions(data, mode="hierarchical")
+        # Assert
+        assert set(pos.keys()) == {"r1", "r2", "r3", "seg-x", "ext:z"}
+
+
+# ---------------------------------------------------------------------------
+# 修正1: 不正 mode の明示 ValueError
+# ---------------------------------------------------------------------------
+
+class TestComputePositionsInvalidMode:
+    """compute_positions(data, mode=<invalid>) が ValueError を送出すること（修正1）。"""
+
+    def test_invalid_mode_raises_value_error(self):
+        """mode='bogus' のとき ValueError が送出されること。"""
+        # Arrange
+        data = _data(["r1", "r2"])
+        # Act & Assert
+        with pytest.raises(ValueError, match="unknown layout mode"):
+            compute_positions(data, mode="bogus")
+
+    def test_invalid_mode_empty_string_raises_value_error(self):
+        """mode='' のとき ValueError が送出されること。"""
+        # Arrange
+        data = _data(["r1"])
+        # Act & Assert
+        with pytest.raises(ValueError):
+            compute_positions(data, mode="")
+
+    def test_invalid_mode_none_raises_value_error(self):
+        """mode=None のとき ValueError が送出されること（None は有効 mode でない）。"""
+        # Arrange
+        data = _data(["r1"])
+        # Act & Assert
+        with pytest.raises(ValueError):
+            compute_positions(data, mode=None)
+
+    def test_valid_mode_force_no_error(self):
+        """mode='force' は引き続き正常動作すること（修正前と同じ）。"""
+        # Arrange
+        data = _data(["r1", "r2"])
+        # Act & Assert: 例外なし
+        pos = compute_positions(data, mode="force")
+        assert set(pos.keys()) == {"r1", "r2"}
+
+    def test_valid_mode_default_no_error(self):
+        """mode 省略（既定 force）でも例外なし。"""
+        # Arrange
+        data = _data(["r1", "r2"])
+        # Act & Assert: 例外なし
+        pos = compute_positions(data)
+        assert set(pos.keys()) == {"r1", "r2"}
+
+    def test_valid_mode_hierarchical_no_error(self):
+        """mode='hierarchical' は引き続き正常動作すること（修正前と同じ）。"""
+        # Arrange
+        data = _hier_data({"r1": (65001, 1), "r2": (65001, 2)})
+        # Act & Assert: 例外なし
+        pos = compute_positions(data, mode="hierarchical")
+        assert set(pos.keys()) == {"r1", "r2"}
+
+
+# ---------------------------------------------------------------------------
+# 修正2: _group_by_asn ヘルパー単体テスト
+# ---------------------------------------------------------------------------
+
+class TestGroupByAsn:
+    """_group_by_asn(dev_ids, devices) の動作テスト（修正2 DRY 抽出）。"""
+
+    def test_basic_grouping(self):
+        """同じ AS の device が同じグループに入ること。"""
+        # Arrange
+        devices = {"r1": {"as": 65001}, "r2": {"as": 65001}, "r3": {"as": 65002}}
+        dev_ids = list(devices.keys())
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert
+        assert set(as_groups[65001]) == {"r1", "r2"}
+        assert as_groups[65002] == ["r3"]
+        assert sorted_asns == [65001, 65002]
+
+    def test_none_as_at_end(self):
+        """AS=None の device は sorted_asns の末尾に来ること。"""
+        # Arrange
+        devices = {"r1": {"as": 65001}, "r2": {}}
+        dev_ids = list(devices.keys())
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert
+        assert sorted_asns[-1] is None
+        assert "r2" in as_groups[None]
+
+    def test_sorted_asns_numeric_ascending(self):
+        """sorted_asns が数値昇順（None 末尾）になること。"""
+        # Arrange
+        devices = {
+            "r3": {"as": 65001},
+            "r1": {"as": 9},
+            "r4": {"as": 65001},
+            "r2": {"as": 100},
+            "r5": {},  # AS=None
+        }
+        dev_ids = list(devices.keys())
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert: 数値昇順・None 末尾
+        assert sorted_asns == [9, 100, 65001, None]
+
+    def test_missing_as_key_treated_as_none(self):
+        """'as' キーが存在しない device は AS=None として扱われること（安全アクセス）。"""
+        # Arrange: "as" キーなし（KeyError が出ないこと）
+        devices = {"r1": {"hostname": "R1"}, "r2": {}}
+        dev_ids = list(devices.keys())
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert: None グループに全員
+        assert set(as_groups[None]) == {"r1", "r2"}
+
+    def test_missing_device_in_devices_dict_safe(self):
+        """dev_ids に含まれる ID が devices に存在しなくても KeyError が出ないこと（.get 安全アクセス）。"""
+        # Arrange: dev_ids に "ghost" を含めるが devices には存在しない
+        devices = {"r1": {"as": 65001}}
+        dev_ids = ["r1", "ghost"]
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert: ghost は None グループへ（クラッシュしない）
+        assert "r1" in as_groups[65001]
+        assert "ghost" in as_groups[None]
+
+    def test_empty_dev_ids(self):
+        """dev_ids が空の場合、空の as_groups と sorted_asns を返すこと。"""
+        # Arrange
+        devices = {}
+        dev_ids = []
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert
+        assert as_groups == {}
+        assert sorted_asns == []
+
+    def test_all_none_as(self):
+        """全 device が AS=None の場合、sorted_asns が [None] のみであること。"""
+        # Arrange
+        devices = {"r1": {}, "r2": {}, "r3": {}}
+        dev_ids = list(devices.keys())
+        # Act
+        as_groups, sorted_asns = _group_by_asn(dev_ids, devices)
+        # Assert
+        assert sorted_asns == [None]
+        assert set(as_groups[None]) == {"r1", "r2", "r3"}

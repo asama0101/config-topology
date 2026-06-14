@@ -474,6 +474,83 @@ def test_diff_against_history_nontrivial_deterministic(tmp_path):
     )
 
 
+# ---------------------------------------------------------------------------
+# A3: --layout フラグのテスト
+# ---------------------------------------------------------------------------
+
+def test_render_cli_layout_force_default(tmp_path):
+    """--layout 未指定（force デフォルト）で正常終了し、有効な HTML が生成されること。"""
+    out = tmp_path / "default.html"
+    proc = _run([str(GOLDEN), "-o", str(out)])
+    assert proc.returncode == 0, proc.stderr
+    html = out.read_text(encoding="utf-8")
+    assert html.lstrip().lower().startswith("<!doctype html")
+
+
+def test_render_cli_layout_hierarchical_differs(tmp_path):
+    """--layout hierarchical の HTML の POS が force と異なること。未指定（force）の HTML は従来と byte 一致。
+
+    - layout 未指定 vs --layout force: byte 一致（golden 不変担保）
+    - --layout hierarchical の POS: force と異なること
+    """
+    import re
+    import json as _json
+
+    out_default = tmp_path / "default.html"
+    out_force = tmp_path / "force.html"
+    out_hier = tmp_path / "hier.html"
+
+    proc_default = _run([str(GOLDEN), "-o", str(out_default)])
+    proc_force = _run([str(GOLDEN), "-o", str(out_force), "--layout", "force"])
+    proc_hier = _run([str(GOLDEN), "-o", str(out_hier), "--layout", "hierarchical"])
+
+    assert proc_default.returncode == 0, proc_default.stderr
+    assert proc_force.returncode == 0, proc_force.stderr
+    assert proc_hier.returncode == 0, proc_hier.stderr
+
+    html_default = out_default.read_bytes()
+    html_force = out_force.read_bytes()
+    html_hier = out_hier.read_text(encoding="utf-8")
+
+    # 未指定 == --layout force: byte 一致（golden 不変の担保）
+    assert html_default == html_force, (
+        "--layout 未指定と --layout force の HTML が byte 不一致（golden 変化）"
+    )
+
+    # hierarchical の POS を抽出して force と比較
+    def _get_pos(html_text):
+        m = re.search(r"const POS\s*=\s*(.*?);</script>", html_text, re.DOTALL)
+        assert m, "const POS が見つからない"
+        return _json.loads(m.group(1))
+
+    html_force_text = out_force.read_text(encoding="utf-8")
+    pos_force = _get_pos(html_force_text)
+    pos_hier = _get_pos(html_hier)
+    assert pos_force != pos_hier, (
+        "--layout hierarchical の POS が force と同一（モード分岐が機能していない）"
+    )
+
+
+def test_render_cli_layout_invalid_exits_nonzero(tmp_path):
+    """--layout に不正値を指定すると非ゼロ終了すること（argparse が弾く）。"""
+    out = tmp_path / "bad.html"
+    proc = _run([str(GOLDEN), "-o", str(out), "--layout", "invalid_mode"])
+    assert proc.returncode != 0
+
+
+def test_render_cli_layout_hierarchical_deterministic(tmp_path):
+    """--layout hierarchical で 2 回生成した HTML がバイト一致すること（決定性）。"""
+    out1 = tmp_path / "h1.html"
+    out2 = tmp_path / "h2.html"
+    proc1 = _run([str(GOLDEN), "-o", str(out1), "--layout", "hierarchical"])
+    proc2 = _run([str(GOLDEN), "-o", str(out2), "--layout", "hierarchical"])
+    assert proc1.returncode == 0, proc1.stderr
+    assert proc2.returncode == 0, proc2.stderr
+    assert out1.read_bytes() == out2.read_bytes(), (
+        "--layout hierarchical の HTML が 2 回でバイト不一致（決定性が失われた）"
+    )
+
+
 def test_main_topo_yaml_error_exits_nonzero(tmp_path):
     """破損 YAML（syntax error）を topology_dir に含めると非ゼロ終了すること。
 

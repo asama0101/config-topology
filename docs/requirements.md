@@ -850,6 +850,16 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - **外部ピアの配置**: config に対向が存在しない BGP neighbor（外部ピア）は、機器ノード群と重ならない領域に決定的に配置する。
 - **キャンバスサイズの動的調整**: 機器数に応じて描画領域を拡大する（目安 150 台程度まで実用）。
 
+#### 8.3.3 階層レイアウトモード（A3）
+
+`render_topology.py --layout hierarchical` 指定時、force-directed に代えて**決定的な階層グリッド配置**を用いる（既定は `--layout force`＝従来の force-directed・§8.3 本文）。
+
+- **列(x)**: 機器を AS でグループ化し、AS 番号昇順（未設定 AS は末尾）に列を割り当てる。segment・ext（外部ピア）はその後ろの専用列に置く。
+- **段(y)**: 各列内を degree 降順 →（同値は）機器 ID 昇順に縦積みする（要所を上段に）。segment/ext 列は ID 昇順。
+- **間隔**: 列間 240px・段間 120px（ノード矩形 148×56 と重ならない中心間距離）。
+- **決定性（§9.1 維持）**: 乱数・時刻不使用。座標は round(.,1) で確定し、同一入力 → 同一配置。
+- **不正な mode 値**は `ValueError`。既定省略時は force で従来の生成物と byte 完全一致（加算的拡張）。
+
 #### 8.3.1 degree 連動ノードサイズ（A4）
 
 接続数（degree: 隣接する相異なるデバイス数）の多い機器ほどノード矩形をやや大きく描画し、構成の要所（ハブ・コア機器）を視認しやすくする。
@@ -1082,7 +1092,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 |---------|------|------|
 | `parse_configs.py` | 正規化 Device リストの JSON 出力（デバッグ・ベンダー判定確認用） | `[paths...]` |
 | `build_topology.py` | パース＋推論を実行し層別 YAML を生成 | `[paths...] [-o DIR]` |
-| `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE] [--diff-against PREV_DIR] [--diff-against-history]` |
+| `render_topology.py` | 層別 YAML から HTML を生成 | `<topology_dir> [-o FILE] [--diff-against PREV_DIR] [--diff-against-history] [--layout {force,hierarchical}]` |
 | `diff_topology.py` | 2 つの層別 YAML を比較し差分レポート（Markdown）を生成（§10.4・パイプライン外の独立ツール） | `<old_dir> <new_dir> [-o FILE]` |
 
 **共通の入力解決**（parse / build）:
@@ -1094,6 +1104,7 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 - `render_topology.py -o` 省略時: `./topology.html`（カレント直下。§1.2・§3.1 の出力②と一致させる）。
 - `render_topology.py --diff-against` 省略時: DIFF ビューなし（従来通り・加算的拡張）。指定時は `load_topology(PREV_DIR)` で前回トポロジーを読み、`diff_topology(prev, topo)` を計算して HTML に DIFF タブを追加する。PREV_DIR の読込失敗（OSError / ValueError / yaml.YAMLError）は終了コード 1。
 - `render_topology.py --diff-against-history`: 直近 history スナップショットとの差分を自動表示する（§10.6）。
+- `render_topology.py --layout`: `force`（既定・従来の force-directed）/ `hierarchical`（AS 列グリッド・§8.3.3）。省略時は force で従来の生成物と byte 一致。
 
 ### 10.2 終了コード・出力規約
 

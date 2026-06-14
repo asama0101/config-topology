@@ -248,6 +248,60 @@ def test_render_html_golden_without_diff_unaffected():
 # 修正 6: </script> 埋め込みテスト（XSS セキュリティ）
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# A3: render_html layout パラメータ（CLI / template テスト）
+# ---------------------------------------------------------------------------
+
+def test_render_html_layout_param_default_force():
+    """render_html(topo) と render_html(topo, layout='force') が完全一致すること（デフォルト=force）。"""
+    topo = load_topology(str(GOLDEN))
+    html_default = render_html(topo)
+    html_force = render_html(topo, layout="force")
+    assert html_default == html_force, (
+        "render_html のデフォルト layout が force でない（byte 不一致）"
+    )
+
+
+def test_render_html_layout_hierarchical_differs_from_force():
+    """render_html(topo, layout='hierarchical') の POS が force と異なること。
+
+    golden（r1,r2 の 2 ノード）で hierarchical の POS が force の POS と異なることを確認する。
+    """
+    topo = load_topology(str(GOLDEN))
+    import re
+    import json
+
+    def _get_pos(html):
+        m = re.search(r"const POS\s*=\s*(.*?);</script>", html, re.DOTALL)
+        assert m, "const POS が見つからない"
+        return json.loads(m.group(1))
+
+    html_force = render_html(topo, layout="force")
+    html_hier = render_html(topo, layout="hierarchical")
+    # POS が異なること（hierarchical は格子状、force は force-directed で必ず異なる）
+    pos_force = _get_pos(html_force)
+    pos_hier = _get_pos(html_hier)
+    assert pos_force != pos_hier, (
+        "hierarchical mode の POS が force と同一（モード分岐が機能していない）"
+    )
+
+
+def test_render_html_layout_force_golden_byte_unchanged():
+    """render_html(topo) — layout 省略 — が従来と byte 一致（golden 不変の担保）。
+
+    layout 引数を追加しても既存の force-directed POS が変わらないことを確認する。
+    2回呼んで一致、かつ layout='force' 明示と一致。
+    """
+    topo = load_topology(str(GOLDEN))
+    html1 = render_html(topo)
+    html2 = render_html(topo)
+    html_force = render_html(topo, layout="force")
+    assert html1 == html2, "render_html が決定的でない"
+    assert html1 == html_force, (
+        "render_html(topo) と render_html(topo, layout='force') が byte 不一致"
+    )
+
+
 def test_render_html_script_tag_in_diff_escaped():
     """id/hostname に </script> を含む diff dict で render_html した HTML に
     生の </script>（DIFF コンテンツ内）が現れず <\\/script> にエスケープされること。
