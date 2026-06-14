@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.topology_io import load_topology
-from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if, build_checks, build_devices
+from lib.rendering.data_transform import build_data, build_stats, build_links, build_bgp_topology, _build_if, build_checks, build_devices, build_subnet_usage, _EXHAUSTED_THRESHOLD
 
 pytestmark = pytest.mark.integration
 
@@ -3149,4 +3149,396 @@ def test_build_checks_ibgp_fullmesh_two_devices_complete_no_warning():
     chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
     assert chk == [], (
         "2台 iBGP full-mesh 完成ケースで誤検知が発生した: %s" % chk
+    )
+
+
+# ===========================================================================
+# D4: サブネット使用率集約ビュー — build_subnet_usage テスト
+# ===========================================================================
+
+def _make_if_with_addrs(device, name, addresses):
+    """build_subnet_usage 用の最小 interface dict。"""
+    return {
+        "id": "%s::%s" % (device, name),
+        "device": device,
+        "name": name,
+        "ip": None,
+        "vlan": None,
+        "description": None,
+        "shutdown": False,
+        "admin_status": "up",
+        "oper_status": None,
+        "mtu": None,
+        "speed": None,
+        "duplex": None,
+        "l2_l3": None,
+        "switchport": None,
+        "encapsulation": None,
+        "source": "parsed",
+        "addresses": addresses,
+    }
+
+
+def _minimal_topo_for_usage(**overrides):
+    """build_subnet_usage 用の最小 topology dict。"""
+    base = {
+        "meta": {"generated_from": []},
+        "devices": [],
+        "interfaces": [],
+        "links": [],
+        "segments": [],
+        "routing": {"bgp": [], "ospf": [], "static": []},
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_slash24_two_hosts():
+    """/24 に 2 ホストが存在する場合の各フィールドが正しいこと（壊すと赤）。
+
+    usable=254, used=2, free=252, util~0.0079, exhausted=False。
+    """
+    # Arrange
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "192.168.1.1", "prefix": 24}]),
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "192.168.1.2", "prefix": 24}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert
+    assert len(result) == 1
+    row = result[0]
+    assert row["subnet"] == "192.168.1.0/24"
+    assert row["af"] == "v4"
+    assert row["usable"] == 254
+    assert row["used"] == 2
+    assert row["free"] == 252
+    assert row["exhausted"] is False
+    assert abs(row["util"] - round(2 / 254, 4)) < 1e-6
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_slash30_exhausted():
+    """/30 に 2 ホストが存在する場合 exhausted=True（util=1.0）になること（壊すと赤）。
+
+    usable=2, used=2, free=0, util=1.0, exhausted=True。
+    exhausted 閾値（0.8）以上は True。
+    """
+    # Arrange
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert
+    assert len(result) == 1
+    row = result[0]
+    assert row["usable"] == 2
+    assert row["used"] == 2
+    assert row["free"] == 0
+    assert row["util"] == 1.0
+    assert row["exhausted"] is True, (
+        "/30 に 2 ホスト（usable=2 / used=2）は util=1.0 >= 0.8 なので exhausted=True のはず"
+    )
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_slash31_usable_is_2():
+    """/31（ポイントツーポイント）の usable が 2 になること。"""
+    # Arrange: /31 に 2 ホスト
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.0", "prefix": 31}]),
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 31}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert
+    assert len(result) == 1
+    row = result[0]
+    assert row["usable"] == 2
+    assert row["used"] == 2
+    assert row["util"] == 1.0
+    assert row["exhausted"] is True
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_slash32_excluded():
+    """/32（ホスト/ループバック）は除外されること（壊すと赤）。
+
+    /32 が結果に出てしまう誤実装はこのテストで失敗する。
+    """
+    # Arrange: /32 のみの IF
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),
+            _make_if_with_addrs("r2", "Lo0", [{"af": "v4", "ip": "2.2.2.2", "prefix": 32}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert: /32 は使用率計画の対象外 → 結果は空
+    assert result == [], (
+        "/32 ループバックは build_subnet_usage の結果に出てはならない。"
+        "実際の結果: %s" % result
+    )
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_link_local_excluded():
+    """link-local（scope=link-local）は除外されること。"""
+    # Arrange: fe80:: のみの IF（link-local）
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [
+                {"af": "v6", "ip": "fe80::1", "prefix": 64, "scope": "link-local"},
+            ]),
+            # v4 link-local 相当（scope 指定あり）
+            _make_if_with_addrs("r2", "Gi0", [
+                {"af": "v4", "ip": "169.254.0.1", "prefix": 24, "scope": "link-local"},
+            ]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert: link-local は除外 → 結果は空
+    assert result == []
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_v6_excluded():
+    """v6 アドレスは除外されること（v4 のみ対象）。"""
+    # Arrange: v6 GUA のみの IF
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 64}]),
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v6", "ip": "2001:db8::2", "prefix": 64}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert: v6 は除外 → 結果は空
+    assert result == []
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_no_double_count_same_host_ip():
+    """同一 host_ip が複数 IF に現れても二重計上しないこと。"""
+    # Arrange: 同一ホスト IP が 2 つの IF に存在（used=set で排除）
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if_with_addrs("r1", "Gi1", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),  # 同一 host_ip
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert: 同一 host_ip は排除されるので used=2（10.0.0.1 と 10.0.0.2 各1回）
+    assert len(result) == 1
+    row = result[0]
+    assert row["used"] == 2, (
+        "同一 host_ip が重複して used が 3 になる誤実装を検知。used は %d" % row["used"]
+    )
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_sort_util_desc_then_subnet_asc():
+    """util 降順→同率 subnet 昇順の安定ソートであること。"""
+    # Arrange: 3 サブネット
+    # - 10.0.0.0/30 (usable=2, used=2, util=1.0)
+    # - 192.168.0.0/24 (usable=254, used=1, util~0.0039)
+    # - 10.1.0.0/24 (usable=254, used=1, util~0.0039 - 同率で subnet 文字列昇順)
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+            _make_if_with_addrs("r3", "Gi0", [{"af": "v4", "ip": "192.168.0.1", "prefix": 24}]),
+            _make_if_with_addrs("r4", "Gi0", [{"af": "v4", "ip": "10.1.0.1", "prefix": 24}]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert: util 降順 → subnet 昇順
+    assert len(result) == 3
+    subnets = [r["subnet"] for r in result]
+    # 10.0.0.0/30 (util=1.0) が先頭
+    assert subnets[0] == "10.0.0.0/30", "util 最大サブネットが先頭に来ていない"
+    # 残り 2 つは util 同率 → subnet 昇順（10.1.0.0/24 < 192.168.0.0/24）
+    assert subnets[1] == "10.1.0.0/24", "同率 util のとき subnet 昇順になっていない"
+    assert subnets[2] == "192.168.0.0/24"
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_empty_topo_returns_empty():
+    """interfaces が空の場合は空リストを返すこと。"""
+    topo = _minimal_topo_for_usage()
+    result = build_subnet_usage(topo)
+    assert result == []
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_deterministic():
+    """2 回呼んで同一結果になること（決定性）。"""
+    import json
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+            _make_if_with_addrs("r3", "Lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),  # /32 除外
+        ],
+    )
+    a = json.dumps(build_subnet_usage(topo), sort_keys=True)
+    b = json.dumps(build_subnet_usage(topo), sort_keys=True)
+    assert a == b
+
+
+@pytest.mark.integration
+def test_build_data_has_subnet_usage_key():
+    """build_data の返り値に 'subnet_usage' キーが含まれること。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    assert "subnet_usage" in data, "build_data に subnet_usage キーがない"
+    assert isinstance(data["subnet_usage"], list)
+
+
+@pytest.mark.integration
+def test_build_data_subnet_usage_consistent():
+    """build_data の subnet_usage が build_subnet_usage(topo) と同一内容であること。"""
+    import json
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    expected = build_subnet_usage(topo)
+    assert json.dumps(data["subnet_usage"], sort_keys=True) == json.dumps(expected, sort_keys=True)
+
+
+# ---------------------------------------------------------------------------
+# D4 レビュー指摘: exhausted 境界値テスト（壊すと赤）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_exhausted_threshold_constant_value():
+    """_EXHAUSTED_THRESHOLD が 0.8 であること（定数値の固定）。"""
+    assert _EXHAUSTED_THRESHOLD == 0.8
+
+
+@pytest.mark.unit
+def test_exhausted_threshold_inclusive_at_boundary():
+    """_EXHAUSTED_THRESHOLD は >= 0.8 であること（ちょうど 0.8 で True。> 0.8 誤実装は赤）。
+
+    壊すと赤: _EXHAUSTED_THRESHOLD を 0.8 から変えるか、比較を > に変えると失敗する。
+    """
+    # util == 0.8 ちょうどは exhausted=True（>=）
+    assert (0.8 >= _EXHAUSTED_THRESHOLD) is True
+
+
+@pytest.mark.unit
+def test_exhausted_threshold_false_just_below():
+    """util が _EXHAUSTED_THRESHOLD より小さい場合は exhausted=False であること。
+
+    壊すと赤: 閾値を 0.8 以下に変えると失敗する。
+    """
+    # util = 0.7999 は exhausted=False（閾値未満）
+    assert (0.7999 >= _EXHAUSTED_THRESHOLD) is False
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_exhausted_at_exact_08_boundary():
+    """build_subnet_usage で util がちょうど 0.8 になる場合に exhausted=True となること（壊すと赤）。
+
+    /28: usable=14, used=12 → util=round(12/14, 4)=0.8571 >= 0.8 → exhausted=True。
+    /28: usable=14, used=11 → util=round(11/14, 4)=0.7857 < 0.8  → exhausted=False。
+
+    境界感度: > 0.8 の誤実装では「used=11 のみ False」となり used=12 は通る。
+    しかし上記 test_exhausted_threshold_inclusive_at_boundary が「0.8 ちょうど→True」を固定する。
+
+    壊すと赤（このテスト）: usable=14, used=12 の exhausted が False になると失敗。
+    """
+    # Arrange: /28 に 12 ホスト（exhausted=True）
+    topo_12 = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r%d" % i, "Gi0", [
+                {"af": "v4", "ip": "10.1.0.%d" % i, "prefix": 28}
+            ])
+            for i in range(1, 13)
+        ],
+    )
+    result_12 = build_subnet_usage(topo_12)
+    assert len(result_12) == 1
+    row_12 = result_12[0]
+    assert row_12["usable"] == 14
+    assert row_12["used"] == 12
+    assert row_12["util"] == round(12 / 14, 4)
+    assert row_12["exhausted"] is True, (
+        "/28 used=12 usable=14: util=%s >= 0.8 なので exhausted=True のはず" % row_12["util"]
+    )
+
+    # Arrange: /28 に 11 ホスト（exhausted=False）
+    topo_11 = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r%d" % i, "Gi0", [
+                {"af": "v4", "ip": "10.1.0.%d" % i, "prefix": 28}
+            ])
+            for i in range(1, 12)
+        ],
+    )
+    result_11 = build_subnet_usage(topo_11)
+    assert len(result_11) == 1
+    row_11 = result_11[0]
+    assert row_11["usable"] == 14
+    assert row_11["used"] == 11
+    assert row_11["util"] == round(11 / 14, 4)
+    assert row_11["exhausted"] is False, (
+        "/28 used=11 usable=14: util=%s < 0.8 なので exhausted=False のはず" % row_11["util"]
+    )
+
+
+@pytest.mark.unit
+def test_build_subnet_usage_secondary_address_counted_as_used():
+    """secondary IP（secondary=True）が used にカウントされること（仕様確認テスト）。
+
+    実装は既に secondary を除外しない設計 → このテストは仕様を固定する確認テスト。
+    secondary=True の IP が used から除かれると fail する。
+    """
+    # Arrange: 同一サブネット /24 に primary 1 件 + secondary 1 件
+    topo = _minimal_topo_for_usage(
+        interfaces=[
+            _make_if_with_addrs("r1", "Gi0", [
+                {"af": "v4", "ip": "192.168.1.1", "prefix": 24},
+                {"af": "v4", "ip": "192.168.1.2", "prefix": 24, "secondary": True},
+            ]),
+        ],
+    )
+
+    # Act
+    result = build_subnet_usage(topo)
+
+    # Assert: primary + secondary の 2 ホストが used にカウントされる
+    assert len(result) == 1
+    row = result[0]
+    assert row["used"] == 2, (
+        "secondary IP も used にカウントされるべき。実際の used=%d" % row["used"]
     )

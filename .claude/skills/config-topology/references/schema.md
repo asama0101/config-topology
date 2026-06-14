@@ -229,6 +229,22 @@ network 宣言 1 件につき 1 エントリ。
 `build_data()` は `"checks": build_checks(topo, links=links)` を返り値に追加するため、
 埋め込み `DATA.checks` として HTML に含まれ、ブラウザ側の `renderChecksView()` が描画する。
 
+### DATA.subnet_usage（D4 サブネット使用率ビュー）
+
+`build_subnet_usage(topo)` が返す v4 サブネット使用率集約のリスト。`DATA.subnet_usage` として HTML に埋め込まれ、`renderSubnetUsageView()`（SUBNETS タブ）が描画する。**層別 YAML スキーマ外の render 層導出**。
+
+| フィールド | 型 | 説明 |
+|-----------|----|------|
+| `subnet` | string | v4 サブネット CIDR（`ipaddress.ip_network(strict=False)` で正規化） |
+| `af` | string | 常に `"v4"` |
+| `usable` | int | 収容可能ホスト数。`/31`→2、他は `2^(32-p)-2` |
+| `used` | int | そのサブネットに属する一意ホスト IP 数（secondary も計上） |
+| `free` | int | `max(usable - used, 0)` |
+| `util` | float | `round(used/usable, 4)`（usable=0 のとき 0.0） |
+| `exhausted` | bool | `util >= _EXHAUSTED_THRESHOLD`（=0.8） |
+
+集計対象は interface address のうち **af=="v4"・非 link-local・prefix≠32**（`/32` ホスト/ループバックは除外）。同一サブネットは host IP の set で重複排除（複数 IF/device 跨ぎでも二重計上なし）。ソートは **util 降順 → subnet 文字列昇順**で決定的。
+
 ---
 
 ## diff ツール出力構造（独立ツール・HTML とは別）

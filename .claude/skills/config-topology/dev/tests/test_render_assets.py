@@ -2745,3 +2745,247 @@ def test_a5_extmaxc_outside_ext_for_loop():
         f"extMaxc の定義がループ内にある（extMaxc_pos={extmaxc_pos} >= ext_for_pos={ext_for_pos}）。"
         "ループ外（if (showBgp) 直後等）に移動すること。"
     )
+
+
+# ---------------------------------------------------------------------------
+# D4: サブネット使用率集約ビュー — JS アセットテスト
+# ---------------------------------------------------------------------------
+
+def test_render_subnet_usage_view_function_exists():
+    """JS に renderSubnetUsageView 関数が定義されていること。"""
+    assert "function renderSubnetUsageView" in assets._JS
+
+
+def test_is_table_view_includes_usage():
+    """isTableView() が 'usage' を table view として扱うこと。"""
+    assert 'S.view === "usage"' in assets._JS
+
+
+def test_render_table_view_dispatches_to_usage():
+    """renderTableView が usage ビューに対して renderSubnetUsageView を呼び出すこと。"""
+    assert "renderSubnetUsageView()" in assets._JS
+
+
+def test_render_subnet_usage_view_reads_data_subnet_usage():
+    """renderSubnetUsageView が DATA.subnet_usage を参照すること。"""
+    assert "DATA.subnet_usage" in assets._JS
+
+
+def test_render_subnet_usage_view_uses_esc():
+    """renderSubnetUsageView が esc() で XSS 対策していること。"""
+    start = assets._JS.find("function renderSubnetUsageView")
+    assert start != -1
+    section = assets._JS[start:start + 3000]
+    assert "esc(" in section
+
+
+def test_render_subnet_usage_view_zero_message():
+    """DATA.subnet_usage が 0 件のとき具体的な説明メッセージが JS ソースに含まれること。
+
+    役割: JS ソース静的検査（テンプレート文字列の存在確認）。
+    0 件時の node 実行検証は test_render_subnet_usage_view_zero_items_node が担う。
+
+    壊すと赤: 0 件メッセージ文字列を削除・変更すると失敗する。
+    """
+    start = assets._JS.find("function renderSubnetUsageView")
+    assert start != -1
+    section = assets._JS[start:start + 3000]
+    # 0件時の具体的なメッセージ文字列が関数内に存在すること
+    assert "v4 サブネット（/32 除外）が見つかりませんでした" in section, (
+        "renderSubnetUsageView の 0件メッセージ文字列が見つからない。"
+        "0件のとき空ではなく説明テキストを返す実装が必要。"
+    )
+
+
+def test_render_subnet_usage_view_has_columns():
+    """renderSubnetUsageView が必要な列ヘッダを持つこと（Subnet/Usable/Used/Free/Util%/Status）。"""
+    start = assets._JS.find("function renderSubnetUsageView")
+    assert start != -1
+    section = assets._JS[start:start + 3000]
+    # 必須列名が存在すること
+    for col in ["Subnet", "Usable", "Used", "Free", "Util"]:
+        assert col in section, "renderSubnetUsageView に '%s' 列ヘッダがない" % col
+
+
+def test_render_subnet_usage_view_exhausted_highlight():
+    """renderSubnetUsageView が exhausted 行を視覚強調すること。"""
+    start = assets._JS.find("function renderSubnetUsageView")
+    assert start != -1
+    section = assets._JS[start:start + 3000]
+    # exhausted フィールドを参照していること
+    assert "exhausted" in section
+
+
+def test_node_check_syntax_with_subnet_usage():
+    """subnet_usage を DATA stub に含めた状態で node --check が通ること。"""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため構文チェックをスキップ")
+    stub = (
+        "const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
+        "meta:{generated_from:[]},"
+        "stats:{devices:0,interfaces:0,links:0,segments:0,"
+        "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
+        "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
+        "checks:[],"
+        "subnet_usage:[]};"
+        "const POS={};"
+        "const VIEWS=['physical','stats','checks','addr','ifs','usage'];"
+        "const DIFF=null;\n"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(stub + assets._JS)
+        path = f.name
+    try:
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    finally:
+        os.unlink(path)
+
+
+def _node_run_renderSubnetUsageView(subnet_usage_json):
+    """node で renderSubnetUsageView を実行するヘルパー。document/window を stub 化して実行。
+
+    document.querySelector が即時呼ばれるため、top-level の $ 定義が走らないよう
+    document stub を先に挿入する。
+    """
+    node = shutil.which("node")
+    if not node:
+        return None  # caller は skip
+    # document stub（$ の即時実行と addEventListener を吸収する最小実装）
+    doc_stub = (
+        "const _el = {innerHTML:'',textContent:'',classList:{toggle:()=>{},add:()=>{},remove:()=>{},contains:()=>false},"
+        "addEventListener:()=>{},removeEventListener:()=>{},getBoundingClientRect:()=>({left:0,top:0,width:0,height:0}),"
+        "style:{},children:[],querySelectorAll:()=>[],setAttribute:()=>{},getAttribute:()=>null,value:'',checked:false,"
+        "dataset:{},parentNode:null,childNodes:[]};\n"
+        "const document = { querySelector: () => _el, querySelectorAll: () => [], addEventListener: () => {}, "
+        "getElementById: () => _el, createElement: () => _el };\n"
+        "const location = { hash: '', search: '', pathname: '/', href: '' };\n"
+        "const history = { replaceState: () => {}, pushState: () => {} };\n"
+        "const window = { addEventListener: () => {}, removeEventListener: () => {}, innerWidth: 1280, innerHeight: 720, "
+        "location, history, requestAnimationFrame: cb => {} };\n"
+        "const localStorage = { getItem: () => null, setItem: () => {} };\n"
+        "const requestAnimationFrame = cb => {};\n"
+    )
+    data_stub = (
+        "const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
+        "meta:{generated_from:[]},"
+        "stats:{devices:0,interfaces:0,links:0,segments:0,"
+        "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
+        "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
+        "checks:[],"
+        "subnet_usage:%s};\n"
+        "const POS={};\n"
+        "const VIEWS=['physical','stats','checks','addr','ifs','usage'];\n"
+        "const DIFF=null;\n"
+    ) % subnet_usage_json
+    runner = (
+        "\ntry { "
+        "var result = renderSubnetUsageView();"
+        "process.stdout.write(result);"
+        "} catch(e) { process.stderr.write(String(e)); process.exit(1); }\n"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(doc_stub + data_stub + assets._JS + runner)
+        path = f.name
+    try:
+        r = subprocess.run([node, path], capture_output=True, text=True)
+        return r
+    finally:
+        os.unlink(path)
+
+
+def test_render_subnet_usage_view_node_execution():
+    """node で renderSubnetUsageView を実際に実行し、行数・exhausted 強調・util% 表示を検証。
+
+    stub DATA.subnet_usage に既知データを渡し、出力 HTML の期待値をアサートする（壊すと赤）。
+
+    役割: node 実行による動的検証（trow 件数・util 小数桁・exhausted 強調）。
+    0 件時の検証は test_render_subnet_usage_view_zero_items_node が担う。
+    0 件メッセージ文字列の静的検査は test_render_subnet_usage_view_zero_message が担う。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため実行テストをスキップ")
+
+    # /30 exhausted（util=1.0）+ /24 not exhausted（util=0.0394 → 3.9%）の 2 サブネット
+    subnet_usage_json = (
+        '['
+        '{"subnet":"10.0.0.0/30","af":"v4","usable":2,"used":2,"free":0,"util":1.0,"exhausted":true},'
+        '{"subnet":"192.168.1.0/24","af":"v4","usable":254,"used":10,"free":244,"util":0.0394,"exhausted":false}'
+        ']'
+    )
+    r = _node_run_renderSubnetUsageView(subnet_usage_json)
+    assert r is not None
+    assert r.returncode == 0, "renderSubnetUsageView 実行エラー: %s" % r.stderr
+    html = r.stdout
+
+    # 両サブネットのアドレスが含まれること
+    assert "10.0.0.0/30" in html, "exhausted サブネットが出力に含まれない"
+    assert "192.168.1.0/24" in html, "通常サブネットが出力に含まれない"
+
+    # trow 件数 == 投入サブネット数（2件）であること（壊すと赤: テーブル構造を崩すと失敗）
+    import re as re_mod
+    trow_count = len(re_mod.findall(r'class="trow', html))
+    assert trow_count == 2, (
+        "投入サブネット 2 件に対して trow が %d 件出力された（期待: 2）。"
+        "テーブル行生成ロジックが壊れている可能性がある。" % trow_count
+    )
+
+    # util% の小数1桁表示（toFixed(1) 精度）を検証（壊すと赤: toFixed(0) に変えると失敗）
+    # util=1.0 → "100.0%"（toFixed(1) は "100.0"、toFixed(0) は "100"）
+    assert "100.0%" in html, (
+        "util=1.0 のとき '100.0%%' が出力されるべき（toFixed(1)）だが出力にない。"
+        "toFixed(0) に変えると '100%%' になり失敗する（壊すと赤）。"
+    )
+    # util=0.0394 → (0.0394*100).toFixed(1) = "3.9%"
+    assert "3.9%" in html, (
+        "util=0.0394 のとき '3.9%%' が出力されるべき（toFixed(1)）だが出力にない。"
+        "toFixed(0) に変えると '4%%' になり失敗する（壊すと赤）。"
+    )
+
+    # exhausted 強調が含まれること（クラス or danger 参照）
+    assert "exhausted" in html.lower() or "chk-bad" in html or "danger" in html, \
+        "exhausted 行の視覚強調が HTML に含まれない"
+
+
+def test_render_subnet_usage_view_zero_items_node():
+    """DATA.subnet_usage が空リストのとき 0 件メッセージが出ること（node 実行）。
+
+    役割: node 実行による動的検証（0 件パス）。
+    JS ソース静的検査は test_render_subnet_usage_view_zero_message が担う。
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node 不在のため実行テストをスキップ")
+
+    r = _node_run_renderSubnetUsageView("[]")
+    assert r is not None
+    assert r.returncode == 0, "renderSubnetUsageView 0件実行エラー: %s" % r.stderr
+    html = r.stdout
+    # 0 件時の説明メッセージが含まれること
+    assert len(html) > 0, "0件のとき出力が空"
+    # 具体的な 0 件メッセージが HTML に含まれること（壊すと赤）
+    assert "v4 サブネット" in html or "見つかりませんでした" in html, (
+        "0件のとき具体的なメッセージが出力されていない。"
+        "実際の出力: %s" % html[:200]
+    )
+    # テーブル行がないこと（<tr class="trow"> が出ない）
+    import re as re_mod
+    trow_count = len(re_mod.findall(r'class="trow"', html))
+    assert trow_count == 0, "0件のとき trow 行が %d 件出てしまっている" % trow_count
+
+
+def test_render_subnet_usage_tnote_references_threshold():
+    """renderSubnetUsageView の tnote が 'exhausted = 使用率 80% 以上' に言及していること。
+
+    _EXHAUSTED_THRESHOLD=0.8 と assets.py の tnote 文言「80%」が対応付けられていること。
+    壊すと赤: tnote から「80%」の文言を消すと失敗する。
+    """
+    start = assets._JS.find("function renderSubnetUsageView")
+    assert start != -1
+    section = assets._JS[start:start + 3000]
+    assert "80%" in section, (
+        "renderSubnetUsageView の tnote に '80%%' 文言がない。"
+        "_EXHAUSTED_THRESHOLD=0.8 と tnote 文言 '80%%' は対応付けられるべき。"
+    )

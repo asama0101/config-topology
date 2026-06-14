@@ -605,7 +605,7 @@ const S = {
   sort:{addr:null, ifs:null},
   collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
 };
-const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats" || S.view === "checks" || S.view === "diff";
+const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "stats" || S.view === "checks" || S.view === "diff" || S.view === "usage";
 const $ = s => document.querySelector(s);
 const world = $("#world"), tooltip = $("#tooltip");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1369,6 +1369,7 @@ function renderTableView() {
   if (S.view === "stats") { $("#tableview").innerHTML = renderStatsView(); return; }
   if (S.view === "checks") { $("#tableview").innerHTML = renderChecksView(); return; }
   if (S.view === "diff") { $("#tableview").innerHTML = renderDiffView(); return; }
+  if (S.view === "usage") { $("#tableview").innerHTML = renderSubnetUsageView(); return; }
   $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
 }
 
@@ -1679,6 +1680,46 @@ function renderChecksView() {
       <td class="dim-t" style="font-size:10px">${(c.refs||[]).map(r=>esc(r)).join("<br>")}</td></tr>`;
   }
   html += "</table>";
+  return html;
+}
+
+/* ================= SUBNETS view (D4 サブネット使用率集約) ================= */
+function renderSubnetUsageView() {
+  const usage = DATA.subnet_usage;
+  if (!usage || usage.length === 0) {
+    return '<div class="thead"><h3>SUBNETS</h3><span class="cnt">0 件</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">v4 サブネット（/32 除外）が見つかりませんでした。</div>';
+  }
+  const total = usage.length;
+  const exhausted_count = usage.filter(r => r.exhausted).length;
+  const summary = exhausted_count
+    ? `${total} サブネット（${exhausted_count} 件 exhausted）`
+    : `${total} サブネット`;
+  let html = `<div class="thead"><h3>SUBNETS</h3><span class="cnt">${esc(summary)}</span></div>`;
+  html += `<table class="dt" style="max-width:960px;margin:0 24px 48px"><tr>
+    <th>Subnet</th>
+    <th style="text-align:right">Usable</th>
+    <th style="text-align:right">Used</th>
+    <th style="text-align:right">Free</th>
+    <th style="text-align:right">Util%</th>
+    <th style="width:80px">Status</th></tr>`;
+  for (const r of usage) {
+    const utilPct = (r.util * 100).toFixed(1) + "%";
+    const statusCell = r.exhausted
+      ? `<span class="badge" style="color:var(--danger);border-color:var(--danger)">exhausted</span>`
+      : `<span class="badge" style="color:var(--accent2,#2a7)">ok</span>`;
+    const rowClass = r.exhausted ? ' class="trow chk-bad"' : ' class="trow"';
+    html += `<tr${rowClass}>
+      <td style="font-family:monospace">${esc(r.subnet)}</td>
+      <td style="text-align:right">${esc(r.usable)}</td>
+      <td style="text-align:right">${esc(r.used)}</td>
+      <td style="text-align:right">${esc(r.free)}</td>
+      <td style="text-align:right">${esc(utilPct)}</td>
+      <td>${statusCell}</td></tr>`;
+  }
+  html += `</table>
+    <div class="tnote">使用率 = 使用 IP 数 / 収容可能数（v4・/32 除外）/ exhausted = 使用率 80% 以上（data_transform._EXHAUSTED_THRESHOLD=0.8 と同値）/
+    util 降順→ subnet 昇順で表示</div>`;
   return html;
 }
 

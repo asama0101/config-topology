@@ -7,6 +7,10 @@ from collections import defaultdict
 # ブロードキャスト・未指定アドレスを含む。
 _SPECIAL_NH = frozenset(["0.0.0.0", "::", "255.255.255.255"])
 
+# サブネット使用率 exhausted 判定閾値（util >= この値 → exhausted=True）。
+# assets.py の renderSubnetUsageView tnote 文言「exhausted = 使用率 80% 以上」と同値。
+_EXHAUSTED_THRESHOLD = 0.8
+
 
 def _primary_ip6(addresses):
     for a in addresses:
@@ -774,8 +778,72 @@ def build_checks(topo, links=None):
     return results
 
 
+def build_subnet_usage(topo):
+    """v4 サブネット単位の使用率集約。使用率(util)降順 → subnet 文字列昇順で安定ソート。
+
+    返り値: [{"subnet":str,"af":"v4","usable":int,"used":int,"free":int,"util":float,"exhausted":bool}]
+
+    集計ルール:
+      - topo["interfaces"] の各 address で af=="v4"・scope!="link-local"・ip と prefix が有るもののみ対象。
+      - prefix==32（ホスト/ループバック）は除外。
+      - サブネットごとに used = len(set(host_ip))（重複排除）。secondary=True の IP も used にカウントする。
+      - usable = /31→2、他 2^(32-p)-2（例: /30→2^2-2=2、/24→2^8-2=254）。
+      - free = max(usable-used, 0)。
+      - util = round(used/usable, 4) if usable else 0.0。
+      - exhausted = util >= _EXHAUSTED_THRESHOLD（= 0.8）。
+    """
+    # サブネット文字列 → ホスト IP の set
+    subnet_hosts: dict = {}
+
+    for itf in topo["interfaces"]:
+        for a in itf["addresses"]:
+            # v4 のみ
+            if a.get("af") != "v4":
+                continue
+            # link-local 除外
+            if a.get("scope") == "link-local":
+                continue
+            ip = a.get("ip")
+            prefix = a.get("prefix")
+            if ip is None or prefix is None:
+                continue
+            # /32 除外（ホスト/ループバック）
+            if int(prefix) == 32:
+                continue
+            try:
+                net = ipaddress.ip_network("%s/%s" % (ip, prefix), strict=False)
+            except ValueError:
+                continue
+            subnet_str = str(net)
+            subnet_hosts.setdefault(subnet_str, set())
+            subnet_hosts[subnet_str].add(ip)
+
+    results = []
+    for subnet_str, host_set in subnet_hosts.items():
+        net = ipaddress.ip_network(subnet_str)
+        p = net.prefixlen
+        usable = 2 if p == 31 else (2 ** (32 - p) - 2)
+        used = len(host_set)
+        free = max(usable - used, 0)
+        util = round(used / usable, 4) if usable else 0.0
+        exhausted = util >= _EXHAUSTED_THRESHOLD
+        results.append({
+            "subnet": subnet_str,
+            "af": "v4",
+            "usable": usable,
+            "used": used,
+            "free": free,
+            "util": util,
+            "exhausted": exhausted,
+        })
+
+    # util 降順 → subnet 文字列昇順（安定ソート）
+    results.sort(key=lambda r: (-r["util"], r["subnet"]))
+    return results
+
+
 def build_data(topo):
-    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/stats/checks）。決定的。"""
+    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/stats/checks/subnet_usage）。決定的。"""
     devices = build_devices(topo)
     links = build_links(topo)
     segments = build_segments(topo)
@@ -795,4 +863,5 @@ def build_data(topo):
         "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
         "stats": build_stats(topo, links=links, bgp_edges=bgp_topo["bgpEdges"]),
         "checks": build_checks(topo, links=links),
+        "subnet_usage": build_subnet_usage(topo),
     }

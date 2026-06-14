@@ -47,7 +47,7 @@
 - [x] D3b 差分の HTML 表示（render --diff-against で DIFF ビュー）— M ✅反復12完了
 - [x] D3c history 自動連携（--diff-against-history で直近 history との差分を自動ビュー化）— S ✅反復16完了
 - [x] D2c 設計検証ルール拡張（OSPF area0 非接続・iBGP full-mesh 欠落）— M ✅反復22完了
-- [ ] D4 IPアドレス計画/サブネット使用率ビュー — M（D1後）
+- [x] D4 IPアドレス計画/サブネット使用率ビュー（SUBNETS 集約ビュー）— M ✅反復23完了（ユーザー承認で見送り撤回）
 
 ## 推奨順序
 D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残り
@@ -212,6 +212,11 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - レビュー対応（防御）: local_as=None / area=None の TypeError ガード、area refs の数値優先ソート、2台 iBGP 完成ケース非発火テスト、`_ip_to_device` と host_ip_to_device の差分 docstring 明記、ネスト if フラット化。
 - doc: schema.md DATA.checks 表・requirements.md §8 CHECKS・SKILL.md を同期。テスト 909→930 passed（+21）。golden byte 不変（sample 非発火）。
 
-### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D2c,D3,D3b,D3c。
-### 次候補: 反復23（D4 サブネット使用率集約ビュー → B5 ショートカット）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
+### 反復23: D4 サブネット使用率集約ビュー（SUBNETS）— ✅完了（2026-06-14）
+- `build_subnet_usage(topo)`→`DATA.subnet_usage`（v4・非link-local・非/32 を ip_network 集約。usable/used/free/util/exhausted・util降順→subnet昇順）。tabs に SUBNETS 常設タブ、assets に `renderSubnetUsageView`（Python 確定値を表示のみ）。ADDRESSES(IP一覧)と差別化＝サブネット集約・枯渇監視。**反復2で見送った D4 をユーザー承認で実装**。
+- レビュー対応: `_EXHAUSTED_THRESHOLD=0.8` 定数化、exhausted 境界値テスト（util==0.8→True）、0件メッセージ/util%表示/trow件数の node 実検証強化、tabs docstring 更新。
+- doc: requirements.md §8.2（SUBNETS・ADDRESSES 差別化）・schema.md DATA.subnet_usage・SKILL.md・CLAUDE.md 索引を同期。テスト 930→967 passed（+37）。**層別 YAML 不変**（保存済み golden HTML は無く render 決定性は test_render_e2e で担保）。
+
+### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D2c,D3,D3b,D3c,D4。
+### 次候補: 反復24（B5 キーボードショートカット拡充＝最終項目）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
 推奨順序の残り目安: D2c or B2 → C4b → A3 → A1b(要設計) → 残り。
