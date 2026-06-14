@@ -2404,3 +2404,749 @@ def test_build_checks_golden_result_regression_rid_unchanged():
                    for c in result)
     # 全体として checks は依然として空
     assert result == []
+
+
+# ===========================================================================
+# D2c 追加ルール — ルール7: ospf_area0_disconnected / ルール8: ibgp_fullmesh_incomplete
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# ルール7: ospf_area0_disconnected（warning）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_detected():
+    """area0 持ち device と area1 のみの device が混在 → area1 device が 1 件検出されること。
+
+    壊すと赤: ospf_area0_disconnected が発火する最小ケース。
+    """
+    # Arrange: r1=area0, r2=area1 のみ（area0 混在環境）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "1", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: r2 が area0 を持たないとして 1 件 warning
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert len(chk) == 1
+    assert chk[0]["severity"] == "warning"
+    assert "r2" in chk[0]["message"]
+    assert "1" in chk[0]["message"]          # area "1" がメッセージに含まれること
+    # refs: [device] + sorted(areas)
+    assert chk[0]["refs"][0] == "r2"
+    assert "1" in chk[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_all_area0_no_warning():
+    """全 device が area0 を持つ場合 ospf_area0_disconnected が出ないこと。"""
+    # Arrange: r1=area0, r2=area0
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "0", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert
+    assert not any(c["kind"] == "ospf_area0_disconnected" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_no_area0_in_topo_no_warning():
+    """全 device が非 area0（area0 が存在しない環境）→ ospf_area0_disconnected が出ないこと。
+
+    壊すと赤: 偽陽性抑制の保証テスト。area0 が存在しない環境では発火しない。
+    """
+    # Arrange: r1=area1, r2=area2（area0 なし）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "1", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "2", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: area0 不在環境では偽陽性なし
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert chk == [], (
+        "area0 が存在しない環境で ospf_area0_disconnected が誤検知された（偽陽性）: %s" % chk
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_abr_not_flagged():
+    """ABR（area0 と area1 の両方を持つ device）は ospf_area0_disconnected の対象外であること。"""
+    # Arrange: r1=area0 のみ, r2=area0+area1（ABR）, r3=area1 のみ
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3")
+        ],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "1", "af": "v4"},
+                {"device": "r3", "process": 1, "network": "10.1.0.1/24", "area": "1", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: r2（ABR）は非対象・r3 が検出される
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert len(chk) == 1
+    assert chk[0]["refs"][0] == "r3"
+    # r2 は対象外
+    assert not any("r2" in c["refs"] for c in chk)
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_no_ospf_no_warning():
+    """OSPF エントリが全くない場合 ospf_area0_disconnected が出ないこと。"""
+    topo = _minimal_topo()
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "ospf_area0_disconnected" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_refs_format():
+    """ospf_area0_disconnected の refs が [device] + sorted(areas) であること。"""
+    # Arrange: r1=area0, r2=area1+area2（area0 なし）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "2", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.2.0.0/24", "area": "1", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    result = build_checks(topo)
+
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert len(chk) == 1
+    # refs = [device] + sorted(areas)  → ["r2", "1", "2"]
+    assert chk[0]["refs"] == ["r2", "1", "2"]
+
+
+# ---------------------------------------------------------------------------
+# golden 回帰: ルール7 の非発火確認（golden は area "0" 単独）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_build_checks_golden_no_ospf_area0_disconnected():
+    """golden (r1 のみ OSPF area "0") では ospf_area0_disconnected が出ないこと。
+
+    golden YAML: r1 に ospf area "0" 1 件のみ。r2 は OSPF 無し。
+    → area0 を持つ device が存在するが、OSPF を保有しつつ area0 を持たない device がいない。
+    → 非発火 → checks に影響なし → golden byte 不変。
+    """
+    topo = load_topology(str(GOLDEN))
+    result = build_checks(topo)
+    assert not any(c["kind"] == "ospf_area0_disconnected" for c in result)
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# ルール8: ibgp_fullmesh_incomplete（warning）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_incomplete_detected():
+    """3台 iBGP・RR なし・1ペアのセッションが欠落 → 該当ペア 1 件が検出されること。
+
+    壊すと赤: ibgp_fullmesh_incomplete が発火する最小ケース。
+    """
+    # Arrange:
+    # r1 ↔ r2, r1 ↔ r3 は iBGP セッションあり
+    # r2 ↔ r3 は欠落（r2 に r3 へのセッションなし、r3 に r2 へのセッションなし）
+    # neighbor_ip は各機器の Lo0 IP で解決可能
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001),
+            _make_dev("r3", hostname="R3", as_=65001),
+        ],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+            _make_if("r3", "Lo0", [{"af": "v4", "ip": "192.0.2.3", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # r1 → r2
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r2 → r1
+                {"device": "r2", "local_as": 65001, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r1 → r3
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.3", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r3 → r1
+                {"device": "r3", "local_as": 65001, "local_ip": "192.0.2.3",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r2 ↔ r3: 欠落
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: r2 と r3 の間が 1 件検出
+    chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
+    assert len(chk) == 1
+    assert chk[0]["severity"] == "warning"
+    assert "65001" in chk[0]["message"]
+    assert "r2" in chk[0]["message"] and "r3" in chk[0]["message"]
+    # refs: [di, dj, str(asn)]  di<dj
+    assert chk[0]["refs"] == ["r2", "r3", "65001"]
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_rr_client_present_no_warning():
+    """iBGP セッションに route_reflector_client=True が 1 件でも存在する AS → 0 件。
+
+    壊すと赤: RR 構成の偽陽性抑制テスト。
+    """
+    # Arrange: r1=RR, r2/r3=RR client。r2↔r3 の直接セッションなし（RR 経由が前提）
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001),
+            _make_dev("r3", hostname="R3", as_=65001),
+        ],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+            _make_if("r3", "Lo0", [{"af": "v4", "ip": "192.0.2.3", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # r1 → r2 (RR client)
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+                 "route_reflector_client": True},
+                # r2 → r1 (RR)
+                {"device": "r2", "local_as": 65001, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r1 → r3 (RR client)
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.3", "peer_as": 65001, "type": "ibgp", "af": "v4",
+                 "route_reflector_client": True},
+                # r3 → r1 (RR)
+                {"device": "r3", "local_as": 65001, "local_ip": "192.0.2.3",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: RR 構成のため偽陽性なし
+    chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
+    assert chk == [], (
+        "RR client が存在する AS で ibgp_fullmesh_incomplete が誤検知された（偽陽性）: %s" % chk
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_ebgp_only_no_warning():
+    """eBGP セッションのみ → ibgp_fullmesh_incomplete が出ないこと。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+                 "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+                {"device": "r2", "local_as": 65002, "local_ip": "10.0.0.2",
+                 "neighbor_ip": "10.0.0.1", "peer_as": 65001, "type": "ebgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "ibgp_fullmesh_incomplete" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_unresolved_neighbor_skipped():
+    """解決不能 neighbor_ip を持つ device が絡むペアはスキップ（偽陽性なし）。
+
+    r2 の neighbor_ip=192.0.2.99 はどの IF にも存在しない（未解決）。
+    r2-r3 間ペアで r2 が unresolved_devs に含まれるためスキップ。
+    """
+    # Arrange: r1↔r2, r1↔r3 は解決可能。r2 は追加で未解決 neighbor を持つ。
+    # r2↔r3 のペアは、r2 が未解決 neighbor を持つのでスキップ
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001),
+            _make_dev("r3", hostname="R3", as_=65001),
+        ],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+            _make_if("r3", "Lo0", [{"af": "v4", "ip": "192.0.2.3", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # r1 → r2
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r2 → r1
+                {"device": "r2", "local_as": 65001, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r1 → r3
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.3", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r3 → r1
+                {"device": "r3", "local_as": 65001, "local_ip": "192.0.2.3",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r2 の追加 neighbor（未解決）
+                {"device": "r2", "local_as": 65001, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.99", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: r2 が unresolved → r2-r3 ペアはスキップ → 0 件
+    chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
+    assert chk == [], (
+        "解決不能 neighbor_ip を持つ device が絡むペアが偽陽性検出された: %s" % chk
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_no_ibgp_no_warning():
+    """iBGP エントリが全くない場合 ibgp_fullmesh_incomplete が出ないこと。"""
+    topo = _minimal_topo()
+
+    result = build_checks(topo)
+
+    assert not any(c["kind"] == "ibgp_fullmesh_incomplete" for c in result)
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_sort_order_with_new_rules():
+    """新ルール混在でも severity→kind→refs 安定ソートが維持されること。
+
+    duplicate_ip(error) + ospf_area0_disconnected(warning) + ibgp_fullmesh_incomplete(warning)
+    が共存する場合、error が先頭・warning 2種が kind 順に並ぶこと。
+    """
+    topo = _minimal_topo(
+        devices=[
+            _make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001),
+            _make_dev("r3", hostname="R3", as_=65001),
+        ],
+        interfaces=[
+            # duplicate_ip 発火用: r1 と r2 が同一 IP
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            # ibgp fullmesh 用 Lo0
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+            _make_if("r3", "Lo0", [{"af": "v4", "ip": "192.0.2.3", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # r1↔r2 ibgp
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                {"device": "r2", "local_as": 65001, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r1↔r3 ibgp
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.3", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                {"device": "r3", "local_as": 65001, "local_ip": "192.0.2.3",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r2↔r3 欠落 → fullmesh_incomplete
+            ],
+            "ospf": [
+                # r1=area0, r2=area1（area0不在）→ ospf_area0_disconnected for r2
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "1", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    result = build_checks(topo)
+
+    # error が全て warning より前
+    severities = [c["severity"] for c in result]
+    last_error_idx = max((i for i, s in enumerate(severities) if s == "error"), default=-1)
+    first_warning_idx = min((i for i, s in enumerate(severities) if s == "warning"), default=len(result))
+    assert last_error_idx < first_warning_idx
+
+    # warning 種が kind 昇順: ibgp_fullmesh_incomplete < ospf_area0_disconnected (辞書順)
+    warning_kinds = [c["kind"] for c in result if c["severity"] == "warning"]
+    assert warning_kinds == sorted(warning_kinds)
+
+    # 新ルール両方が検出されていること
+    assert any(c["kind"] == "ospf_area0_disconnected" for c in result)
+    assert any(c["kind"] == "ibgp_fullmesh_incomplete" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# golden 回帰: ルール8 の非発火確認（golden は ebgp のみ）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_build_checks_golden_no_ibgp_fullmesh_incomplete():
+    """golden (r1+r2 は ebgp のみ) では ibgp_fullmesh_incomplete が出ないこと。
+
+    golden YAML: bgp エントリはすべて type="ebgp"。
+    → iBGP セッションが存在しない → 非発火 → checks に影響なし → golden byte 不変。
+    """
+    topo = load_topology(str(GOLDEN))
+    result = build_checks(topo)
+    assert not any(c["kind"] == "ibgp_fullmesh_incomplete" for c in result)
+    assert result == []
+
+
+# ===========================================================================
+# D2c レビュー指摘修正テスト
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 修正1: _check_ibgp_fullmesh で local_as=None の TypeError ガード
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_ibgp_local_as_none_does_not_crash():
+    """local_as=None の iBGP エントリを含む topo で build_checks がクラッシュしないこと。
+
+    壊すと赤: None キーを sorted() に渡すと TypeError が発生する（修正前の実装）。
+    手編集 YAML 等で local_as=None になりうる。
+    """
+    # Arrange: local_as=None のエントリを混入させる
+    topo = _minimal_topo(
+        devices=[_make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001)],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # 正常なエントリ
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # local_as=None の異常エントリ（手編集 YAML 相当）
+                {"device": "r2", "local_as": None, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act: TypeError が起きないこと
+    try:
+        result = build_checks(topo)
+    except TypeError as e:
+        pytest.fail(f"local_as=None で TypeError が発生した: {e}")
+
+    # Assert: None AS（local_as=None のエントリ）は ibgp_fullmesh_incomplete の判定から除外される
+    # （None AS として集約されたセッション群は sorted() でスキップ）
+    chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
+    # None AS のエントリが判定されていないこと（refs に "None" が含まれない）
+    assert not any("None" in c.get("refs", []) for c in chk), (
+        "local_as=None のエントリが ibgp_fullmesh_incomplete の判定対象になった: %s" % chk
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_ibgp_local_as_none_only_does_not_produce_warning():
+    """local_as=None のエントリのみの topo で ibgp_fullmesh_incomplete が 0 件であること。
+
+    None AS は full-mesh 判定対象外のため、2台が互いに参照し合っていても検出しない。
+    """
+    # Arrange: 全エントリが local_as=None
+    topo = _minimal_topo(
+        devices=[_make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001)],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                {"device": "r1", "local_as": None, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                {"device": "r2", "local_as": None, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: None AS は判定対象外 → 0 件
+    chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
+    assert chk == [], f"local_as=None のエントリが誤って ibgp_fullmesh_incomplete に計上された: {chk}"
+
+
+# ---------------------------------------------------------------------------
+# 修正2: _check_ospf_area0_connectivity で area=None の TypeError ガード
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_ospf_area_none_does_not_crash():
+    """OSPF エントリに area=None が混在しても build_checks がクラッシュしないこと。
+
+    壊すと赤: None を set に追加し sorted() や ", ".join() に渡すと TypeError が発生する（修正前）。
+    手編集 YAML 等で area=None になりうる。
+    """
+    # Arrange: area=None のエントリを混入
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                # area0 あり（発火環境を作る）
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                # area=None の異常エントリ
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": None, "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act: TypeError/AttributeError が起きないこと
+    try:
+        result = build_checks(topo)
+    except (TypeError, AttributeError) as e:
+        pytest.fail(f"area=None で例外が発生した: {e}")
+
+    # Assert: area=None のエントリは無視される（r2 は area set が空になるため非対象）
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    # r2 の area=None エントリは無視 → r2 の area set = {} → area0 なし判定対象だが
+    # area set が空（None を除外）なら dev_areas に r2 が入らないか、areas が空になるので
+    # "0" in areas が False → ospf_area0_disconnected 対象外
+    # いずれにしてもクラッシュしないことが主要な検証
+    assert isinstance(result, list)
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area_none_is_ignored_in_dev_areas():
+    """area=None のエントリは dev_areas の area set に追加されず、
+    ospf_area0_disconnected の refs にも含まれないこと。
+
+    壊すと赤: None を area set に追加し sorted() に渡すと TypeError（修正前）。
+    """
+    # Arrange: r1=area0, r2=area1+area_None
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                # r2 は area1 と area=None を持つ
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "1", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.2.0.0/24", "area": None, "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: r2 は area0 を持たないので警告が出る（area1 のみ認識）
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert len(chk) == 1
+    assert chk[0]["refs"][0] == "r2"
+    # refs に None（文字列）が含まれないこと（None は除外されている）
+    assert None not in chk[0]["refs"]
+    assert "None" not in chk[0]["refs"]
+    # refs は [r2, "1"]（area=None は除外）
+    assert chk[0]["refs"] == ["r2", "1"]
+
+
+# ---------------------------------------------------------------------------
+# 修正3: _check_ospf_area0_connectivity で area の数値優先ソート
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_refs_numeric_sort():
+    """ospf_area0_disconnected の refs の area 部が数値優先ソートになること。
+
+    壊すと赤: 辞書順実装では "10" < "2" の誤順序になる。
+    数値優先ソートでは "2" < "10"。
+    """
+    # Arrange: r1=area0, r2=area2+area10（area0 なし）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                # r2 は area "2" と area "10" を保有（数値順なら 2<10、辞書順なら 10<2）
+                {"device": "r2", "process": 1, "network": "10.2.0.0/24", "area": "10", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "2", "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: refs = ["r2", "2", "10"]（数値優先ソート）
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert len(chk) == 1
+    # 数値優先: "2" < "10"
+    refs_areas = chk[0]["refs"][1:]  # 先頭は device id
+    assert refs_areas == ["2", "10"], (
+        f"数値優先ソートの期待値は ['2', '10'] だが実際は {refs_areas} "
+        "（辞書順実装なら ['10', '2'] になる誤り）"
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_ospf_area0_disconnected_refs_numeric_sort_mixed_nondigit():
+    """非 digit 文字列を含む area でも数値優先ソートがクラッシュしないこと（フォールバック）。
+
+    非 digit area（正規化失敗等で "backbone" 等が入る可能性）はフォールバックで
+    辞書順末尾に置かれる。
+    """
+    # Arrange: r1=area0, r2=area "2" + area "10" + area "backbone"（非 digit）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[],
+        routing={
+            "bgp": [],
+            "ospf": [
+                {"device": "r1", "process": 1, "network": "10.0.0.0/30", "area": "0", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.2.0.0/24", "area": "10", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.1.0.0/24", "area": "2", "af": "v4"},
+                {"device": "r2", "process": 1, "network": "10.3.0.0/24", "area": "backbone",
+                 "af": "v4"},
+            ],
+            "static": [],
+        },
+    )
+
+    # Act: クラッシュしないこと
+    try:
+        result = build_checks(topo)
+    except Exception as e:
+        pytest.fail(f"非 digit area で例外が発生した: {e}")
+
+    # Assert: 数値 area が数値順先頭・非 digit area は末尾
+    chk = [c for c in result if c["kind"] == "ospf_area0_disconnected"]
+    assert len(chk) == 1
+    refs_areas = chk[0]["refs"][1:]
+    # 数値系: "2", "10" が先（数値順）、"backbone" が末尾
+    assert refs_areas.index("2") < refs_areas.index("10"), (
+        "数値 area '2' が '10' より前にあるべき"
+    )
+    assert refs_areas[-1] == "backbone", (
+        "非 digit area 'backbone' は末尾に置かれるべき"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 修正4: 2台 iBGP 双方向完成 → ibgp_fullmesh_incomplete が 0 件
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_checks_ibgp_fullmesh_two_devices_complete_no_warning():
+    """2台が相互に iBGP セッションを持ち host_ip で解決可能・RR なし → 0 件。
+
+    壊すと赤: 完成ケースを誤検知する実装だとここで失敗する。
+    最小完成ケース（正常ケース非発火）の確認テスト。
+    """
+    # Arrange: r1↔r2 双方向 iBGP（full-mesh 完成）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1", as_=65001), _make_dev("r2", hostname="R2", as_=65001)],
+        interfaces=[
+            _make_if("r1", "Lo0", [{"af": "v4", "ip": "192.0.2.1", "prefix": 32}]),
+            _make_if("r2", "Lo0", [{"af": "v4", "ip": "192.0.2.2", "prefix": 32}]),
+        ],
+        routing={
+            "bgp": [
+                # r1 → r2（neighbor_ip=r2 の Lo0 IP で解決可能）
+                {"device": "r1", "local_as": 65001, "local_ip": "192.0.2.1",
+                 "neighbor_ip": "192.0.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+                # r2 → r1（neighbor_ip=r1 の Lo0 IP で解決可能）
+                {"device": "r2", "local_as": 65001, "local_ip": "192.0.2.2",
+                 "neighbor_ip": "192.0.2.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+            ],
+            "ospf": [],
+            "static": [],
+        },
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 2台 full-mesh 完成 → 0 件（誤検知なし）
+    chk = [c for c in result if c["kind"] == "ibgp_fullmesh_incomplete"]
+    assert chk == [], (
+        "2台 iBGP full-mesh 完成ケースで誤検知が発生した: %s" % chk
+    )

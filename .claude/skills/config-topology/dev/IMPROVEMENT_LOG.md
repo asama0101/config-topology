@@ -46,6 +46,7 @@
 - [x] D3 トポロジー差分レポート（コア: lib/diff.py + scripts/diff_topology.py）— M ✅反復8完了（HTML表示は D3b に分割）
 - [x] D3b 差分の HTML 表示（render --diff-against で DIFF ビュー）— M ✅反復12完了
 - [x] D3c history 自動連携（--diff-against-history で直近 history との差分を自動ビュー化）— S ✅反復16完了
+- [x] D2c 設計検証ルール拡張（OSPF area0 非接続・iBGP full-mesh 欠落）— M ✅反復22完了
 - [ ] D4 IPアドレス計画/サブネット使用率ビュー — M（D1後）
 
 ## 推奨順序
@@ -206,6 +207,11 @@ D1 → B1 → C2 → A1 → C1 → D2 → B2 → C3 → C4 → A2 → D3 → 残
 - レビュー対応: 不正 mode を ValueError 化（silent fallthrough 解消）、AS グループ化を `_group_by_asn` ヘルパに DRY 抽出（cluster_order と共通化・golden 不変厳守）、module/COL_GAP docstring 補足。
 - doc: requirements.md §8.3.3/§10.1・CLAUDE.md 索引を同期。テスト 880→909 passed（+29）。**既定 force で golden HTML byte 完全不変**・hierarchical は opt-in。
 
-### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D3,D3b,D3c。
-### 次候補: 反復22（D2c CHECKS拡張 → D4 サブネット使用率 → B5 ショートカット）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
+### 反復22: D2c 設計検証ルール拡張（OSPF area0 非接続・iBGP full-mesh 欠落）— ✅完了（2026-06-14）
+- build_checks に `_check_ospf_area0_connectivity`（ルール7 ospf_area0_disconnected）/`_check_ibgp_fullmesh`（ルール8 ibgp_fullmesh_incomplete）を追加。config 保有 area で近似・RR 構成と解決不能 neighbor は偽陽性抑制でスキップ。
+- レビュー対応（防御）: local_as=None / area=None の TypeError ガード、area refs の数値優先ソート、2台 iBGP 完成ケース非発火テスト、`_ip_to_device` と host_ip_to_device の差分 docstring 明記、ネスト if フラット化。
+- doc: schema.md DATA.checks 表・requirements.md §8 CHECKS・SKILL.md を同期。テスト 909→930 passed（+21）。golden byte 不変（sample 非発火）。
+
+### 観点カバレッジ: A=A1,A4,A2,A5,A3 / B=B1,B3,B4 / C=C2,C1,C3,C4,C4b,C5,C1b / D=D1,D2,D2b,D2c,D3,D3b,D3c。
+### 次候補: 反復23（D4 サブネット使用率集約ビュー → B5 ショートカット）。**B が最少（3）**。B2 表ビュー列フィルタ（既存検索 vendor:/as: と差別化＝INTERFACES の種別チップ拡張や STATS/CHECKS の絞り込みチップ・要差別化設計）/ B5 キーボードショートカット拡充（選択コピー等・テスト容易性要確認）/ C4b BGP timers/community（parser強TDD・pending増殖注意）/ D2c CHECKS ルール追加（OSPF area0 接続性・iBGP full-mesh）。観点B 補強なら B2（差別化設計を明確化）、強TDD・高価値なら D2c（design 検証の更なる拡充）。推奨は D2c（build_checks 強TDD・設計レビュー価値）か B2。
 推奨順序の残り目安: D2c or B2 → C4b → A3 → A1b(要設計) → 残り。

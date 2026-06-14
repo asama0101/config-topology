@@ -187,7 +187,12 @@ def build_links(topo):
 # ---------------------------------------------------------------------------
 
 def _ip_to_device(topo):
-    """interfaces の addresses から ip → device の逆引き辞書を構築。"""
+    """interfaces の addresses から ip → device の逆引き辞書を構築。
+
+    注意: link-local アドレスを含む（scope フィルタなし）。重複 IP は setdefault 先勝ち。
+    BGP full-mesh 判定では link-local 除外と先勝ち順固定が必要なため
+    _check_ibgp_fullmesh 内で host_ip_to_device を別途構築する（この関数は使わない）。
+    """
     m = {}
     for itf in topo["interfaces"]:
         for a in itf["addresses"]:
@@ -445,6 +450,140 @@ def _collect_rid_duplicates(devices, field, kind, proto_label):
     return results
 
 
+def _check_ospf_area0_connectivity(topo):
+    """OSPF area0（backbone）を持たない device を検出し check エントリのリストを返す。
+
+    近似: config 保有 area で判定（結線情報は不使用）。area "0" を持つ device を ABR とみなす。
+
+    発火条件:
+      - area "0" を持つ device が 1 台以上存在する（area0 不在環境では偽陽性を抑制するため非発火）。
+      - OSPF エントリを持ちながら area "0" を 1 つも持たない device を id 昇順で列挙。
+
+    返り値: [{"severity": "warning", "kind": "ospf_area0_disconnected", ...}, ...]
+      - refs = [device] + sorted(areas)
+    """
+    # device → set(area) を決定的に構築
+    # area=None のエントリは除外（手編集 YAML 等で混入した場合の TypeError 防止）
+    dev_areas: dict = {}
+    for e in topo["routing"].get("ospf", []):
+        dev = e["device"]
+        area = e.get("area")
+        if area is None:
+            continue  # area=None は判定対象外（sorted/join の TypeError 防止）
+        dev_areas.setdefault(dev, set())
+        dev_areas[dev].add(area)
+
+    if not dev_areas:
+        return []
+
+    # area0 を持つ device が 1 台も居なければ非発火（偽陽性抑制）
+    has_area0 = any("0" in areas for areas in dev_areas.values())
+    if not has_area0:
+        return []
+
+    results = []
+    for dev in sorted(dev_areas):
+        areas = dev_areas[dev]
+        if "0" in areas:
+            continue  # area0 保有（ABR 含む）は対象外
+        # 数値優先ソート: digit 文字列を数値として比較し、非 digit はフォールバックで末尾
+        sorted_areas = sorted(areas, key=lambda a: (not a.isdigit(), int(a) if a.isdigit() else a))
+        results.append({
+            "severity": "warning",
+            "kind": "ospf_area0_disconnected",
+            "message": "機器 %s は area 0 (backbone) を持たず非バックボーン area %s のみです（area0 混在環境）" % (
+                dev, ", ".join(sorted_areas)),
+            "refs": [dev] + sorted_areas,
+        })
+    return results
+
+
+def _check_ibgp_fullmesh(topo):
+    """iBGP full-mesh 未完成ペアを検出し check エントリのリストを返す（保守的判定）。
+
+    偽陽性を強く抑える:
+      - RR 構成（いずれかのセッションに route_reflector_client=True）の AS はスキップ。
+      - neighbor_ip が解決不能な device が絡むペアはスキップ。
+      - link-local（scope="link-local"）の IF アドレスは host_ip_to_device 構築から除外。
+
+    返り値: [{"severity": "warning", "kind": "ibgp_fullmesh_incomplete", ...}, ...]
+      - refs = [di, dj, str(asn)]  di < dj（id 昇順）
+    """
+    # host IP → device 逆引き（link-local 除外・先勝ち順固定）
+    # _ip_to_device() を使わない理由: link-local 除外と先勝ち順固定（device/name 辞書順）が必要。
+    # _ip_to_device() は link-local を含み・重複時の順序が保証されない。
+    host_ip_to_device: dict = {}
+    for itf in sorted(topo["interfaces"], key=lambda x: (x["device"], x["name"])):
+        for a in itf["addresses"]:
+            if a.get("scope") == "link-local":
+                continue
+            ip = a.get("ip")
+            if ip and ip not in host_ip_to_device:
+                host_ip_to_device[ip] = itf["device"]
+
+    # AS ごとに iBGP セッションを集約
+    # as_sessions: {local_as: [entry]}
+    # local_as=None のエントリは sorted() の TypeError 防止のため除外（None キーはスキップ）
+    as_sessions: dict = {}
+    for e in topo["routing"].get("bgp", []):
+        if e.get("type") != "ibgp":
+            continue
+        asn = e["local_as"]
+        if asn is None:
+            continue  # local_as=None は full-mesh 判定対象外（手編集 YAML 等で混入した場合）
+        as_sessions.setdefault(asn, [])
+        as_sessions[asn].append(e)
+
+    results = []
+    for asn in sorted(as_sessions):
+        sessions = as_sessions[asn]
+
+        # RR 構成チェック: 1 件でも route_reflector_client=True があればスキップ
+        if any(e.get("route_reflector_client") is True for e in sessions):
+            continue
+
+        # AS 内 speaker 集合
+        speakers = sorted({e["device"] for e in sessions})
+        D = set(speakers)
+
+        # 隣接集合（frozenset ペア）
+        adjacency: set = set()
+        # 解決不能 neighbor を持つ device
+        unresolved_devs: set = set()
+
+        for e in sessions:
+            dev = e["device"]
+            neighbor_ip = e.get("neighbor_ip")
+            partner = host_ip_to_device.get(neighbor_ip)
+            if partner == dev:
+                # 自己セッション（ループバック neighbor 等）: unresolved には加えない
+                pass
+            elif partner is None or partner not in D:
+                # 未解決 neighbor または D 外の AS（eBGP 等が混入した場合）:
+                # dev を unresolved_devs に追加し、このデバイスが絡むペアをスキップ（偽陽性抑制）
+                unresolved_devs.add(dev)
+            else:
+                adjacency.add(frozenset({dev, partner}))
+
+        # 全ペアを検査（di < dj）
+        for i, di in enumerate(speakers):
+            for dj in speakers[i + 1:]:
+                pair = frozenset({di, dj})
+                if pair in adjacency:
+                    continue
+                # どちらかが unresolved_devs に含まれればスキップ（偽陽性回避）
+                if di in unresolved_devs or dj in unresolved_devs:
+                    continue
+                results.append({
+                    "severity": "warning",
+                    "kind": "ibgp_fullmesh_incomplete",
+                    "message": "AS %s の iBGP full-mesh 未完成（RR なし）: %s と %s の間に iBGP セッションがありません" % (
+                        asn, di, dj),
+                    "refs": [di, dj, str(asn)],
+                })
+    return results
+
+
 def build_checks(topo, links=None):
     """topology dict を決定的に走査し設計上の注意点を検出したリストを返す。
 
@@ -475,6 +614,12 @@ def build_checks(topo, links=None):
          None 無視・機器内 ospf=bgp 共用は非対象（同一機器内の一致は検出しない）。
       6. duplicate_bgp_router_id (error): 同一 bgp_router_id を持つ2台以上の機器。
          None 無視・機器内 ospf=bgp 共用は非対象（同一機器内の一致は検出しない）。
+      7. ospf_area0_disconnected (warning): OSPF area0 混在環境で、area0 を持たない device。
+         area0 が 1 台も存在しない環境では非発火（偽陽性抑制）。
+         config 保有 area で近似判定（結線情報は不使用）。
+      8. ibgp_fullmesh_incomplete (warning): iBGP full-mesh 未完成ペア（RR なし AS のみ）。
+         いずれかのセッションに route_reflector_client=True があれば AS 全体をスキップ（RR 構成）。
+         解決不能 neighbor_ip を持つ device が絡むペアもスキップ（偽陽性抑制）。
     """
     results = []
 
@@ -610,6 +755,14 @@ def build_checks(topo, links=None):
     # bgp_router_id（非 None）でグループ化し、2 台以上の device が同一値を持つ場合に検出。
     results.extend(_collect_rid_duplicates(
         topo["devices"], "bgp_router_id", "duplicate_bgp_router_id", "BGP"))
+
+    # ---- ルール 7: ospf_area0_disconnected ----
+    # area0 混在環境で area0 を持たない device を警告（偽陽性抑制: area0 不在環境は非発火）。
+    results.extend(_check_ospf_area0_connectivity(topo))
+
+    # ---- ルール 8: ibgp_fullmesh_incomplete ----
+    # iBGP full-mesh 未完成ペアを警告（RR 構成 AS はスキップ・解決不能 neighbor も偽陽性抑制）。
+    results.extend(_check_ibgp_fullmesh(topo))
 
     # ---- 安定ソート: severity(error→warning)→kind→refs 文字列 ----
     _SEV_ORDER = {"error": 0, "warning": 1}
