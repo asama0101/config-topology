@@ -3641,3 +3641,30 @@ def test_as_identification_means_preserved():
     # 検索クリック: clk(`as:${a}`) で AS フィルタリングできること（消すと赤）
     assert 'clk(`as:' in js, \
         "検索クリック clk(`as: が _JS から消えている（AS フィルタリングが失われる）"
+
+
+# ===========================================================================
+# 改修③: 表示ノード選択パネル（#nodepanel）スクロール対応
+# ===========================================================================
+
+@pytest.mark.unit
+def test_nodepanel_scrollable():
+    """#nodepanel CSS ブロックに overflow-y と max-height が両方含まれること。
+
+    ノードが多い場合に縦に伸びて画面外にはみ出す問題を解消するため、
+    #nodepanel に overflow-y:auto と max-height:calc(100vh - 160px) を追加する。
+
+    このテストでは _CSS から #nodepanel { ... } ブロックを正規表現で切り出し、
+    overflow-y と max-height の両方が含まれることを検証する。
+
+    壊すと赤になる: overflow-y または max-height を削除するとこのテストが失敗する。
+    """
+    # #nodepanel { ... } ブロックを切り出す（次の { } ブロックまで）
+    match = re.search(r'#nodepanel\s*\{([^}]*)\}', assets._CSS)
+    assert match is not None, "_CSS に #nodepanel { ... } ブロックが見つからない"
+    nodepanel_block = match.group(1)
+
+    assert 'overflow-y' in nodepanel_block, \
+        "#nodepanel CSS ブロックに overflow-y が含まれていない（スクロール対応未実装）"
+    assert 'max-height' in nodepanel_block, \
+        "#nodepanel CSS ブロックに max-height が含まれていない（スクロール対応未実装）"

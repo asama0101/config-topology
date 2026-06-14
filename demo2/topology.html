@@ -1,17 +1,5 @@
-"""CSS / BODY / JS アセット定数 — design-sample.html からの移植・適応（§8.1/§8.5/§8.7）.
-
-移植元: docs/design-sample.html（確認済みインタラクティブ挙動の正本）
-変更点:
-  - _CSS: dummy-data ribbon の CSS 規則を除去
-  - _BODY: id="ribbon" スパン・ステータスバーのサンプル固定テキストを除去
-  - _JS: const DATA / const POS リテラルを除去（template が globals として注入）
-         VIEWS グローバルでキーボードショートカットのタブ遷移を駆動
-         検索 corpus・各表に addrs[] を統合（secondary 表示。link-local は ADDRESSES 除外／INTERFACES・PHYSICAL は淡色表示）
-         SVG namespace 文字列を連結式に変更（literal http:// を排除）
-"""
-
-_CSS = """\
-
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Network Topology</title><style>
 /* ============================================================
    config-topology v2.0 design sample
    aesthetic: NOC instrument console (dark) / blueprint (light)
@@ -440,7 +428,6 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
   border: 1px solid var(--panel-edge); border-radius: 10px;
   padding: 10px 14px; font-size: 11px; line-height: 2;
   box-shadow: var(--shadow); display: none; min-width: 170px;
-  max-height: calc(100vh - 160px); overflow-y: auto;
 }
 #nodepanel h4 { font-size: 9px; letter-spacing: .18em; color: var(--ink-faint); font-weight: normal; margin-bottom: 4px; }
 #nodepanel label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--ink-dim); }
@@ -462,20 +449,11 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
 .stats-tbl-wrap { padding: 0 20px 14px; }
 
 
-"""
-
-_BODY = """\
-
+</style></head><body>
 
 <header>
   <div class="brand"><b>CONFIG-TOPOLOGY</b><span>v2.0 design sample</span></div>
-  <nav class="tabs" id="tabs">
-    <button data-view="physical" class="active">PHYSICAL<span class="k">1</span></button>
-    <button data-view="bgp">BGP<span class="k">2</span></button>
-    <button data-view="ospf">OSPF<span class="k">3</span></button>
-    <button data-view="addr">ADDRESSES<span class="k">4</span></button>
-    <button data-view="ifs">INTERFACES<span class="k">5</span></button>
-  </nav>
+  <nav class="tabs" id="tabs"><button data-view="physical">PHYSICAL<span class="k">1</span></button><button data-view="bgp">BGP<span class="k">2</span></button><button data-view="ospf">OSPF<span class="k">3</span></button><button data-view="diff">DIFF<span class="k">4</span></button><button data-view="stats">STATS<span class="k">5</span></button><button data-view="checks">CHECKS<span class="k">6</span></button><button data-view="addr">ADDRESSES<span class="k">7</span></button><button data-view="ifs">INTERFACES<span class="k">8</span></button><button data-view="usage">SUBNETS<span class="k">9</span></button></nav>
   <div class="toolbar">
     <select id="sfield" class="sfield" title="検索対象フィールドを選択（ALL = hostname・IP・description・AS・vendor・IF名を横断）。host: 等の記法を書かずに絞り込めます">
       <option value="all">ALL</option>
@@ -568,11 +546,7 @@ _BODY = """\
 </div>
 
 
-"""
-
-# _JS: BGP SESSIONS 表の attr 列は b.rr=route_reflector_client / b.nhs=next_hop_self をバッジ表示
-_JS = """\
-
+<script>const DATA={"bgpEdges":[{"a":"core-rtr-01","afs":["v4"],"aip":"10.10.0.1","b":"core-rtr-02","bip":"10.10.0.2","id":"be:lb:core-rtr-01:core-rtr-02","kind":"loopback","label":"iBGP","type":"ibgp"},{"a":"core-rtr-01","afs":["v4"],"aip":"10.10.0.1","b":"dist-switch-bldga-floor2-rack07","bip":"10.10.0.3","id":"be:lb:core-rtr-01:dist-switch-bldga-floor2-rack07","kind":"loopback","label":"iBGP","type":"ibgp"},{"a":"core-rtr-01","afs":["v4"],"aip":"10.10.0.1","b":"edge-rtr-jun","bip":"10.10.0.4","id":"be:lb:core-rtr-01:edge-rtr-jun","kind":"loopback","label":"iBGP","type":"ibgp"},{"a":"edge-rtr-jun","afs":["v4"],"aip":"203.0.113.2","bip":"203.0.113.1","ext":"ext:203.0.113.1","id":"be:ext:edge-rtr-jun:203.0.113.1","kind":"external","peerAs":65020,"srcIf":"ge-0/0/1","type":"ebgp"}],"checks":[{"kind":"duplicate_ip","message":"IP 10.10.99.9 が複数の interface に重複して設定されています","refs":["core-rtr-02::GigabitEthernet0/1","dist-switch-bldga-floor2-rack07::GigabitEthernet0/2"],"severity":"error"},{"kind":"bgp_unresolved_local_ip","message":"BGP neighbor 10.10.0.1 の local_ip が解決できませんでした（device: edge-rtr-jun）","refs":["edge-rtr-jun","10.10.0.1"],"severity":"warning"},{"kind":"mtu_mismatch","message":"MTU 不一致: core-rtr-01:GigabitEthernet0/1 と dist-switch-bldga-floor2-rack07:GigabitEthernet0/1（1500 vs 9000）","refs":["core-rtr-01::GigabitEthernet0/1","dist-switch-bldga-floor2-rack07::GigabitEthernet0/1","10.10.13.0/30"],"severity":"warning"},{"kind":"ospf_area0_disconnected","message":"機器 dist-switch-bldga-floor2-rack07 は area 0 (backbone) を持たず非バックボーン area 1 のみです（area0 混在環境）","refs":["dist-switch-bldga-floor2-rack07","1"],"severity":"warning"},{"kind":"ospf_area0_disconnected","message":"機器 edge-rtr-jun は area 0 (backbone) を持たず非バックボーン area 2 のみです（area0 混在環境）","refs":["edge-rtr-jun","2"],"severity":"warning"}],"devices":{"core-rtr-01":{"as":65010,"bgp":[{"af":"v4","link":"be:lb:core-rtr-01:core-rtr-02","lip":"10.10.0.1","nb":"10.10.0.2","nhs":true,"pas":65010,"rr":true,"src":"Loopback0","type":"ibgp"},{"af":"v4","link":"be:lb:core-rtr-01:dist-switch-bldga-floor2-rack07","lip":"10.10.0.1","nb":"10.10.0.3","nhs":true,"pas":65010,"rr":true,"src":"Loopback0","type":"ibgp"},{"af":"v4","link":"be:lb:core-rtr-01:edge-rtr-jun","lip":"10.10.0.1","nb":"10.10.0.4","nhs":true,"pas":65010,"rr":true,"src":"Loopback0","type":"ibgp"}],"bgp_rid":"10.10.0.1","degree":3,"hostname":"core-rtr-01","ifs":[{"addrs":[{"af":"v4","ip":"10.10.0.1","prefix":32},{"af":"v6","ip":"2001:db8:10::1","prefix":128}],"d":null,"ip":"10.10.0.1/32","ip6":"2001:db8:10::1/128","mtu":null,"n":"Loopback0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.12.1","prefix":30},{"af":"v6","ip":"2001:db8:10:12::1","prefix":64}],"d":"core01-to-core02","ip":"10.10.12.1/30","ip6":"2001:db8:10:12::1/64","mtu":9000,"n":"GigabitEthernet0/0","ospf":{"cost":10,"network_type":"point-to-point"},"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.13.1","prefix":30}],"d":"core01-to-dist","ip":"10.10.13.1/30","ip6":null,"mtu":1500,"n":"GigabitEthernet0/1","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.14.1","prefix":30}],"d":"core01-to-edge","ip":"10.10.14.1/30","ip6":null,"mtu":null,"n":"GigabitEthernet0/2","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"192.168.1.1","prefix":24}],"d":"CORE-LAN","ip":"192.168.1.1/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/3","ospf":{"passive":true},"sp":null,"st":"up"}],"ospf":[{"area":"0","at":null,"net":"10.10.0.1/32","proc":1},{"area":"0","at":null,"net":"10.10.12.0/30","proc":1},{"area":"0","at":null,"net":"10.10.13.0/30","proc":1},{"area":"0","at":null,"net":"10.10.14.0/30","proc":1},{"area":"0","at":null,"net":"192.168.1.0/24","proc":1}],"ospf_rid":"10.10.0.1","redistribute":[{"into":"bgp","source":"connected"},{"into":"bgp","metric":100,"source":"static"}],"static":[],"vendor":"cisco_ios"},"core-rtr-02":{"as":65010,"bgp":[{"af":"v4","link":"be:lb:core-rtr-01:core-rtr-02","lip":"10.10.0.2","nb":"10.10.0.1","nhs":null,"pas":65010,"rr":null,"src":"Loopback0","type":"ibgp"}],"bgp_rid":"10.10.0.2","degree":2,"hostname":"core-rtr-02","ifs":[{"addrs":[{"af":"v4","ip":"10.10.0.2","prefix":32}],"d":null,"ip":"10.10.0.2/32","ip6":null,"mtu":null,"n":"Loopback0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.12.2","prefix":30},{"af":"v6","ip":"2001:db8:10:12::2","prefix":64}],"d":"core02-to-core01","ip":"10.10.12.2/30","ip6":"2001:db8:10:12::2/64","mtu":9000,"n":"GigabitEthernet0/0","ospf":{"cost":10,"network_type":"point-to-point"},"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.99.9","prefix":24}],"d":"MGMT","ip":"10.10.99.9/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/1","ospf":null,"sp":null,"st":"up"}],"ospf":[{"area":"0","at":null,"net":"10.10.0.2/32","proc":1},{"area":"0","at":null,"net":"10.10.12.0/30","proc":1}],"ospf_rid":"10.10.0.2","redistribute":[],"static":[],"vendor":"cisco_ios"},"dist-switch-bldga-floor2-rack07":{"as":65010,"bgp":[{"af":"v4","link":"be:lb:core-rtr-01:dist-switch-bldga-floor2-rack07","lip":"10.10.0.3","nb":"10.10.0.1","nhs":null,"pas":65010,"rr":null,"src":"Loopback0","type":"ibgp"}],"bgp_rid":"10.10.0.3","degree":2,"hostname":"dist-switch-bldgA-floor2-rack07","ifs":[{"addrs":[{"af":"v4","ip":"10.10.0.3","prefix":32}],"d":null,"ip":"10.10.0.3/32","ip6":null,"mtu":null,"n":"Loopback0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.13.2","prefix":30}],"d":"dist-to-core01","ip":"10.10.13.2/30","ip6":null,"mtu":9000,"n":"GigabitEthernet0/1","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.99.9","prefix":24}],"d":"MGMT-typo-duplicate","ip":"10.10.99.9/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/2","ospf":null,"sp":null,"st":"up"}],"ospf":[{"area":"1","at":"stub","net":"10.10.0.3/32","proc":1},{"area":"1","at":"stub","net":"10.10.13.0/30","proc":1}],"ospf_rid":"10.10.0.3","redistribute":[],"static":[],"vendor":"cisco_ios"},"edge-rtr-jun":{"as":65010,"bgp":[{"af":"v4","link":"be:lb:core-rtr-01:edge-rtr-jun","lip":null,"nb":"10.10.0.1","nhs":null,"pas":65010,"rr":true,"src":null,"type":"ibgp"},{"af":"v4","link":"be:ext:edge-rtr-jun:203.0.113.1","lip":"203.0.113.2","nb":"203.0.113.1","nhs":null,"pas":65020,"rr":null,"src":null,"type":"ebgp"}],"bgp_rid":"10.10.0.4","degree":1,"hostname":"edge-rtr-jun","ifs":[{"addrs":[{"af":"v4","ip":"10.10.0.4","prefix":32}],"d":null,"ip":"10.10.0.4/32","ip6":null,"mtu":null,"n":"lo0","ospf":{"passive":true},"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.10.14.2","prefix":30}],"d":null,"ip":"10.10.14.2/30","ip6":null,"mtu":null,"n":"ge-0/0/0","ospf":{"cost":20},"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"203.0.113.2","prefix":30}],"d":null,"ip":"203.0.113.2/30","ip6":null,"mtu":null,"n":"ge-0/0/1","ospf":null,"sp":null,"st":"up"}],"ospf":[{"area":"2","at":"nssa","net":"10.10.0.4/32","proc":null},{"area":"2","at":"nssa","net":"10.10.14.0/30","proc":null}],"ospf_rid":"10.10.0.4","redistribute":[],"static":[],"vendor":"juniper_junos"}},"extPeers":[{"as":65020,"from":"edge-rtr-jun","id":"ext:203.0.113.1","label":"AS 65020","link":"be:ext:edge-rtr-jun:203.0.113.1","sub":"203.0.113.1"}],"links":[{"a":"core-rtr-01","ai":"GigabitEthernet0/0","aip":"10.10.12.1","aip6":"2001:db8:10:12::1","area":"0","b":"core-rtr-02","bi":"GigabitEthernet0/0","bip":"10.10.12.2","bip6":"2001:db8:10:12::2","dual":"2001:db8:10:12::/64","id":"lnk:core-rtr-01::GigabitEthernet0/0|core-rtr-02::GigabitEthernet0/0","subnet":"10.10.12.0/30"},{"a":"core-rtr-01","ai":"GigabitEthernet0/1","aip":"10.10.13.1","area":"0/1","b":"dist-switch-bldga-floor2-rack07","bi":"GigabitEthernet0/1","bip":"10.10.13.2","id":"lnk:core-rtr-01::GigabitEthernet0/1|dist-switch-bldga-floor2-rack07::GigabitEthernet0/1","subnet":"10.10.13.0/30"},{"a":"core-rtr-01","ai":"GigabitEthernet0/2","aip":"10.10.14.1","area":"0/2","b":"edge-rtr-jun","bi":"ge-0/0/0","bip":"10.10.14.2","id":"lnk:core-rtr-01::GigabitEthernet0/2|edge-rtr-jun::ge-0/0/0","subnet":"10.10.14.0/30"},{"a":"core-rtr-02","ai":"GigabitEthernet0/1","aip":"10.10.99.9","b":"dist-switch-bldga-floor2-rack07","bi":"GigabitEthernet0/2","bip":"10.10.99.9","id":"lnk:core-rtr-02::GigabitEthernet0/1|dist-switch-bldga-floor2-rack07::GigabitEthernet0/2","subnet":"10.10.99.0/24"}],"meta":{"generated_from":["core-rtr-01.cfg","core-rtr-02.cfg","dist-switch-bldgA-floor2-rack07.cfg","edge-rtr-jun.conf"]},"segments":[],"stats":{"bgp_sessions":4,"by_area":{"0":7,"1":2,"2":2},"by_as":{"65010":4},"by_vendor":{"cisco_ios":3,"juniper_junos":1},"devices":4,"dualstack_ifs":3,"interfaces":14,"link_kinds":{"link":4,"segment":0,"stub":6},"links":4,"ospf_networks":11,"segments":0,"static_routes":0},"subnet_usage":[{"af":"v4","exhausted":true,"free":0,"subnet":"10.10.12.0/30","usable":2,"used":2,"util":1.0},{"af":"v4","exhausted":true,"free":0,"subnet":"10.10.13.0/30","usable":2,"used":2,"util":1.0},{"af":"v4","exhausted":true,"free":0,"subnet":"10.10.14.0/30","usable":2,"used":2,"util":1.0},{"af":"v4","exhausted":false,"free":1,"subnet":"203.0.113.0/30","usable":2,"used":1,"util":0.5},{"af":"v4","exhausted":false,"free":253,"subnet":"10.10.99.0/24","usable":254,"used":1,"util":0.0039},{"af":"v4","exhausted":false,"free":253,"subnet":"192.168.1.0/24","usable":254,"used":1,"util":0.0039}]};</script><script>const POS={"core-rtr-01":{"x":266.6,"y":-86.8},"core-rtr-02":{"x":61.4,"y":416.7},"dist-switch-bldga-floor2-rack07":{"x":482.3,"y":412.3},"edge-rtr-jun":{"x":259.4,"y":-763.9},"ext:203.0.113.1":{"x":253.3,"y":-1338.3}};</script><script>const VIEWS=["physical","bgp","ospf","diff","stats","checks","addr","ifs","usage"];</script><script>const DIFF={"devices":{"added":[{"as":65010,"bgp_router_id":"10.10.0.4","hostname":"edge-rtr-jun","id":"edge-rtr-jun","ospf_router_id":"10.10.0.4","sections":[],"vendor":"juniper_junos"}],"changed":[],"removed":[]},"interfaces":{"added":[{"addresses":[{"af":"v4","ip":"10.10.14.2","prefix":30}],"admin_status":"up","description":null,"device":"edge-rtr-jun","duplex":null,"encapsulation":null,"id":"edge-rtr-jun::ge-0/0/0","ip":"10.10.14.2/30","l2_l3":"l3","mtu":null,"name":"ge-0/0/0","oper_status":null,"ospf":{"cost":20},"shutdown":false,"source":"parsed","speed":null,"switchport":null,"vlan":null},{"addresses":[{"af":"v4","ip":"203.0.113.2","prefix":30}],"admin_status":"up","description":null,"device":"edge-rtr-jun","duplex":null,"encapsulation":null,"id":"edge-rtr-jun::ge-0/0/1","ip":"203.0.113.2/30","l2_l3":"l3","mtu":null,"name":"ge-0/0/1","oper_status":null,"shutdown":false,"source":"parsed","speed":null,"switchport":null,"vlan":null},{"addresses":[{"af":"v4","ip":"10.10.0.4","prefix":32}],"admin_status":"up","description":null,"device":"edge-rtr-jun","duplex":null,"encapsulation":null,"id":"edge-rtr-jun::lo0","ip":"10.10.0.4/32","l2_l3":"l3","mtu":null,"name":"lo0","oper_status":null,"ospf":{"passive":true},"shutdown":false,"source":"parsed","speed":null,"switchport":null,"vlan":null}],"changed":[],"removed":[]},"links":{"added":[{"a_device":"core-rtr-01","a_if":"GigabitEthernet0/2","b_device":"edge-rtr-jun","b_if":"ge-0/0/0","subnet":"10.10.14.0/30"}],"changed":[],"removed":[]},"routing_bgp":{"added":[{"af":"v4","device":"edge-rtr-jun","local_as":65010,"local_ip":null,"neighbor_ip":"10.10.0.1","peer_as":65010,"route_reflector_client":true,"type":"ibgp"},{"af":"v4","device":"edge-rtr-jun","local_as":65010,"local_ip":"203.0.113.2","neighbor_ip":"203.0.113.1","peer_as":65020,"type":"ebgp"}],"changed":[],"removed":[]},"routing_ospf":{"added":[{"af":"v4","area":"2","area_type":"nssa","device":"edge-rtr-jun","network":"10.10.0.4/32","process":null},{"af":"v4","area":"2","area_type":"nssa","device":"edge-rtr-jun","network":"10.10.14.0/30","process":null}],"changed":[],"removed":[]},"routing_static":{"added":[],"changed":[],"removed":[]},"segments":{"added":[],"changed":[],"removed":[]}};</script><script>
 "use strict";
 const _SVG_NS = "http" + "://www.w3.org/2000/svg";  /* assembled to avoid literal URL */
 
@@ -608,7 +582,7 @@ const AREA_PALETTE = ["#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f","#5b8def
 const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
 /* BGP セッション色はピア AS でなく種別で固定（eBGP/iBGP で統一。AS の識別は AS 枠の色が担う） */
 const BGP_COLOR = { ebgp:"#e8775a", ibgp:"#7aa2f7" };
-const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
+const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
 
 /* --- データ駆動凡例用 純関数 (B4) --- */
 /* presentAreas(data): data.links (非 admin_down かつ area あり) と data.segments (area あり) から
@@ -620,7 +594,7 @@ function presentAreas(data) {
   const collect = a => {
     if (a == null) return;
     for (const part of String(a).split("/")) {
-      const n = /^\\d+$/.test(part.trim()) ? +part.trim() : null;
+      const n = /^\d+$/.test(part.trim()) ? +part.trim() : null;
       if (n !== null) seen.add(n);
     }
   };
@@ -1421,7 +1395,7 @@ function renderTableView() {
 
 /* v4 subnet "a.b.c.d/p" → 範囲情報（IPAM 計算用）。パース不能なら null */
 function v4SubnetRange(net) {
-  const m = String(net).match(/^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)\\/(\\d+)$/);
+  const m = String(net).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
   if (!m) return null;
   const base = ((+m[1]<<24) | (+m[2]<<16) | (+m[3]<<8) | (+m[4])) >>> 0, p = +m[5];
   return { base, p, usable: p === 32 ? 1 : (p === 31 ? 2 : 2 ** (32 - p) - 2) };
@@ -1516,7 +1490,7 @@ function renderAddrTable() {
     ip:  r => r.ip  ? [0, ipToU32(r.ip.split("/")[0]), ""] : [1, 0, ""],
     ip6: r => r.ip6 ? [0, 0, r.ip6] : [1, 0, ""],
   };
-  const tsvLines = ["Network(v4)\\tNetwork(v6)\\tDevice\\tInterface\\tIPv4\\tIPv6\\tDescription\\tStatus"];
+  const tsvLines = ["Network(v4)\tNetwork(v6)\tDevice\tInterface\tIPv4\tIPv6\tDescription\tStatus"];
   const allCollapsed = keys.length > 0 && keys.every(k => S.collapsedNets.has(k));
   let html = `<div class="thead"><h3>ADDRESSES</h3><span class="cnt">${flt.length} 行 / ${keys.length} サブネット</span>
       <button class="tbtn" data-foldall="${allCollapsed?"open":"close"}">${allCollapsed?"全展開":"全折りたたみ"}</button>
@@ -1543,7 +1517,7 @@ function renderAddrTable() {
     html += `<tr class="grph" data-grp="${esc(key)}"><td colspan="6">${closed?"▸":"▾"} ${esc(label)}` +
       `<span class="usage">${esc(usage)}</span></td></tr>`;
     for (const r of members) {
-      tsvLines.push([r.netV4||"", r.netV6||"", r.dev, r.ifn, r.ip||"", r.ip6||"", r.desc||"", r.st].join("\\t"));
+      tsvLines.push([r.netV4||"", r.netV6||"", r.dev, r.ifn, r.ip||"", r.ip6||"", r.desc||"", r.st].join("\t"));
       if (closed) continue;
       const dup4 = dupOf(r, r.ip, "v4"), dup6 = dupOf(r, r.ip6, "v6");
       html += `<tr class="trow">
@@ -1555,7 +1529,7 @@ function renderAddrTable() {
         <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}</td></tr>`;
     }
   }
-  lastTsv = tsvLines.join("\\n");
+  lastTsv = tsvLines.join("\n");
   html += `</table>
     <div class="tnote">見出しクリックで折りたたみ（▾/▸） / 使用率 = 使用アドレス数/収容数（v4） /
     ⚠ 赤 = 重複IP（複数機器に同一アドレス） / オレンジの "—" = description 未設定 /
@@ -1587,7 +1561,7 @@ function connectedTo(devId, ifn) {
 /* IF 種別: unused（ip/ip6/desc すべて無し）/ loopback / connected / stub */
 function ifKind(devId, i) {
   if (!i.ip && !i.ip6 && !i.d) return "unused";
-  if (/^lo(opback)?\\d*$/i.test(i.n)) return "loopback";
+  if (/^lo(opback)?\d*$/i.test(i.n)) return "loopback";
   if (connectedTo(devId, i.n)) return "connected";
   return "stub";
 }
@@ -1595,7 +1569,7 @@ const IFK_LABEL = { connected:"接続", stub:"スタブ", unused:"未使用", lo
 const isPhysical = n => n.includes("/");                                  /* スロット番号を持つ物理ポート */
 const lineCard = n => n.includes("/") ? n.slice(0, n.lastIndexOf("/")) : "(virtual)";
 /* 自然順ソートキー: 数字部をゼロ埋めして文字列比較（Gi0/2 < Gi0/10） */
-const naturalKey = s => String(s).toLowerCase().replace(/\\d+/g, m => m.padStart(8, "0"));
+const naturalKey = s => String(s).toLowerCase().replace(/\d+/g, m => m.padStart(8, "0"));
 
 /* ---- ポートの運用状態（予約 / 使用不可）の手動指定。ブラウザ localStorage に永続化 ----
    実装版ではこれは config ではなく「運用アノテーション」として config と分離して保持する想定 */
@@ -1903,7 +1877,7 @@ function renderIfsTable() {
     sp:  r => r.sp == null ? [1, 0] : [0, +(SPEED_NORM[r.sp] || r.sp) || 0],
   };
   /* 機器ごとにグループ化（ADDRESSES の grph/折りたたみ基盤を流用。キーは "dev:<id>"） */
-  const tsvLines = ["Device\\tInterface\\tConnected to\\tType\\tPortState\\tIPv4\\tIPv6\\tDescription\\tStatus\\tMTU\\tSpeed\\t備考"];
+  const tsvLines = ["Device\tInterface\tConnected to\tType\tPortState\tIPv4\tIPv6\tDescription\tStatus\tMTU\tSpeed\t備考"];
   const connLabel = r => r.conn ? r.conn.label : (r.kind === "stub" ? "(stub)" : "—");
   /* カテゴリ別カウント（使用/予約/不可/空き）を非ゼロのみ色付きで連結 */
   const catSpans = c => ["used","reserved","disabled","free"].filter(k => c[k])
@@ -1926,7 +1900,7 @@ function renderIfsTable() {
     const cardLines = cardEntries.map(([c, list], idx) => {
       const tree = idx === cardEntries.length - 1 ? "└" : "├";
       return `${tree} ${esc(c.padEnd(22))} ${catSpans(tally(list))}  <span class="dim-t">(${list.length})</span>`;
-    }).join("\\n");
+    }).join("\n");
     body += `<tr class="grph" data-grp="dev:${esc(id)}"><td colspan="10"><span class="ghtop">${closed?"▸":"▾"} ${esc(d.hostname)} <span class="dim-t">[${esc(d.vendor)}]</span>` +
       `<span class="usage">物理${phys.length}ポート ${catSpans(devCat)}</span></span>` +
       (!closed && cardLines ? `<div class="cards2">${cardLines}</div>` : "") + `</td></tr>`;
@@ -1936,7 +1910,7 @@ function renderIfsTable() {
       const cl = connLabel(r);
       const eff = effRole(r.devId, r.ifn);
       const physical = isPhysical(r.ifn);
-      tsvLines.push([r.dev, r.ifn, cl, IFK_LABEL[r.kind], physical?CAT_LABEL[portCat(r.devId, DATA.devices[r.devId].ifs.find(x=>x.n===r.ifn))]:"", r.ip||"", r.ip6||"", r.desc||"", r.st, r.mtu==null?"":r.mtu, r.sp||"", noteOf(r.devId, r.ifn).replace(/\\t/g," ")].join("\\t"));
+      tsvLines.push([r.dev, r.ifn, cl, IFK_LABEL[r.kind], physical?CAT_LABEL[portCat(r.devId, DATA.devices[r.devId].ifs.find(x=>x.n===r.ifn))]:"", r.ip||"", r.ip6||"", r.desc||"", r.st, r.mtu==null?"":r.mtu, r.sp||"", noteOf(r.devId, r.ifn).replace(/\t/g," ")].join("\t"));
       if (closed) continue;
       const jump = r.conn && r.conn.peerDev;
       const connCell = jump
@@ -1968,7 +1942,7 @@ function renderIfsTable() {
         <td><input class="noteinput" data-note="${esc(r.devId)}:${esc(r.ifn)}" value="${esc(noteOf(r.devId, r.ifn))}" placeholder="メモ…" autocomplete="off"></td></tr>`;
     }
   }
-  lastTsv = tsvLines.join("\\n");
+  lastTsv = tsvLines.join("\n");
   const chip = (v, label) => `<button class="tbtn ${kf===v?"on":""}" data-ifk="${v}">${label}</button>`;
   /* 全展開/全折りたたみ判定は実描画したグループ（フィルタ後）で算出 */
   const allCollapsed = renderedKeys.length > 0 && renderedKeys.every(k => S.collapsedNets.has(k));
@@ -2481,7 +2455,7 @@ window.addEventListener("keydown", ev => {
   if (ev.key === "f" || ev.key === "F") zoomFit();
   else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
   else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }
-  else if (/^\\d$/.test(ev.key)) {
+  else if (/^\d$/.test(ev.key)) {
     const _vi = +ev.key - 1;
     if (_vi >= 0 && _vi < VIEWS.length) setView(VIEWS[_vi]);
   }
@@ -2514,4 +2488,4 @@ update();
 zoomFit();
 window.addEventListener("resize", () => schedule(render));
 
-"""
+</script></body></html>
