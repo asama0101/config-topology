@@ -62,11 +62,8 @@ def test_node_check_syntax():
         pytest.skip("node 不在のため構文チェックをスキップ")
     stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
             "meta:{generated_from:[]},"
-            "stats:{devices:0,interfaces:0,links:0,segments:0,"
-            "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
-            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
             "checks:[]};"
-            "const POS={};const VIEWS=['physical','stats','checks','addr','ifs'];"
+            "const POS={};const VIEWS=['physical','checks','addr','ifs','usage'];"
             "const DIFF=null;\n")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(stub + assets._JS)
@@ -157,12 +154,9 @@ def test_node_check_syntax_with_diff():
         pytest.skip("node 不在のため構文チェックをスキップ")
     stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
             "meta:{generated_from:[]},"
-            "stats:{devices:0,interfaces:0,links:0,segments:0,"
-            "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
-            "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
             "checks:[]};"
             "const POS={};"
-            "const VIEWS=['physical','diff','stats','checks','addr','ifs'];"
+            "const VIEWS=['physical','diff','checks','addr','ifs','usage'];"
             "const DIFF={devices:{added:[],removed:[],changed:[]},"
             "interfaces:{added:[],removed:[],changed:[]},"
             "links:{added:[],removed:[],changed:[]},"
@@ -204,6 +198,35 @@ def test_link_end_label_includes_link_local():
     assert 'ifV6List(itf).filter(x=>x.ll)' in assets._JS   # リンク端ラベル固有の抽出
     assert 'faint:true' in assets._JS                       # faint 行として渡す
     assert '.iflabel.ll' in assets._CSS                     # SVG ラベル淡色
+
+
+# ---------------------------------------------------------------------------
+# 改修⑥ STATS タブ削除
+# ---------------------------------------------------------------------------
+
+def test_no_render_stats_view():
+    """JS に renderStatsView 関数定義が無いこと。"""
+    assert "function renderStatsView" not in assets._JS
+
+
+def test_isTableView_no_stats():
+    """isTableView() が 'stats' を参照しないこと。"""
+    assert 'S.view === "stats"' not in assets._JS
+
+
+def test_render_table_view_no_stats_branch():
+    """renderTableView に stats 分岐（renderStatsView 呼び出し）が無いこと。"""
+    assert "renderStatsView()" not in assets._JS
+
+
+def test_no_stats_css_classes():
+    """stats 専用 CSS クラスが _CSS に無いこと。"""
+    assert ".stats-cards" not in assets._CSS
+    assert ".stats-card" not in assets._CSS
+    assert ".stats-num" not in assets._CSS
+    assert ".stats-label" not in assets._CSS
+    assert ".stats-tbl-wrap" not in assets._CSS
+
 
 
 # ---------------------------------------------------------------------------

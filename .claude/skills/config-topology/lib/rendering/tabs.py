@@ -1,25 +1,24 @@
-"""タブ（ビュー）生成（要件書 §8.2）。図ビューは routing から動的・常設表ビュー（STATS/CHECKS/ADDRESSES/INTERFACES/SUBNETS）・static 除外。DIFF は has_diff=True 時のみの条件付き表ビュー。"""
+"""タブ（ビュー）生成（要件書 §8.2）。図ビューは routing から動的・常設表ビュー（CHECKS/ADDRESSES/INTERFACES/SUBNETS）・static 除外。DIFF は has_diff=True 時のみの条件付き表ビュー。"""
 
 _LABELS = {"physical": "PHYSICAL", "bgp": "BGP", "ospf": "OSPF",
            "diff": "DIFF",
-           "stats": "STATS", "checks": "CHECKS", "addr": "ADDRESSES", "ifs": "INTERFACES",
+           "checks": "CHECKS", "addr": "ADDRESSES", "ifs": "INTERFACES",
            "usage": "SUBNETS"}
 
 
 def build_tabs(routing, has_diff=False):
-    """[{view, label, key}] を返す。図ビュー（physical→bgp?→ospf?）→ 表ビュー（diff?,stats,checks,addr,ifs,usage）。
+    """[{view, label, key}] を返す。図ビュー（physical→bgp?→ospf?）→ 表ビュー（diff?,checks,addr,ifs,usage）。
 
     常設表ビュー（routing 有無によらず常に出力）:
-      - STATS    … 構成統計
       - CHECKS   … 設計検証
       - ADDRESSES … アドレス一覧
       - INTERFACES … インタフェース一覧
       - SUBNETS  … v4 サブネット使用率集約（D4）
 
     条件付き表ビュー:
-      - DIFF     … has_diff=True のとき stats の前に追加
+      - DIFF     … has_diff=True のとき checks の前に追加
 
-    has_diff=True のとき DIFF タブを表ビュー群の先頭（stats の前）に追加する。
+    has_diff=True のとき DIFF タブを表ビュー群の先頭（checks の前）に追加する。
     has_diff=False（既定）のときは DIFF タブなし（既存挙動を維持）。
     """
     views = ["physical"]
@@ -28,11 +27,11 @@ def build_tabs(routing, has_diff=False):
     if routing.get("ospf"):
         views.append("ospf")
     # generic proto（bgp/ospf/static 以外）は v1 ではスキップ（§9.3 拡張余地）
-    # diff は --diff-against 指定時のみ（stats の前に配置）
+    # diff は --diff-against 指定時のみ（checks の前に配置）
     table_views = []
     if has_diff:
         table_views.append("diff")
-    table_views += ["stats", "checks", "addr", "ifs", "usage"]
+    table_views += ["checks", "addr", "ifs", "usage"]
     views += table_views
     return [{"view": v, "label": _LABELS.get(v, v.upper()), "key": i + 1}
             for i, v in enumerate(views)]

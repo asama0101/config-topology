@@ -313,109 +313,6 @@ def build_bgp_topology(topo):
     }
 
 
-def build_stats(topo, links=None, bgp_edges=None):
-    """topology dict → 構成統計 dict。決定的・純粋関数。
-
-    引数:
-      topo      : topology dict
-      links     : 省略可能。build_links(topo) の計算済み結果。
-                  build_data() から呼ぶ際は計算済みを渡して二重呼び出しを避ける。
-                  省略時（None）は内部で build_links を呼ぶ（単体テスト・旧コード互換）。
-      bgp_edges : 省略可能。build_bgp_topology(topo)["bgpEdges"] の計算済み結果。
-                  省略時（None）は内部で build_bgp_topology を呼ぶ。
-
-    返り値キー:
-      devices, interfaces, links, segments,
-      by_vendor, by_as, by_area,
-      link_kinds,
-      dualstack_ifs, bgp_sessions, ospf_networks, static_routes
-
-    注意:
-      - link は build_links() で v4/v6 を統合した後の本数（merged 後）。
-      - segment は raw（dual-stack 統合なし）の本数。
-      - bgp_sessions = 重複排除後の BGP セッション数（方向・AF を問わない実セッション本数。
-        ステータスバーの AF 総和とは別概念）。build_bgp_topology の bgpEdges 件数を使用。
-    """
-    # --- 基本カウント ---
-    n_devices = len(topo["devices"])
-    n_interfaces = len(topo["interfaces"])
-    n_segments = len(topo["segments"])
-    # build_links を使って v4/v6 を同一リンクに統合した後の本数。計算済みを再利用。
-    resolved_links = links if links is not None else build_links(topo)
-    n_links = len(resolved_links)
-
-    # --- by_vendor: キー昇順 ---
-    vendor_counts: dict = {}
-    for d in topo["devices"]:
-        v = d["vendor"]
-        vendor_counts[v] = vendor_counts.get(v, 0) + 1
-    by_vendor = {k: vendor_counts[k] for k in sorted(vendor_counts)}
-
-    # --- by_as: AS は文字列キー。None は 'none'。数値 AS は数値昇順、'none' は末尾 ---
-    as_counts: dict = {}
-    for d in topo["devices"]:
-        key = str(d["as"]) if d["as"] is not None else "none"
-        as_counts[key] = as_counts.get(key, 0) + 1
-    # 数値 AS キーを数値昇順（key=int）、'none' は末尾
-    num_keys = sorted((k for k in as_counts if k != "none"), key=int)
-    none_keys = ["none"] if "none" in as_counts else []
-    by_as = {k: as_counts[k] for k in num_keys + none_keys}
-
-    # --- by_area: routing.ospf の area 別件数。数値昇順、'none' は末尾 ---
-    area_counts: dict = {}
-    for e in topo["routing"].get("ospf", []):
-        a = str(e["area"]) if e.get("area") is not None else "none"
-        area_counts[a] = area_counts.get(a, 0) + 1
-    num_area_keys = sorted((k for k in area_counts if k != "none"), key=int)
-    none_area_keys = ["none"] if "none" in area_counts else []
-    by_area = {k: area_counts[k] for k in num_area_keys + none_area_keys}
-
-    # --- link_kinds: リンク1本 / セグメント / スタブ ---
-    # stub = IF のうち links・segments いずれにも属さないもの
-    linked_iface_ids: set = set()
-    for ln in topo["links"]:
-        linked_iface_ids.add("%s::%s" % (ln["a_device"], ln["a_if"]))
-        linked_iface_ids.add("%s::%s" % (ln["b_device"], ln["b_if"]))
-    for seg in topo["segments"]:
-        for mid in seg.get("members", []):
-            linked_iface_ids.add(mid)
-    n_stub = sum(1 for itf in topo["interfaces"] if itf["id"] not in linked_iface_ids)
-    link_kinds = {"link": n_links, "segment": n_segments, "stub": n_stub}
-
-    # --- dual-stack IF: v4 と v6(scope != link-local) の両方を持つ IF ---
-    n_dualstack = 0
-    for itf in topo["interfaces"]:
-        has_v4 = any(a["af"] == "v4" for a in itf["addresses"])
-        has_v6_routable = any(
-            a["af"] == "v6" and a.get("scope") != "link-local"
-            for a in itf["addresses"]
-        )
-        if has_v4 and has_v6_routable:
-            n_dualstack += 1
-
-    # --- routing 件数 ---
-    # bgp_sessions = 重複排除済み BGP セッション数（bgpEdges の件数）。計算済みを再利用。
-    resolved_bgp_edges = bgp_edges if bgp_edges is not None else build_bgp_topology(topo)["bgpEdges"]
-    n_bgp = len(resolved_bgp_edges)
-    n_ospf = len(topo["routing"].get("ospf", []))
-    n_static = len(topo["routing"].get("static", []))
-
-    return {
-        "devices": n_devices,
-        "interfaces": n_interfaces,
-        "links": n_links,
-        "segments": n_segments,
-        "by_vendor": by_vendor,
-        "by_as": by_as,
-        "by_area": by_area,
-        "link_kinds": link_kinds,
-        "dualstack_ifs": n_dualstack,
-        "bgp_sessions": n_bgp,
-        "ospf_networks": n_ospf,
-        "static_routes": n_static,
-    }
-
-
 def _collect_rid_duplicates(devices, field, kind, proto_label):
     """router-id 重複を検出し check エントリのリストを返す共通ヘルパー。
 
@@ -843,7 +740,7 @@ def build_subnet_usage(topo):
 
 
 def build_data(topo):
-    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/stats/checks/subnet_usage）。決定的。"""
+    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/subnet_usage）。決定的。"""
     devices = build_devices(topo)
     links = build_links(topo)
     segments = build_segments(topo)
@@ -861,7 +758,6 @@ def build_data(topo):
         "meta": {"generated_from": topo["meta"].get("generated_from", [])},
         "devices": devices, "links": links, "segments": segments,
         "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
-        "stats": build_stats(topo, links=links, bgp_edges=bgp_topo["bgpEdges"]),
         "checks": build_checks(topo, links=links),
         "subnet_usage": build_subnet_usage(topo),
     }

@@ -88,44 +88,36 @@ def test_deterministic_same_input():
 
 
 # ---------------------------------------------------------------------------
-# D1 統計ダッシュボード — HTML 組み込み確認
+# 改修⑥ STATS タブ削除 — HTML 組み込み確認
 # ---------------------------------------------------------------------------
 
-def test_stats_tab_in_html():
-    """生成 HTML に stats タブが含まれること。"""
+def test_stats_tab_not_in_html():
+    """改修⑥後: 生成 HTML に stats タブが含まれないこと。"""
     html = _html()
-    assert 'data-view="stats"' in html
+    assert 'data-view="stats"' not in html
 
 
-def test_stats_view_in_views_array():
-    """埋め込み VIEWS 配列に 'stats' が含まれること。"""
+def test_stats_not_in_views_array():
+    """改修⑥後: 埋め込み VIEWS 配列に 'stats' が含まれないこと。"""
     html = _html()
     views = json.loads(_embedded(html, "VIEWS"))
-    assert "stats" in views
+    assert "stats" not in views
 
 
-def test_data_stats_embedded_in_html():
-    """埋め込み DATA に 'stats' キーが含まれ、dict であること。"""
+def test_data_stats_not_embedded_in_html():
+    """改修⑥後: 埋め込み DATA に 'stats' キーが含まれないこと。"""
     html = _html()
     data = json.loads(_embedded(html, "DATA"))
-    assert "stats" in data
-    assert isinstance(data["stats"], dict)
-    # 必須カウントキーの存在確認
-    for k in ("devices", "interfaces", "links", "segments",
-              "bgp_sessions", "ospf_networks", "static_routes", "dualstack_ifs"):
-        assert k in data["stats"], f"data['stats'] に '{k}' が無い"
+    assert "stats" not in data
 
 
-def test_render_stats_view_js_function():
-    """JS に renderStatsView 関数が含まれること。"""
-    from lib.rendering.assets import _JS
-    assert "renderStatsView" in _JS
-
-
-def test_is_table_view_includes_stats():
-    """isTableView() が stats を table view として扱うこと（JS コード確認）。"""
-    from lib.rendering.assets import _JS
-    assert 'S.view === "stats"' in _JS
+def test_checks_is_first_table_view_in_html():
+    """改修⑥後: VIEWS 配列の先頭表ビューが checks であること。"""
+    html = _html()
+    views = json.loads(_embedded(html, "VIEWS"))
+    # golden: physical, bgp, ospf, checks, addr, ifs, usage
+    table_views = [v for v in views if v not in ("physical", "bgp", "ospf", "diff")]
+    assert table_views[0] == "checks", "checks が表ビュー先頭でない: %s" % table_views
 
 
 # ---------------------------------------------------------------------------

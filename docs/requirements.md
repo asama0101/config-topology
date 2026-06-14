@@ -826,14 +826,13 @@ OSPF area は IOS では数値（`area 0`）、JunOS では dotted-decimal（`ar
 | **ADDRESSES** | サブネット単位にグループ化したアドレス一覧（IPAM 風・使用率付き。1 行 = 1 IF の **IP 個別一覧**） | 常に生成 |
 | **INTERFACES** | 機器単位にグループ化した IF 一覧（対向・種別・使用ポート集計） | 常に生成 |
 | **SUBNETS** | v4 サブネット使用率の**集約**ビュー（D4）。1 行 = 1 サブネット（subnet / usable / used / free / util% / status）。使用率（util）降順 → subnet 昇順。util ≥ 80% は exhausted として強調。`/32`（ホスト/ループバック）と link-local は除外。ADDRESSES（IP 個別一覧）との差別化＝サブネット集約・枯渇監視。値は render 層で `DATA.subnet_usage` として導出（層別 YAML 外） | 常に生成 |
-| **STATS** | 構成統計ダッシュボード（機器数 / IF 総数 / 統合後リンク数 / セグメント数 / ベンダー別・AS 別機器数 / OSPF area 別 network 数 / link 種別〔link・segment・stub〕/ dual-stack IF 数 / BGP セッション数・OSPF network 数・static route 数）の読み取り専用サマリー | 常に生成 |
 | **CHECKS** | 設計検証パネル。topology dict を走査して検出した設計上の注意点を severity / kind / message / refs でリスト表示。0 件のときは「問題は検出されませんでした」メッセージを表示。検出ルール: (1) duplicate_ip（error）同一ホスト IP が複数 IF に重複 / (2) duplicate_ospf_router_id（error）同一 ospf_router_id を 2 台以上の機器が持つ場合（None は無視、router-id ごとに 1 件） / (3) duplicate_bgp_router_id（error）同一 bgp_router_id を 2 台以上の機器が持つ場合（同様） / (4) mtu_mismatch（warning）同一リンク両端の MTU 不一致 / (5) bgp_unresolved_local_ip（warning）BGP の local_ip が未解決 / (6) static_dangling_next_hop（warning）static の next_hop がトポロジー内のどの IF サブネット・ホスト IP にも存在しない（静的チェック。デフォルトルートや 0.0.0.0/:: 等の特殊 next_hop、Null0 等の IF 名 next_hop はスキップ） / (7) ospf_area0_disconnected（warning）area 0 を持つ機器が存在する混在環境で、OSPF area を持つが area 0 を持たない機器（config 保有 area で近似・ABR は対象外・area0 不在環境では非発火） / (8) ibgp_fullmesh_incomplete（warning）RR 不在の AS 内 iBGP で full-mesh が崩れたピア対（neighbor_ip を IF ホスト IP で解決・解決不能を含むペアと RR 構成 AS はスキップ＝偽陽性抑制）。検出結果は severity→kind→refs の安定ソートで決定的 | 常に生成 |
 | **DIFF** | トポロジー差分ビュー。`render_topology.py --diff-against <prev_dir>` 指定時のみ生成。前回（prev_dir）との差分を `diff_topology()` で計算し、devices / interfaces / links / segments / routing_bgp / routing_ospf / routing_static の固定順で added(+) / removed(-) / changed(~) を件数サマリと一覧表で表示。全体で差分0件のときは「差分なし」を明示。config 由来文字列は esc() でエスケープ。決定的（同一 (topo, prev) → 同一 HTML） | `--diff-against` 指定時のみ |
 
 - **static はビューを生成しない**。static route の情報は Device Details パネル（§8.5）で表示する。
-- STATS / CHECKS / SUBNETS の値は render 層で `DATA.stats` / `DATA.checks` / `DATA.subnet_usage` として導出する**加算的拡張**であり、層別 YAML スキーマ（§4）には含めない。`bgp_sessions` は重複排除後の実 BGP セッション本数（方向・AF を問わない）で、ステータスバーの AF 総和（§8.6）とは別概念。`link_kinds.link` は dual-stack 統合後の本数、`segment` は raw 件数。
-- 図ビューは `routing` のキーから動的に決まり、新プロトコル層を追加すると自動的にビューが増える（static のみ除外）。表ビュー（ADDRESSES / INTERFACES / STATS / CHECKS / SUBNETS）は常設。DIFF ビューは `--diff-against` 指定時のみ表ビュー群の先頭（STATS の前）に追加される。
-- タブ切替はクリックおよびキーボード `1`〜`N`（図ビュー＝若番、表ビュー＝続く番号）で行う。汎用プロトコルビューが増えると表ビュー（ADDRESSES / INTERFACES / STATS / CHECKS / SUBNETS 等）のキー番号は後ろにずれる（タブ並び順に連番）。
+- CHECKS / SUBNETS の値は render 層で `DATA.checks` / `DATA.subnet_usage` として導出する**加算的拡張**であり、層別 YAML スキーマ（§4）には含めない。
+- 図ビューは `routing` のキーから動的に決まり、新プロトコル層を追加すると自動的にビューが増える（static のみ除外）。表ビュー（ADDRESSES / INTERFACES / CHECKS / SUBNETS）は常設。DIFF ビューは `--diff-against` 指定時のみ表ビュー群の先頭（CHECKS の前）に追加される。
+- タブ切替はクリックおよびキーボード `1`〜`N`（図ビュー＝若番、表ビュー＝続く番号）で行う。汎用プロトコルビューが増えると表ビュー（ADDRESSES / INTERFACES / CHECKS / SUBNETS 等）のキー番号は後ろにずれる（タブ並び順に連番）。
 - **図ビュー専用のツールバー操作**（ズーム・凡例・ミニマップ・ノード種別フィルタ・表示ノード指定・エクスポート等）は、表ビュー表示中は隠す。検索ボックスとテーマ切替・タブは全ビュー共通で残す。
 - 表ビュー表示中はキャンバス（図）を覆い、図のホバー/クリック処理は発火しない。
 
