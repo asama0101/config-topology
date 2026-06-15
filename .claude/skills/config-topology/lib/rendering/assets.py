@@ -2185,7 +2185,7 @@ function cfgIsDirty(cur) {
   const sk = "scratch:" + cur;
   const s = S.configScratch[sk];
   if (s == null) return false;
-  return s.replace(/\\n+$/, "") !== cfgRawOf("dev:" + cur).replace(/\\n+$/, "");
+  return s.replace(/\\n$/, "") !== cfgRawOf("dev:" + cur).replace(/\\n$/, "");
 }
 /* ペインの source key を解決: 自由比較は select.cfgsrc・編集モードは select 不在のため
    textarea/ペインの data-cfgkey にフォールバック（保存/置換/差分/コピーで共通利用）。 */
@@ -2308,15 +2308,13 @@ function updateCfgEditDiff(ta) {
   const rKey = ta.dataset.cfgkey;          /* "scratch:<cur>" */
   if (!rKey) return;
   const cur = rKey.replace(/^scratch:/, "");
-  S.configScratch[rKey] = ta.value;
-  saveCfgScratch();
   const before = cfgRawOf("dev:" + cur).replace(/\\n$/, "").split("\\n");
   const after = ta.value.replace(/\\n$/, "").split("\\n");
   const uni = cfgUnifiedRows(before, after, "");
   const uniEl = document.querySelector('[data-cfgunified="' + cssEsc(rKey) + '"]');
   if (uniEl) uniEl.innerHTML = uni.html;
   const gut = document.querySelector('[data-cfggut="E"]');
-  if (gut) gut.innerHTML = cfgGutHtml(after.length, cfgCurLine(ta));
+  if (gut) gut.innerHTML = cfgGutHtml(after.length, -1);
   const sum = document.querySelector('[data-cfgsum="' + cssEsc(rKey) + '"]');
   if (sum) sum.textContent = `+${uni.adds} \\u2212${uni.dels}${uni.skipped ? " (差分省略:大規模)" : ""}`;
   cfgEditHighlightCur(ta);
@@ -2329,7 +2327,8 @@ function cfgEditHighlightCur(ta) {
     gut.querySelectorAll(".n").forEach(el => el.classList.toggle("cur", +el.dataset.i === idx));
     gut.scrollTop = ta.scrollTop;
   }
-  const uniEl = document.querySelector(".cfgunified");
+  const rKey = ta.dataset.cfgkey;
+  const uniEl = rKey ? document.querySelector('[data-cfgunified="' + cssEsc(rKey) + '"]') : null;
   if (uniEl) uniEl.querySelectorAll(".urow").forEach(el => el.classList.toggle("cur", el.dataset.b === String(idx)));
 }
 /* compat shim: 旧 updateCfgSplitDiff 呼び出し元（全置換ハンドラ）との互換を保つ。
@@ -2934,7 +2933,8 @@ function copyTsv(btn) {
 }
 /* config ダウンロード用ファイル名生成（ホスト名の危険文字を _ 置換） */
 function cfgFileName(host) {
-  return String(host).replace(/[^A-Za-z0-9._-]/g, "_") + ".cfg";
+  const s = String(host).replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\\.+$/, "");
+  return (s || "config") + ".cfg";
 }
 /* テキストファイルをブラウザダウンロード */
 function downloadText(name, text) {
@@ -2945,7 +2945,7 @@ function downloadText(name, text) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(a.href), 500);
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 /* 任意テキストをクリップボードへ（copyTsv の汎用版・ボタンに ✓ フィードバック） */
 function copyText(text, btn) {

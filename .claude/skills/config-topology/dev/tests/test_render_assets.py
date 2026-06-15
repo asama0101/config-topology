@@ -4438,11 +4438,12 @@ def test_render_cfg_edit_has_editor_and_unified(node_bin):
         + _extract_fn(assets._JS, "cfgFileName") + "\n"
         + _extract_fn(assets._JS, "renderCfgEdit") + "\n"
         + _CFG_ALIGN_STUBS
-        + 'var DATA = { devices: [{ hostname: "r1" }] };\n'
-        + 'var S = { configScratch: { "scratch:0": "a\\nB2\\nc\\n" } };\n'
+        # 本番形: DATA.devices はオブジェクト、cur は文字列 id
+        + 'var DATA = { devices: { "r1": { hostname: "R1" } } };\n'
+        + 'var S = { configScratch: { "scratch:r1": "a\\nB2\\nc\\n" } };\n'
         + 'function cfgTextOf(k){ return k.indexOf("scratch:")===0 ? S.configScratch[k] : "a\\nb\\nc\\n"; }\n'
         + 'function cfgRawOf(k){ return "a\\nb\\nc\\n"; }\n'
-        + 'const out = renderCfgEdit("", 0);\n'
+        + 'const out = renderCfgEdit("", "r1");\n'
         + 'process.stdout.write(out);\n'
     )
     r = subprocess.run([node_bin], input=js, capture_output=True, text=True, timeout=10)
@@ -4456,6 +4457,10 @@ def test_render_cfg_edit_has_editor_and_unified(node_bin):
     assert 'data-cfgrevert=' in html            # 元に戻す
     assert 'data-cfgreplace="E"' in html        # 全置換（編集ペイン対象）
     assert 'data-cfgtoggle="edit"' in html      # 編集トグル(on)
+    # 差分内容検証: 1行変更(b→B2)で del+add が出ること
+    assert "urow del" in html and "urow add" in html
+    # 差分サマリ (+1 −1)
+    assert "+1" in html and "−1" in html   # − = −
 
 
 def _run_cfg_cur_line(node_bin, value_js, sel_start):
@@ -4748,6 +4753,27 @@ def test_cfg_unified_escapes_html(node_bin):
     assert "<b>" not in r["html"]
 
 
+def test_cfg_unified_rows_skipped_branch(node_bin):
+    """lineAlign が skipped=true を返す場合、adds=dels=0 かつ after を全行 urow ctx で出力すること。"""
+    # lineAlign をスタブ差し替え: 常に {ops:[], skipped:true} を返す
+    driver = (
+        'function lineAlign(a, b) { return { ops: [], skipped: true }; }\n'
+        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
+        + _extract_fn(assets._JS, "cfgUnifiedRows") + "\n"
+        + _CFG_ALIGN_STUBS
+        + 'const r = cfgUnifiedRows(["x","y"], ["a","b","c"], "");\n'
+        + 'process.stdout.write(JSON.stringify(r));\n'
+    )
+    r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    result = json.loads(r.stdout)
+    assert result["adds"] == 0 and result["dels"] == 0
+    assert result["skipped"] is True
+    # after の各行が urow ctx クラスで出力される（before は使わない）
+    assert result["html"].count('class="urow ctx') == 3
+    assert "urow del" not in result["html"] and "urow add" not in result["html"]
+
+
 # ============================================================
 # Task 2: cfgFileName / downloadText
 # ============================================================
@@ -4765,6 +4791,12 @@ def test_cfg_filename_basic(node_bin):
 
 def test_cfg_filename_sanitizes_unsafe_chars(node_bin):
     assert _run_cfg_filename(node_bin, r'"core/sw 1"') == "core_sw_1.cfg"
+
+
+def test_cfg_filename_empty_host_fallback(node_bin):
+    """空ホスト名や全特殊文字ホスト名は "config.cfg" にフォールバックすること。"""
+    assert _run_cfg_filename(node_bin, '""') == "config.cfg"
+    assert _run_cfg_filename(node_bin, '".."') == "config.cfg"
 
 
 def test_js_has_download_helper():
@@ -4804,9 +4836,9 @@ def test_cfg_is_dirty_null_cur_false(node_bin):
     assert _run_cfg_is_dirty(node_bin, "{}", "null") is False
 
 
-def test_cfg_is_dirty_trailing_newlines_only_false(node_bin):
-    # 末尾改行の数だけ違う場合は dirty 扱いしない（/\\n+$/ 正規化）
-    assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nb\\n\\n"}', '"r1"') is False
+def test_cfg_is_dirty_single_trailing_newline_equiv_false(node_bin):
+    # scratch の末尾改行なし vs 原本("a\nb\n")の末尾改行1つ → /\n$/ で正規化して equal → not dirty
+    assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nb"}', '"r1"') is False
 
 
 # ============================================================
@@ -4823,9 +4855,10 @@ def test_js_has_update_cfg_edit_diff():
 
 
 def test_js_edit_cursor_line_highlight():
-    """カーソル行ハイライト: urow に cur クラスを付与し data-b で行インデックスを照合すること。"""
+    """カーソル行ハイライト: cfgEditHighlightCur が .urow に cur クラスを toggle すること。"""
     js = assets._JS
-    assert ("urow cur" in js or '"cur"' in js)
+    assert "function cfgEditHighlightCur(" in js
+    assert 'classList.toggle("cur"' in js
     assert "data-b" in js
 
 
