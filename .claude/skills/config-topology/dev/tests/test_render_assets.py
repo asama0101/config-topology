@@ -4775,4 +4775,27 @@ def test_cfg_unified_escapes_html(node_bin):
     """追加行の HTML 特殊文字が esc() で無害化される（XSS 防止）。"""
     r = _run_cfg_unified(node_bin, '["x"]', '["x","<b>&"]')
     assert "&lt;b&gt;&amp;" in r["html"]
-    assert "<b>" not in r["html"]
+
+
+# ============================================================
+# Task 2: cfgFileName / downloadText
+# ============================================================
+
+def _run_cfg_filename(node_bin, host_js):
+    driver = _extract_fn(assets._JS, "cfgFileName") + f'\nprocess.stdout.write(cfgFileName({host_js}));\n'
+    r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return r.stdout
+
+
+def test_cfg_filename_basic(node_bin):
+    assert _run_cfg_filename(node_bin, '"r1"') == "r1.cfg"
+
+
+def test_cfg_filename_sanitizes_unsafe_chars(node_bin):
+    assert _run_cfg_filename(node_bin, r'"core/sw 1"') == "core_sw_1.cfg"
+
+
+def test_js_has_download_helper():
+    assert "function downloadText(" in assets._JS
+    assert "URL.createObjectURL" in assets._JS

@@ -2845,6 +2845,21 @@ function copyTsv(btn) {
     navigator.clipboard.writeText(lastTsv).then(done, fallback);
   else fallback();
 }
+/* config ダウンロード用ファイル名生成（ホスト名の危険文字を _ 置換） */
+function cfgFileName(host) {
+  return String(host).replace(/[^A-Za-z0-9._-]/g, "_") + ".cfg";
+}
+/* テキストファイルをブラウザダウンロード */
+function downloadText(name, text) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 500);
+}
 /* 任意テキストをクリップボードへ（copyTsv の汎用版・ボタンに ✓ フィードバック） */
 function copyText(text, btn) {
   const orig = btn.textContent;
