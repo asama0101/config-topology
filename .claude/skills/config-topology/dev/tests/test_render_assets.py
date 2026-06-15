@@ -4734,3 +4734,45 @@ def test_trace_dest_is_start_connected(node_bin):
     fib = {"r1": [_conn("10.0.0.0/24")]}
     res = _run_trace(node_bin, fib, "r1", "10.0.0.0/24")   # prefix 入力
     assert res["verdict"] == "delivered" and len(res["hops"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# cfgUnifiedRows — unified diff preview (Task 1)
+# ---------------------------------------------------------------------------
+
+def _run_cfg_unified(node_bin, before_js, after_js):
+    """cfgUnifiedRows(before, after, "") を実行し {html, adds, dels, skipped} を返す。"""
+    driver = (
+        _extract_fn(assets._JS, "lineAlign") + "\n"
+        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
+        + _extract_fn(assets._JS, "cfgUnifiedRows") + "\n"
+        + _CFG_ALIGN_STUBS
+        + f'const r = cfgUnifiedRows({before_js}, {after_js}, "");\n'
+        + 'process.stdout.write(JSON.stringify(r));\n'
+    )
+    r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_cfg_unified_identical_all_context(node_bin):
+    """同一テキスト: adds=dels=0 かつ全行が urow ctx クラスで出力される。"""
+    r = _run_cfg_unified(node_bin, '["a","b","c"]', '["a","b","c"]')
+    assert r["adds"] == 0 and r["dels"] == 0
+    assert r["html"].count('class="urow ctx') == 3
+    assert "urow del" not in r["html"] and "urow add" not in r["html"]
+
+
+def test_cfg_unified_inplace_edit_is_del_then_add(node_bin):
+    """1行インプレース変更: del が add より先に出力される（unified diff 順序）。"""
+    r = _run_cfg_unified(node_bin, '["a","desc CORE","c"]', '["a","desc CORE-UP","c"]')
+    assert r["adds"] == 1 and r["dels"] == 1
+    assert "urow del" in r["html"] and "urow add" in r["html"]
+    assert r["html"].index("urow del") < r["html"].index("urow add")
+
+
+def test_cfg_unified_escapes_html(node_bin):
+    """追加行の HTML 特殊文字が esc() で無害化される（XSS 防止）。"""
+    r = _run_cfg_unified(node_bin, '["x"]', '["x","<b>&"]')
+    assert "&lt;b&gt;&amp;" in r["html"]
+    assert "<b>" not in r["html"]

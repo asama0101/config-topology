@@ -2254,6 +2254,33 @@ function cfgEditLeftRows(before, after, q) {
   if (pendingDel > 0) rows.push(`<div class="cfgdelmark"><span class="cfgln"></span><span class="cfgtx">− 削除 ${pendingDel}行</span></div>`);
   return { html: rows.join(""), adds, dels, skipped: false };
 }
+/* 統一差分プレビュー（unified diff 形式・読取専用）: before と after を lineAlign で比較し
+   same=コンテキスト行(ctx)・del=削除行(del・−)・add=追加行(add・+) として1ペインに並べる。
+   q は検索クエリ（ヒット行に .hit を付ける）。skipped 時は after を全コンテキストとして返す。 */
+function cfgUnifiedRows(before, after, q) {
+  const { ops, skipped } = lineAlign(before, after);
+  const { adds, dels } = skipped ? { adds: 0, dels: 0 } : cfgDiffCounts(ops);
+  const hit = ln => !!q && ln.toLowerCase().includes(q);
+  if (skipped) {
+    const rows = after.map((ln, i) =>
+      `<div class="urow ctx${hit(ln) ? " hit" : ""}"><span class="ug">${i + 1}</span><span class="us"> </span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    return { html: rows.join(""), adds: 0, dels: 0, skipped: true };
+  }
+  const rows = [];
+  for (const o of ops) {
+    if (o.t === "same") {
+      const ln = before[o.ai];
+      rows.push(`<div class="urow ctx${hit(ln) ? " hit" : ""}" data-b="${o.bi}"><span class="ug">${o.ai + 1}</span><span class="us"> </span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    } else if (o.t === "del") {
+      const ln = before[o.ai];
+      rows.push(`<div class="urow del${hit(ln) ? " hit" : ""}"><span class="ug">${o.ai + 1}</span><span class="us">−</span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    } else {
+      const ln = after[o.bi];
+      rows.push(`<div class="urow add${hit(ln) ? " hit" : ""}" data-b="${o.bi}"><span class="ug"></span><span class="us">+</span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    }
+  }
+  return { html: rows.join(""), adds, dels, skipped: false };
+}
 /* 編集モードのライブ差分更新: textarea(=after) と原本(=before) から左整列ペインのみ再描画
    （textarea は触らずフォーカス保持・既存 300ms debounce）。比較モードは静的読取のため対象外。 */
 function updateCfgSplitDiff() {
