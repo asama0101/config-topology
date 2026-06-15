@@ -1859,7 +1859,15 @@ function graphSearchFeedback() {
 function renderTableView() {
   if (S.view === "checks") { $("#tableview").innerHTML = renderChecksView(); return; }
   if (S.view === "diff") { $("#tableview").innerHTML = renderDiffView(); return; }
-  if (S.view === "config") { $("#tableview").innerHTML = renderConfigView(); return; }
+  if (S.view === "config") {
+    $("#tableview").innerHTML = renderConfigView();
+    /* 編集モード: DOM 挿入直後に行番号ガターを初期行番号で初期化 */
+    if (S.configEdit) {
+      const _eta = document.querySelector('textarea.cfgedit[data-cfgpane="E"]');
+      if (_eta) { const _g = document.querySelector('[data-cfggut="E"]'); if (_g) _g.innerHTML = cfgGutHtml(_eta.value.replace(/\\n$/, "").split("\\n").length, 0); }
+    }
+    return;
+  }
   $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
 }
 
@@ -2289,23 +2297,57 @@ function cfgUnifiedRows(before, after, q) {
   }
   return { html: rows.join(""), adds, dels, skipped: false };
 }
-/* 編集モードのライブ差分更新: textarea(=after) と原本(=before) から左整列ペインのみ再描画
-   （textarea は触らずフォーカス保持・既存 300ms debounce）。比較モードは静的読取のため対象外。 */
+/* 行番号ガター HTML 生成: n 行ぶんの番号 div を返す。curIdx 行に "cur" クラスを付与。 */
+function cfgGutHtml(n, curIdx) {
+  let s = "";
+  for (let i = 0; i < n; i++) s += `<div class="n${i === curIdx ? " cur" : ""}" data-i="${i}">${i + 1}</div>`;
+  return s;
+}
+/* textarea のカーソル行インデックスを返す（0 始まり）。 */
+function cfgCurLine(ta) {
+  return ta.value.slice(0, ta.selectionStart).split("\\n").length - 1;
+}
+/* CSS セレクタ内で使う属性値のエスケープ（" \\ ] を安全化）。 */
+function cssEsc(s) { return String(s).replace(/["\\\\\\]]/g, "\\\\$&"); }
+/* 編集モードのライブ差分更新: textarea 編集に応じて右 unified 差分・行番号ガター・差分カウントを更新。
+   COMPARE モード（S.configSplit）は対象外。既存 300ms debounce から呼ばれる。 */
+function updateCfgEditDiff(ta) {
+  const rKey = ta.dataset.cfgkey;          /* "scratch:<cur>" */
+  if (!rKey) return;
+  const cur = rKey.replace(/^scratch:/, "");
+  S.configScratch[rKey] = ta.value;
+  saveCfgScratch();
+  const before = cfgRawOf("dev:" + cur).replace(/\\n$/, "").split("\\n");
+  const after = ta.value.replace(/\\n$/, "").split("\\n");
+  const uni = cfgUnifiedRows(before, after, "");
+  const uniEl = document.querySelector('[data-cfgunified="' + cssEsc(rKey) + '"]');
+  if (uniEl) uniEl.innerHTML = uni.html;
+  const gut = document.querySelector('[data-cfggut="E"]');
+  if (gut) gut.innerHTML = cfgGutHtml(after.length, cfgCurLine(ta));
+  const sum = document.querySelector('[data-cfgsum="' + cssEsc(rKey) + '"]');
+  if (sum) sum.textContent = `+${uni.adds} \\u2212${uni.dels}${uni.skipped ? " (差分省略:大規模)" : ""}`;
+  cfgEditHighlightCur(ta);
+}
+/* カーソル行ハイライト: ガター行番号と unified diff の対応行に cur クラスを付与。 */
+function cfgEditHighlightCur(ta) {
+  const idx = cfgCurLine(ta);
+  const gut = document.querySelector('[data-cfggut="E"]');
+  if (gut) {
+    gut.querySelectorAll(".n").forEach(el => el.classList.toggle("cur", +el.dataset.i === idx));
+    gut.scrollTop = ta.scrollTop;
+  }
+  const uniEl = document.querySelector(".cfgunified");
+  if (uniEl) uniEl.querySelectorAll(".urow").forEach(el => el.classList.toggle("cur", el.dataset.b === String(idx)));
+}
+/* compat shim: 旧 updateCfgSplitDiff 呼び出し元（全置換ハンドラ）との互換を保つ。
+   編集モードは updateCfgEditDiff へ委譲、COMPARE モードは何もしない（比較は再描画なし）。 */
 function updateCfgSplitDiff() {
   if (!S.configEdit) return;
   const split = document.querySelector("#tableview .cfgsplit");
   if (!split) return;
   const ta = split.querySelector("textarea.cfgedit");
-  const pre = split.querySelector(".cfgpre[data-cfgpre='L']");
-  if (!ta || !pre) return;
-  const leftPane = pre.closest(".cfgpane");
-  const lKey = leftPane && leftPane.dataset.cfgkey;   /* "dev:<cur>" */
-  const before = (lKey ? cfgTextOf(lKey) : "").replace(/\\n$/, "").split("\\n");
-  const after = ta.value.replace(/\\n$/, "").split("\\n");
-  const ed = cfgEditLeftRows(before, after, searchQuery().value);
-  pre.innerHTML = ed.html;
-  const sum = split.querySelector(".cfgdiffsum");
-  if (sum) sum.textContent = `+${ed.adds} −${ed.dels}` + (ed.skipped ? " (差分省略:大規模)" : "");
+  if (!ta) return;
+  updateCfgEditDiff(ta);
 }
 /* 2ペイン比較モード（読取専用・対称整列）。編集は「編集」モードへ分離（ここでは textarea を出さない）。 */
 function renderCfgSplit(q) {
@@ -2814,8 +2856,8 @@ $("#tableview").addEventListener("change", ev => {
   const [d, ...rest] = ni.dataset.note.split(":");
   setPortNote(d, rest.join(":"), ni.value.trim());
 });
-/* CONFIG 2ペイン: 編集スクラッチ入力 → localStorage 保存＋ライブ差分更新（textarea 再描画なし＝フォーカス保持）。
-   差分再計算は連続入力中の負荷を抑えるためデバウンス（保存自体は即時） */
+/* CONFIG 編集モード: textarea 入力 → scratch 保存＋ライブ差分更新（debounce 300ms）。
+   保存は即時（cfgPaneKey で key 解決）、差分再計算のみ debounce。 */
 let _cfgDiffTimer = null;
 $("#tableview").addEventListener("input", ev => {
   const ta = ev.target.closest("textarea.cfgedit");
@@ -2824,9 +2866,17 @@ $("#tableview").addEventListener("input", ev => {
   const key = cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
   if (key) { S.configScratch[key] = ta.value; saveCfgScratch(); }
   if (_cfgDiffTimer) clearTimeout(_cfgDiffTimer);
-  _cfgDiffTimer = setTimeout(updateCfgSplitDiff, 300);
+  _cfgDiffTimer = setTimeout(() => updateCfgEditDiff(ta), 300);
 });
-/* 編集モードの縦スクロール同期: textarea ⇄ 左整列ペインの scrollTop を合わせ行整列を保つ
+/* CONFIG 編集モード: キー操作・クリックでカーソル移動後のハイライトを更新 */
+["keyup", "click"].forEach(evName => {
+  $("#tableview").addEventListener(evName, ev => {
+    const ta = ev.target.closest("textarea.cfgedit");
+    if (!ta) return;
+    cfgEditHighlightCur(ta);
+  });
+});
+/* 編集モードの縦スクロール同期: textarea ⇄ 行番号ガター の scrollTop を合わせる
    （scroll はバブリングしないため capture フェーズで受ける。再入は _cfgScrollLock で防止）。 */
 let _cfgScrollLock = false;
 $("#tableview").addEventListener("scroll", ev => {
@@ -2836,10 +2886,10 @@ $("#tableview").addEventListener("scroll", ev => {
   const split = t.closest(".cfgsplit");
   if (!split) return;
   const ta = split.querySelector("textarea.cfgedit");
-  const pre = split.querySelector(".cfgpre[data-cfgpre='L']");
-  if (!ta || !pre || (t !== ta && t !== pre)) return;
+  const gut = split.querySelector('[data-cfggut="E"]');
+  if (!ta || (t !== ta && t !== gut)) return;
   _cfgScrollLock = true;
-  if (t === ta) pre.scrollTop = ta.scrollTop; else ta.scrollTop = pre.scrollTop;
+  if (t === ta) { if (gut) gut.scrollTop = ta.scrollTop; } else ta.scrollTop = t.scrollTop;
   _cfgScrollLock = false;
 }, true);
 function copyTsv(btn) {

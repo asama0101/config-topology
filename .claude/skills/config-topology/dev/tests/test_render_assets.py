@@ -4847,3 +4847,55 @@ def test_cfg_is_dirty_null_cur_false(node_bin):
 def test_cfg_is_dirty_trailing_newlines_only_false(node_bin):
     # 末尾改行の数だけ違う場合は dirty 扱いしない（/\\n+$/ 正規化）
     assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nb\\n\\n"}', '"r1"') is False
+
+
+# ============================================================
+# Task 5: ライブ更新＋行番号ガター＋カーソルハイライト
+# ============================================================
+
+def test_js_has_update_cfg_edit_diff():
+    """updateCfgEditDiff が _JS に存在し、新マークアップ属性を参照すること。"""
+    js = assets._JS
+    assert "function updateCfgEditDiff(" in js
+    assert 'data-cfgunified=' in js or "data-cfgunified" in js
+    assert 'data-cfggut=' in js or "data-cfggut" in js
+    assert "updateCfgEditDiff" in js and "saveCfgScratch" in js
+
+
+def test_js_edit_cursor_line_highlight():
+    """カーソル行ハイライト: urow に cur クラスを付与し data-b で行インデックスを照合すること。"""
+    js = assets._JS
+    assert ("urow cur" in js or '"cur"' in js)
+    assert "data-b" in js
+
+
+def _run_cfg_gut(node_bin, n, cur):
+    """cfgGutHtml(n, curIdx) を Node.js で実行し HTML 文字列を返す。"""
+    driver = (
+        _extract_fn(assets._JS, "cfgGutHtml")
+        + f'\nprocess.stdout.write(cfgGutHtml({n},{cur}));\n'
+    )
+    r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return r.stdout
+
+
+def test_cfg_gut_html_numbers_and_current(node_bin):
+    """cfgGutHtml(3, 1): 3行ぶん行番号が出力され、index=1 の行に cur クラスが付くこと。"""
+    html = _run_cfg_gut(node_bin, 3, 1)
+    assert html.count('class="n') == 3          # 3 行ぶんの行番号
+    assert ">1<" in html and ">2<" in html and ">3<" in html   # 1 始まり番号
+    assert "n cur" in html                      # カーソル行(index 1)が cur
+
+
+def test_cfg_gut_html_first_line_cur(node_bin):
+    """cfgGutHtml(2, 0): index=0 (1行目) が cur になること。"""
+    html = _run_cfg_gut(node_bin, 2, 0)
+    # 最初の n div が cur を持つ
+    assert html.index("n cur") < html.index(">2<")
+
+
+def test_cfg_gut_html_no_cur_when_out_of_range(node_bin):
+    """cfgGutHtml(2, 5): curIdx が範囲外の場合 cur クラスが付かないこと。"""
+    html = _run_cfg_gut(node_bin, 2, 5)
+    assert "n cur" not in html
