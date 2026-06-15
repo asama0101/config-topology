@@ -2338,38 +2338,39 @@ function renderCfgSplit(q) {
     + `</div>`;
 }
 
-/* ノード駆動編集モード（q=検索クエリ・cur=選択機器 id で固定）: 左=原本(編集前・読取専用)／
-   右=編集コピー(編集中・textarea)。source ドロップダウンは出さず data-cfgkey でペインの source を保持
-   （保存/置換/差分/コピーの各ハンドラが cfgPaneKey でそこから解決）。 */
+/* ノード駆動編集モード（q=検索クエリ・cur=選択機器 id で固定）: 左=編集 textarea＋行番号ガター／
+   右=統一差分プレビュー（読取専用・git 風）。source ドロップダウンは出さず data-cfgkey でペインの
+   source を保持（保存/置換/差分/コピーの各ハンドラが cfgPaneKey でそこから解決）。 */
 function renderCfgEdit(q, cur) {
   const host = (DATA.devices[cur] && DATA.devices[cur].hostname) || cur;
-  const lKey = "dev:" + cur, rKey = "scratch:" + cur;
-  const before = cfgTextOf(lKey).replace(/\\n$/, "").split("\\n");
+  const rKey = "scratch:" + cur;
+  const before = cfgRawOf("dev:" + cur).replace(/\\n$/, "").split("\\n");
   const after = cfgTextOf(rKey).replace(/\\n$/, "").split("\\n");
-  const ed = cfgEditLeftRows(before, after, q);
+  const uni = cfgUnifiedRows(before, after, q);
 
-  /* 折返しは出さない（行整列を保つため nowrap 固定） */
   const toolbar = `<div class="cfgtools">`
     + `<button class="tbtn on" data-cfgtoggle="edit" title="編集を終了して一覧に戻る">編集</button>`
-    + `<span class="cfgdiffsum">+${ed.adds} −${ed.dels}${ed.skipped ? " (差分省略:大規模)" : ""}</span>`
-    + `<span class="sp"></span></div>`;
-
-  /* 左: 読取専用・右 textarea にライブ整列（追加→空行ギャップ・削除→境界マーカー）。data-cfgkey で原本を保持 */
-  const lPane = `<div class="cfgpane" data-cfgkey="${esc(lKey)}">`
-    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="dim-t">(編集前)</span></span>`
-    + `<button class="tbtn" data-cfgcopytext="L" title="このペインの内容をコピー">コピー</button></div>`
-    + `<div class="cfgpre" data-cfgpre="L">${ed.html}</div></div>`;
-
-  /* 右: 編集コピー（find/replace＋textarea）。data-cfgkey で scratch を保持 */
-  const rPane = `<div class="cfgpane" data-cfgkey="${esc(rKey)}">`
-    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="cfgedited">編集中</span></span>`
-    + `<button class="tbtn" data-cfgcopytext="R" title="このペインの内容をコピー">コピー</button></div>`
-    + `<div class="cfgreplace"><input class="cfgfind" data-cfgpane="R" placeholder="検索文字列" spellcheck="false">`
-    + `<input class="cfgrepl" data-cfgpane="R" placeholder="置換文字列" spellcheck="false">`
-    + `<button class="tbtn" data-cfgreplace="R" title="検索文字列をすべて置換">全置換</button>`
-    + `<span class="cfgreplmsg" data-cfgpane="R"></span></div>`
-    + `<textarea class="cfgedit" data-cfgpane="R" data-cfgkey="${esc(rKey)}" spellcheck="false">${esc(cfgTextOf(rKey))}</textarea>`
+    + `<span class="cfgdiffsum" data-cfgsum="${esc(rKey)}">+${uni.adds} −${uni.dels}${uni.skipped ? " (差分省略:大規模)" : ""}</span>`
+    + `<div class="cfgreplace"><input class="cfgfind" data-cfgpane="E" placeholder="検索文字列" spellcheck="false">`
+    + `<input class="cfgrepl" data-cfgpane="E" placeholder="置換文字列" spellcheck="false">`
+    + `<button class="tbtn" data-cfgreplace="E" title="検索文字列をすべて置換">全置換</button>`
+    + `<span class="cfgreplmsg" data-cfgpane="E"></span></div>`
+    + `<span class="sp"></span>`
+    + `<button class="tbtn" data-cfgrevert="${esc(cur + "")}" title="編集を破棄して原本に戻す">↩ 元に戻す</button>`
+    + `<button class="tbtn" data-cfgdl="${esc(cur + "")}" title="編集後を ${esc(cfgFileName(host))} として保存">⬇ ダウンロード</button>`
+    + `<button class="tbtn" data-cfgcopytext="E" title="編集後を全文コピー">📋 コピー</button>`
     + `</div>`;
+
+  /* 左: 編集 textarea＋行番号ガター。data-cfgkey で scratch を保持 */
+  const lPane = `<div class="cfgpane" data-cfgkey="${esc(rKey)}">`
+    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="cfgedited">編集中</span></span></div>`
+    + `<div class="cfgedit-wrap"><div class="cfgedit-gut" data-cfggut="E"></div>`
+    + `<textarea class="cfgedit" data-cfgpane="E" data-cfgkey="${esc(rKey)}" spellcheck="false">${esc(cfgTextOf(rKey))}</textarea></div></div>`;
+
+  /* 右: 統一差分プレビュー（読取専用・git 風）。data-cfgkey で dev:cur を保持 */
+  const rPane = `<div class="cfgpane" data-cfgkey="dev:${esc(cur + "")}">`
+    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="dim-t">vs 原本（差分プレビュー）</span></span></div>`
+    + `<div class="cfgpre cfgunified" data-cfgunified="${esc(rKey)}">${uni.html}</div></div>`;
 
   return toolbar + `<div class="cfgsplit">` + lPane + rPane + `</div>`;
 }

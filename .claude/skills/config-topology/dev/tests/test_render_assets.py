@@ -4452,23 +4452,33 @@ def _run_render_cfg_edit(node_bin: str) -> str:
     return r.stdout
 
 
-def test_render_cfg_edit_markup_aligned(node_bin):
-    """renderCfgEdit: 左=dev原本(read-only・data-cfgkey=dev:・整列)／右=scratch(textarea・data-cfgkey=scratch:)。
-    source ドロップダウンを出さず、編集前/編集中ラベル・find/replace・diff サマリを含む。
-    削除行(old)は本文表示せず境界マーカー・追加に対し左は空行ギャップ。"""
-    out = _run_render_cfg_edit(node_bin)
-    assert 'data-cfgkey="dev:r1"' in out and 'data-cfgkey="scratch:r1"' in out
-    assert '<textarea class="cfgedit" data-cfgpane="R"' in out
-    assert "<select" not in out, "編集モードに source ドロップダウンが出ている（固定にすること）"
-    assert "編集前" in out and "編集中" in out
-    assert 'data-cfgreplace="R"' in out
-    # 右 textarea に編集後 new・左は同一行 alpha を表示。削除行 old は本文に出さない（マーカーのみ）
-    assert "new" in out and "alpha" in out
-    assert ">old<" not in out, "削除行の本文が表示されている（マーカーのみにするはず）"
-    # 行整列の痕跡: 空行ギャップ＋削除マーカー
-    assert 'class="cfgline gap' in out, "追加に対する左の空行ギャップが無い"
-    assert "del-above" in out and 'data-del=' in out, "削除の境界マーカーが無い"
-    assert "+1 −1" in out, "行差分サマリ +1 −1 が出ていない"
+def test_render_cfg_edit_has_editor_and_unified(node_bin):
+    """編集モード = 左 textarea(編集)＋右 unified 差分＋DL/元に戻すボタン。"""
+    js = (
+        _extract_fn(assets._JS, "lineAlign") + "\n"
+        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
+        + _extract_fn(assets._JS, "cfgUnifiedRows") + "\n"
+        + _extract_fn(assets._JS, "cfgFileName") + "\n"
+        + _extract_fn(assets._JS, "renderCfgEdit") + "\n"
+        + _CFG_ALIGN_STUBS
+        + 'var DATA = { devices: [{ hostname: "r1" }] };\n'
+        + 'var S = { configScratch: { "scratch:0": "a\\nB2\\nc\\n" } };\n'
+        + 'function cfgTextOf(k){ return k.indexOf("scratch:")===0 ? S.configScratch[k] : "a\\nb\\nc\\n"; }\n'
+        + 'function cfgRawOf(k){ return "a\\nb\\nc\\n"; }\n'
+        + 'const out = renderCfgEdit("", 0);\n'
+        + 'process.stdout.write(out);\n'
+    )
+    r = subprocess.run([node_bin], input=js, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    html = r.stdout
+    assert 'class="cfgedit"' in html            # 左: 編集 textarea
+    assert 'data-cfgpane="E"' in html
+    assert 'class="cfgpre cfgunified"' in html or 'cfgunified' in html  # 右: 統一差分
+    assert "urow" in html                       # 差分行
+    assert 'data-cfgdl=' in html                # DL ボタン
+    assert 'data-cfgrevert=' in html            # 元に戻す
+    assert 'data-cfgreplace="E"' in html        # 全置換（編集ペイン対象）
+    assert 'data-cfgtoggle="edit"' in html      # 編集トグル(on)
 
 
 def _run_cfg_edit_left_rows(node_bin, before_js, after_js):
