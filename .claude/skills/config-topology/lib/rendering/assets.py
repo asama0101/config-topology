@@ -2455,10 +2455,12 @@ function renderConfigView() {
 
   /* 行数は本文と同じ数え方（末尾改行を1つ除いてから分割）でリストと本文を一致させる */
   const lineCount = id => raw[id].replace(/\\n$/, "").split("\\n").length;
-  const devList = shown.map(id =>
-    `<div class="cfgdev${id === cur ? " active" : ""}" data-cfgdev="${esc(id)}">`
-    + `<span class="cfgdev-h">${esc(hostOf(id))}</span>`
-    + `<span class="cfgdev-c">${lineCount(id)} 行</span></div>`).join("");
+  const devList = shown.map(id => {
+    const dirty = cfgIsDirty(String(id)) ? `<span class="cfgdirty" title="未保存の編集あり">●</span>` : "";
+    return `<div class="cfgdev${id === cur ? " active" : ""}" data-cfgdev="${esc(id)}">`
+      + `<span class="cfgdev-h">${esc(hostOf(id))}${dirty}</span>`
+      + `<span class="cfgdev-c">${lineCount(id)} 行</span></div>`;
+  }).join("");
 
   /* parse 状態モード: DATA.parse_status[cur] が行配列としてあれば 3 段階色分け可能 */
   const psArr = (DATA.parse_status || {})[cur];
@@ -2767,6 +2769,23 @@ $("#tableview").addEventListener("click", ev => {
   /* CONFIG ビュー: 左ペインの機器クリックで本文を切替 */
   const cd = ev.target.closest("[data-cfgdev]");
   if (cd) { S.configDev = cd.dataset.cfgdev; renderTableView(); return; }
+  /* CONFIG 編集: ダウンロード（編集後テキストをファイル保存） */
+  const dlb = ev.target.closest("[data-cfgdl]");
+  if (dlb) {
+    const cur = dlb.dataset.cfgdl;
+    const host = (DATA.devices[cur] && DATA.devices[cur].hostname) || cur;
+    downloadText(cfgFileName(host), cfgTextOf("scratch:" + cur));
+    return;
+  }
+  /* CONFIG 編集: 元に戻す（scratch を破棄して原本に戻す） */
+  const rvb = ev.target.closest("[data-cfgrevert]");
+  if (rvb) {
+    const cur = rvb.dataset.cfgrevert;
+    delete S.configScratch["scratch:" + cur];
+    saveCfgScratch();
+    renderTableView();
+    return;
+  }
   /* CONFIG ツールバー: 折返し / grep トグル */
   const ct = ev.target.closest("[data-cfgtoggle]");
   if (ct) {
@@ -2790,23 +2809,39 @@ $("#tableview").addEventListener("click", ev => {
     }
     renderTableView(); return;
   }
-  /* CONFIG 2ペイン: ペイン内容コピー（編集中は textarea 値・通常は source テキスト） */
+  /* CONFIG 2ペイン/編集: ペイン内容コピー（toolbar の E ボタンは .cfgpane 外なので直接解決） */
   const cpt = ev.target.closest("[data-cfgcopytext]");
   if (cpt) {
-    const paneEl = cpt.closest(".cfgpane");
-    const ta = paneEl && paneEl.querySelector("textarea.cfgedit");
+    const pane = cpt.dataset.cfgcopytext;
+    /* 編集モード(E): toolbar は .cfgpane 外 → closest が null になるため textarea を直接解決 */
+    const ta = pane === "E"
+      ? document.querySelector('textarea.cfgedit[data-cfgpane="E"]')
+      : (cpt.closest(".cfgpane") && cpt.closest(".cfgpane").querySelector("textarea.cfgedit"));
+    const paneEl = ta ? ta.closest(".cfgpane") : cpt.closest(".cfgpane");
     const key = cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
     copyText(ta ? ta.value : (key ? cfgTextOf(key) : ""), cpt);
     return;
   }
   /* CONFIG 編集ペイン: リテラル全置換（検索文字列→置換文字列・全件）。再描画せず value 直接更新でフォーカス保持 */
+  /* toolbar の E ボタンは .cfgpane 外なので textarea/inputs を直接解決（HIGH-2 修正） */
   const crp = ev.target.closest("[data-cfgreplace]");
   if (crp) {
-    const paneEl = crp.closest(".cfgpane");
-    const ta = paneEl && paneEl.querySelector("textarea.cfgedit");
-    const find = paneEl && paneEl.querySelector("input.cfgfind");
-    const repl = paneEl && paneEl.querySelector("input.cfgrepl");
-    const msg = paneEl && paneEl.querySelector(".cfgreplmsg");
+    const pane = crp.dataset.cfgreplace;
+    let paneEl, ta, find, repl, msg;
+    if (pane === "E") {
+      /* 編集モード: toolbar は .cfgpane 外なので各要素を document から直接解決 */
+      ta = document.querySelector('textarea.cfgedit[data-cfgpane="E"]');
+      find = document.querySelector('input.cfgfind[data-cfgpane="E"]');
+      repl = document.querySelector('input.cfgrepl[data-cfgpane="E"]');
+      msg = document.querySelector('.cfgreplmsg[data-cfgpane="E"]');
+      paneEl = ta ? ta.closest(".cfgpane") : null;
+    } else {
+      paneEl = crp.closest(".cfgpane");
+      ta = paneEl && paneEl.querySelector("textarea.cfgedit");
+      find = paneEl && paneEl.querySelector("input.cfgfind");
+      repl = paneEl && paneEl.querySelector("input.cfgrepl");
+      msg = paneEl && paneEl.querySelector(".cfgreplmsg");
+    }
     const key = ta && cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
     if (ta && key && find) {
       const f = find.value;
@@ -2814,7 +2849,7 @@ $("#tableview").addEventListener("click", ev => {
       const n = ta.value.split(f).length - 1;            /* リテラル一致件数 */
       ta.value = ta.value.split(f).join(repl ? repl.value : "");
       S.configScratch[key] = ta.value; saveCfgScratch();
-      updateCfgSplitDiff();
+      if (pane === "E") updateCfgEditDiff(ta); else updateCfgSplitDiff();
       if (msg) msg.textContent = n + " 件置換";
     }
     return;

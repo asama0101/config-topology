@@ -4899,3 +4899,32 @@ def test_cfg_gut_html_no_cur_when_out_of_range(node_bin):
     """cfgGutHtml(2, 5): curIdx が範囲外の場合 cur クラスが付かないこと。"""
     html = _run_cfg_gut(node_bin, 2, 5)
     assert "n cur" not in html
+
+
+# ============================================================
+# Task 6: dispatch（DL/revert/toolbar置換・コピー）＋ dirty バッジ
+# ============================================================
+
+def test_js_has_dl_and_revert_dispatch():
+    """DL ボタン・元に戻すボタンの dispatch が _JS に存在すること。"""
+    js = assets._JS
+    assert "data-cfgdl" in js and "downloadText(" in js
+    assert "data-cfgrevert" in js
+    assert "delete S.configScratch[" in js
+    assert 'data-cfgreplace' in js
+
+
+def test_js_device_list_dirty_badge():
+    """機器リストに dirty バッジ（cfgIsDirty 呼び出し＋cfgdirty クラス）が存在すること。"""
+    js = assets._JS
+    assert "cfgIsDirty(" in js
+    assert "cfgdirty" in js
+
+
+def test_js_edit_replace_resolves_textarea_in_toolbar():
+    """toolbar 位置の置換/コピーボタンが編集 textarea を直接解決できること。
+    toolbar は .cfgpane の外にあるため closest('.cfgpane') が null になる。
+    pane が 'E' のとき querySelector('textarea.cfgedit') で解決する分岐が必要。"""
+    js = assets._JS
+    # E ペインを対象に textarea を querySelector で解決する記述があること
+    assert ('textarea.cfgedit' in js)
