@@ -572,6 +572,33 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
   border-right: 1px solid var(--panel-edge);
 }
 #tableview .cfgtx { flex: 1 1 auto; padding-right: 14px; }
+/* CONFIG 編集モード: 左=行番号ガター＋textarea / 右=統一差分プレビュー */
+#tableview .cfgedit-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
+#tableview .cfgedit-gut {
+  flex: 0 0 44px; overflow: hidden; text-align: right; padding-right: 6px;
+  color: var(--ink-faint); background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  user-select: none; font-size: 12px; line-height: 1.55;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  border-right: 1px solid var(--panel-edge);
+}
+#tableview .cfgedit-gut .n { height: 1.55em; line-height: 1.55em; display: block; }
+#tableview .cfgedit-gut .n.cur { color: var(--search); }
+/* 統一差分プレビュー列 */
+#tableview .cfgunified { flex: 1; overflow: auto; }
+#tableview .urow { display: flex; white-space: pre; line-height: 1.55; font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; }
+#tableview .urow .ug { flex: 0 0 40px; text-align: right; padding-right: 6px; color: var(--ink-faint); user-select: none; }
+#tableview .urow .us { flex: 0 0 14px; text-align: center; user-select: none; }
+#tableview .urow .utx { flex: 1; padding-right: 6px; }
+#tableview .urow.ctx .utx { color: var(--ink-dim); }
+#tableview .urow.del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+#tableview .urow.del .us { color: var(--danger); }
+#tableview .urow.add { background: color-mix(in srgb, var(--accent2,#2a7) 14%, transparent); }
+#tableview .urow.add .us { color: var(--accent2,#2a7); }
+#tableview .urow.cur { box-shadow: inset 3px 0 0 var(--search); }
+#tableview .urow.hit { outline: 1px solid color-mix(in srgb, var(--search) 50%, transparent); }
+/* dirty バッジ: 機器リストの編集済みマーカー */
+#tableview .cfgdirty { color: var(--accent); margin-left: 4px; }
 
 /* ---------- 表示ノード指定パネル ---------- */
 #nodepanel {

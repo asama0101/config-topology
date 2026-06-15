@@ -4928,3 +4928,13 @@ def test_js_edit_replace_resolves_textarea_in_toolbar():
     js = assets._JS
     # E ペインを対象に textarea を querySelector で解決する記述があること
     assert ('textarea.cfgedit' in js)
+
+
+# ============================================================
+# Task 7: CSS — unified diff rows + edit gutter + dirty badge
+# ============================================================
+
+def test_css_has_unified_and_gutter_classes():
+    css = assets._CSS
+    for cls in [".urow", ".urow.del", ".urow.add", ".urow.ctx", ".cfgedit-gut", ".cfgdirty", ".urow.cur"]:
+        assert cls in css, f"missing CSS: {cls}"
