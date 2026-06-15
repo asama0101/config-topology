@@ -4828,3 +4828,12 @@ def test_cfg_is_dirty_equal_to_original_false(node_bin):
 
 def test_cfg_is_dirty_changed_true(node_bin):
     assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nXX\\n"}', '"r1"') is True
+
+
+def test_cfg_is_dirty_null_cur_false(node_bin):
+    assert _run_cfg_is_dirty(node_bin, "{}", "null") is False
+
+
+def test_cfg_is_dirty_trailing_newlines_only_false(node_bin):
+    # 末尾改行の数だけ違う場合は dirty 扱いしない（/\\n+$/ 正規化）
+    assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nb\\n\\n"}', '"r1"') is False

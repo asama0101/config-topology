@@ -2156,7 +2156,7 @@ function cfgIsDirty(cur) {
   const sk = "scratch:" + cur;
   const s = S.configScratch[sk];
   if (s == null) return false;
-  return s.replace(/\\n$/, "") !== cfgRawOf("dev:" + cur).replace(/\\n$/, "");
+  return s.replace(/\\n+$/, "") !== cfgRawOf("dev:" + cur).replace(/\\n+$/, "");
 }
 /* ペインの source key を解決: 自由比較は select.cfgsrc・編集モードは select 不在のため
    textarea/ペインの data-cfgkey にフォールバック（保存/置換/差分/コピーで共通利用）。 */
