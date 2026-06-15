@@ -4800,3 +4800,31 @@ def test_cfg_filename_sanitizes_unsafe_chars(node_bin):
 def test_js_has_download_helper():
     assert "function downloadText(" in assets._JS
     assert "URL.createObjectURL" in assets._JS
+
+
+# ============================================================
+# cfgIsDirty
+# ============================================================
+
+def _run_cfg_is_dirty(node_bin, scratch_js, cur_js):
+    driver = (
+        f'var S = {{ configScratch: {scratch_js} }};\n'
+        + 'function cfgRawOf(k){ return "a\\nb\\n"; }\n'
+        + _extract_fn(assets._JS, "cfgIsDirty") + "\n"
+        + f'process.stdout.write(JSON.stringify(cfgIsDirty({cur_js})));\n'
+    )
+    r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_cfg_is_dirty_absent_scratch_false(node_bin):
+    assert _run_cfg_is_dirty(node_bin, "{}", '"r1"') is False
+
+
+def test_cfg_is_dirty_equal_to_original_false(node_bin):
+    assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nb\\n"}', '"r1"') is False
+
+
+def test_cfg_is_dirty_changed_true(node_bin):
+    assert _run_cfg_is_dirty(node_bin, '{"scratch:r1":"a\\nXX\\n"}', '"r1"') is True

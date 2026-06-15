@@ -2150,6 +2150,14 @@ function cfgTextOf(key) {
   if (key.startsWith("scratch:")) return S.configScratch[key] != null ? S.configScratch[key] : cfgRawOf("dev:" + key.slice(8));
   return cfgRawOf(key);
 }
+/* 編集有り判定: scratch が原本と異なる場合 true。末尾改行の差は無視する。 */
+function cfgIsDirty(cur) {
+  if (cur == null) return false;
+  const sk = "scratch:" + cur;
+  const s = S.configScratch[sk];
+  if (s == null) return false;
+  return s.replace(/\\n$/, "") !== cfgRawOf("dev:" + cur).replace(/\\n$/, "");
+}
 /* ペインの source key を解決: 自由比較は select.cfgsrc・編集モードは select 不在のため
    textarea/ペインの data-cfgkey にフォールバック（保存/置換/差分/コピーで共通利用）。 */
 function cfgPaneKey(paneEl, ta) {
