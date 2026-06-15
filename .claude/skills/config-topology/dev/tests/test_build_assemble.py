@@ -117,3 +117,62 @@ def test_build_ospf_area_type_all_normalized_values():
     result = build_ospf([("r1", d)])
     types = {e["area"]: e.get("area_type") for e in result}
     assert types == {"1": "stub", "2": "totally-stubby", "3": "nssa", "4": "totally-nssa"}
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ビュー — 生 running-config 保持（raw_texts → raw_configs）
+# ---------------------------------------------------------------------------
+
+def test_build_topology_raw_texts_mapped_to_device_ids():
+    """raw_texts（parsed と並走）が device id をキーに raw_configs へ写像されること。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    d2 = Device(hostname="R2", vendor="cisco_ios", as_=2)
+    topo = build_topology([d1, d2], ["r1.cfg", "r2.cfg"],
+                          raw_texts=["hostname R1\n", "hostname R2\n"])
+    assert topo["raw_configs"] == {"r1": "hostname R1\n", "r2": "hostname R2\n"}
+
+
+def test_build_topology_raw_texts_none_gives_empty():
+    """raw_texts 省略時は raw_configs が空 dict（後方互換）。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    topo = build_topology([d1], ["r1.cfg"])
+    assert topo["raw_configs"] == {}
+
+
+def test_build_topology_raw_texts_preserves_multiline():
+    """複数行 config がそのまま（行末・空行含め）保持されること。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    text = "hostname R1\n!\ninterface Gi0/0\n ip address 10.0.0.1 255.255.255.252\n!\n"
+    topo = build_topology([d1], ["r1.cfg"], raw_texts=[text])
+    assert topo["raw_configs"]["r1"] == text
+
+
+def test_build_topology_raw_texts_length_mismatch_raises():
+    """raw_texts の長さが parsed と不一致なら ValueError（zip の暗黙切り捨て防止）。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    d2 = Device(hostname="R2", vendor="cisco_ios", as_=2)
+    with pytest.raises(ValueError) as ei:
+        build_topology([d1, d2], ["r1.cfg", "r2.cfg"], raw_texts=["only one"])
+    assert "raw_texts length" in str(ei.value)
+
+
+def test_build_topology_parse_statuses_mapped():
+    """parse_statuses が device id をキーに topo['parse_status'] へ写像されること。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    d2 = Device(hostname="R2", vendor="cisco_ios", as_=2)
+    topo = build_topology([d1, d2], ["r1.cfg", "r2.cfg"],
+                          parse_statuses=[["parsed", "ignored"], ["unparsed"]])
+    assert topo["parse_status"] == {"r1": ["parsed", "ignored"], "r2": ["unparsed"]}
+
+
+def test_build_topology_parse_statuses_none_empty():
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    topo = build_topology([d1], ["r1.cfg"])
+    assert topo["parse_status"] == {}
+
+
+def test_build_topology_parse_statuses_length_mismatch_raises():
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    d2 = Device(hostname="R2", vendor="cisco_ios", as_=2)
+    with pytest.raises(ValueError):
+        build_topology([d1, d2], ["r1.cfg", "r2.cfg"], parse_statuses=[["parsed"]])

@@ -43,12 +43,16 @@ def _iface_v4_network(iface: Interface):
     return None
 
 
-def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
-    """interface ブロック内の1行 s を解析し iface をミューテートする（§6.1）。失敗は warnings へ。"""
+def _parse_iface_line(iface: Interface, s: str, warnings: list) -> bool:
+    """interface ブロック内の1行 s を解析し iface をミューテートする（§6.1）。失敗は warnings へ。
+
+    認識した（ハンドラがパターン一致した）場合 True、未対応行は False を返す（parse 状態判定用）。
+    値が未対応・パース失敗でも「行を認識した」なら True（突合では『全く認識しない行』を炙り出すのが目的）。
+    """
     m = re.match(r"^description\s+(.*)$", s)
     if m:
         iface.description = m.group(1).strip().strip('"')
-        return
+        return True
     m = re.match(r"^ip address\s+(\S+)\s+(\S+)(\s+secondary)?\s*$", s)
     if m:
         ip, mask, sec = m.group(1), m.group(2), bool(m.group(3))
@@ -58,7 +62,7 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
             _set_l3(iface)
         except Exception as e:                       # noqa: BLE001
             warnings.append("ip address parse failed: %s (%s)" % (s, e))
-        return
+        return True
     m = re.match(r"^ipv6 address\s+(\S+)(\s+link-local)?\s*$", s, re.IGNORECASE)
     if m:
         cidr, ll = m.group(1), bool(m.group(2))
@@ -70,58 +74,59 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> None:
             _set_l3(iface)
         except Exception as e:                       # noqa: BLE001
             warnings.append("ipv6 address parse failed: %s (%s)" % (s, e))
-        return
+        return True
     if s == "shutdown":
         iface.shutdown = True
-        return
+        return True
     if s == "no shutdown":
         iface.shutdown = False
-        return
+        return True
     if s == "no switchport":
         _set_l3(iface)
-        return
+        return True
     m = re.match(r"^mtu\s+(\d+)", s)
     if m:
         iface.mtu = int(m.group(1))
-        return
+        return True
     m = re.match(r"^speed\s+(\S+)", s)
     if m:
         iface.speed = m.group(1)
-        return
+        return True
     m = re.match(r"^duplex\s+(\S+)", s)
     if m:
         iface.duplex = m.group(1)
-        return
+        return True
     m = re.match(r"^encapsulation\s+dot1q\b", s, re.IGNORECASE)
     if m:
         iface.encapsulation = "dot1q"
-        return
+        return True
     m = re.match(r"^switchport mode\s+(access|trunk)", s)
     if m:
         _ensure_switchport(iface)
         iface.switchport["mode"] = m.group(1)
         _set_l2(iface)
-        return
+        return True
     m = re.match(r"^switchport access vlan\s+(\d+)", s)
     if m:
         _ensure_switchport(iface)
         iface.switchport["access_vlan"] = int(m.group(1))
         _set_l2(iface)
-        return
+        return True
     m = re.match(r"^switchport trunk allowed vlan\s+(\S+)", s)
     if m:
         _ensure_switchport(iface)
         iface.switchport["trunk_vlans"] = m.group(1)
         _set_l2(iface)
-        return
+        return True
     m = re.match(r"^ip ospf cost\s+(\d+)", s)
     if m:
         ensure_ospf(iface)["cost"] = int(m.group(1))
-        return
+        return True
     m = re.match(r"^ip ospf network\s+(\S+)", s)
     if m:
         ensure_ospf(iface)["network_type"] = m.group(1)
-        return
+        return True
+    return False
 
 
 def _parse_redistribute_line(dev: Device, s: str, into: str) -> bool:
@@ -157,7 +162,7 @@ def _parse_redistribute_line(dev: Device, s: str, into: str) -> bool:
 
 
 def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
-                    warnings: list) -> None:
+                    warnings: list) -> bool:
     """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate /
     update-source / route-reflector-client / next-hop-self / timers / send-community /
     peer-group 宣言・メンバー割当 / redistribute。
@@ -188,7 +193,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
     m = re.match(r"^bgp router-id\s+(\S+)", s)
     if m:
         dev.bgp_router_id = m.group(1)
-        return
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+remote-as\s+(\d+)", s)
     if m:
         token, peer = m.group(1), int(m.group(2))
@@ -220,7 +225,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
             # IP として解析できない → peer-group 名として pg_template に格納
             pgname = token
             pg_template.setdefault(pgname, {})["remote_as"] = peer
-        return
+        return True
     # peer-group メンバー割当: neighbor <ip> peer-group <pgname>
     # BgpNeighbor の生成は末尾解決に遅延する（ゾンビ排除のため）。
     # ここでは pg_member に記録するだけで BgpNeighbor を生成しない。
@@ -233,22 +238,24 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
             # BgpNeighbor 生成は parse_ios 末尾の pg_member 解決ループで行う
         except Exception as e:                       # noqa: BLE001
             warnings.append("bgp peer-group member parse failed: %s (%s)" % (s, e))
-        return
+        return True
     # peer-group 宣言: neighbor <pgname> peer-group（末尾に名前なし）
     m = re.match(r"^neighbor\s+(\S+)\s+peer-group$", s)
     if m:
         pgname = m.group(1)
         pg_template.setdefault(pgname, {})  # キー確保のみ
-        return
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+activate", s)
-    if m and bgp_af == "v6" and ":" in m.group(1):
-        try:
-            nip = norm_ipv6(m.group(1))
-            if nip in neighbors:
-                neighbors[nip].af = "v6"
-        except Exception as e:                       # noqa: BLE001
-            warnings.append("bgp activate parse failed: %s (%s)" % (s, e))
-        return
+    if m:
+        # v4 activate は既定で有効のため no-op。v6 のみ af を確定する。いずれも行は認識済み。
+        if bgp_af == "v6" and ":" in m.group(1):
+            try:
+                nip = norm_ipv6(m.group(1))
+                if nip in neighbors:
+                    neighbors[nip].af = "v6"
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("bgp activate parse failed: %s (%s)" % (s, e))
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+update-source\s+(\S+)", s)
     if m:
         token, ifname = m.group(1), m.group(2)
@@ -261,7 +268,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
         except Exception:                            # noqa: BLE001
             # IP でない → peer-group 名として pg_template に格納
             pg_template.setdefault(token, {})["update_source"] = ifname
-        return
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+route-reflector-client\b", s)
     if m:
         token = m.group(1)
@@ -273,7 +280,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
                 pending_attrs.setdefault(nip, {})["rr"] = True
         except Exception:                            # noqa: BLE001
             pg_template.setdefault(token, {})["rr"] = True
-        return
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+next-hop-self\b", s)
     if m:
         token = m.group(1)
@@ -285,7 +292,7 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
                 pending_attrs.setdefault(nip, {})["nhs"] = True
         except Exception:                            # noqa: BLE001
             pg_template.setdefault(token, {})["nhs"] = True
-        return
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+timers\s+(\d+)\s+(\d+)", s)
     if m:
         token, ka, hold = m.group(1), int(m.group(2)), int(m.group(3))
@@ -297,13 +304,13 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
                 pending_attrs.setdefault(nip, {})["timers"] = (ka, hold)
         except Exception:                            # noqa: BLE001
             pg_template.setdefault(token, {})["timers"] = (ka, hold)
-        return
+        return True
     m = re.match(r"^neighbor\s+(\S+)\s+send-community(?:\s+(\S+))?", s)
     if m:
         token = m.group(1)
         arg = m.group(2)
         if arg is not None and arg not in ("both", "standard", "extended"):
-            return  # 未対応の community 種別（large 等）は誤分類せずスキップ
+            return True  # 未対応の community 種別（large 等）は値だけスキップ（行は認識済み）
         sc = arg if arg else "standard"
         try:
             nip = norm_ipv6(token) if ":" in token else norm_ipv4(token)
@@ -313,15 +320,15 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
                 pending_attrs.setdefault(nip, {})["send_community"] = sc
         except Exception:                            # noqa: BLE001
             pg_template.setdefault(token, {})["send_community"] = sc
-        return
-    # `no redistribute ...` はスキップ（加算的変更のみ対象）
+        return True
+    # `no redistribute ...` はスキップ（加算的変更のみ対象・行は認識済み）
     if s.startswith("no redistribute"):
-        return
-    _parse_redistribute_line(dev, s, "bgp")
+        return True
+    return _parse_redistribute_line(dev, s, "bgp")
 
 
 def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
-                     passive_ifaces: list, area_types: dict) -> None:
+                     passive_ifaces: list, area_types: dict) -> bool:
     """router ospf ブロック内の1行を解析（§6.1）。router-id / network area / passive-interface /
     area <a> stub|nssa [no-summary] / redistribute。
 
@@ -333,7 +340,7 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
     m = re.match(r"^router-id\s+(\S+)", s)
     if m:
         dev.ospf_router_id = m.group(1)
-        return
+        return True
     m = re.match(r"^network\s+(\S+)\s+(\S+)\s+area\s+(\S+)", s)
     if m:
         net, wild, area = m.groups()
@@ -343,7 +350,7 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
                                         norm_ospf_area(area), "v4"))
         except Exception as e:                       # noqa: BLE001
             warnings.append("ospf network parse failed: %s (%s)" % (s, e))
-        return
+        return True
     m = re.match(r"^passive-interface\s+(\S+)", s)
     if m:
         ifname = m.group(1)
@@ -351,7 +358,7 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
         # 明示的な `passive-interface <ifname>` のみ対応（default キーワードはスキップ）。
         if ifname.lower() != "default":
             passive_ifaces.append(ifname)
-        return
+        return True
     # area <a> stub [no-summary] / area <a> nssa [no-summary]
     # 語境界付き: (stub|nssa) の直後は空白か行末のみ（stub-default-metric 等の誤マッチを防ぐ）
     m = re.match(r"^area\s+(\S+)\s+(stub|nssa)(\s.*|$)", s)
@@ -363,17 +370,20 @@ def _parse_ospf_line(dev: Device, s: str, ospf_pid, warnings: list,
             area_types[(ospf_pid, norm_area)] = "totally-stubby" if no_summary else "stub"
         else:  # nssa
             area_types[(ospf_pid, norm_area)] = "totally-nssa" if no_summary else "nssa"
-        return
-    # `no redistribute ...` はスキップ（加算的変更のみ対象）
+        return True
+    # `no redistribute ...` はスキップ（加算的変更のみ対象・行は認識済み）
     if s.startswith("no redistribute"):
-        return
-    _parse_redistribute_line(dev, s, "ospf")
+        return True
+    return _parse_redistribute_line(dev, s, "ospf")
 
 
-def parse_ios(text: str, warnings: list) -> Device:
+def parse_ios(text: str, warnings: list, line_status=None) -> Device:
     """Cisco IOS / IOS-XE config テキストを解析し正規化 Device を返す（要件書 §6.1）。
 
     パース失敗行は握りつぶし warnings(list) に文字列を追記し継続する（§6.3）。
+
+    line_status: 任意の出力リスト。指定時は各行を "parsed"/"ignored"/"unparsed" で分類し
+    末尾で extend する（CONFIG parse 状態モード用）。**未指定時はモデル出力は完全に従来通り**。
     """
     dev = Device(hostname="", vendor="cisco_ios")
     cur = None
@@ -398,46 +408,63 @@ def parse_ios(text: str, warnings: list) -> Device:
             dev.interfaces.append(cur)
             cur = None
 
-    for raw in text.splitlines():
+    lines = text.splitlines()
+    status = ["unparsed"] * len(lines)   # 既定は未対応。認識した行で parsed / 無視行で ignored に更新
+
+    for i, raw in enumerate(lines):
         if is_sensitive_line(raw):
+            # 機密行は意図的にパースしない設計 → "ignored"（見落とし候補=unparsed には含めない）
+            status[i] = "ignored"
             continue
         s = raw.strip()
         if not s:
+            status[i] = "ignored"
             continue
 
         if s == "!" or s == "end":
             finish_iface()
             context = None
+            status[i] = "ignored"
+            continue
+        if s.startswith("!"):
+            # `! コメント文` は IOS のコメント行（モデルに寄与しない）→ ignored 分類。
+            # bare `!` と異なり finish_iface/context リセットはしない（既存挙動を変えない）。
+            status[i] = "ignored"
             continue
 
         m = re.match(r"^hostname\s+(\S+)$", s)
         if m:
             if not dev.hostname:
                 dev.hostname = m.group(1)
+            status[i] = "parsed"
             continue
         m = re.match(r"^interface\s+(\S+)", s)
         if m:
             finish_iface()
             cur = Interface(name=m.group(1))
             context = "interface"
+            status[i] = "parsed"
             continue
         m = re.match(r"^router bgp\s+(\d+)", s)
         if m:
             finish_iface()
             dev.as_ = int(m.group(1))
             context, bgp_af = "bgp", "v4"
+            status[i] = "parsed"
             continue
         m = re.match(r"^router ospf\s+(\d+)", s)
         if m:
             finish_iface()
             ospf_pid = int(m.group(1))
             context = "ospf"
+            status[i] = "parsed"
             continue
         # §6.1: OSPFv3 の network 宣言は interface 内 `ipv6 ospf <pid> area` で確定するため、
         # ここ（ipv6 router ospf <pid>）は process ID 宣言のみ。配下行は無視する。
         if re.match(r"^ipv6 router ospf\s+\d+", s):
             finish_iface()
             context = None
+            status[i] = "parsed"
             continue
         m = re.match(r"^ip route\s+(\S+)\s+(\S+)\s+(\S+)", s)
         if m:
@@ -448,6 +475,7 @@ def parse_ios(text: str, warnings: list) -> Device:
                                               norm_ipv4(nh), "v4"))
             except Exception as e:                   # noqa: BLE001
                 warnings.append("ip route parse failed: %s (%s)" % (s, e))
+            status[i] = "parsed"
             continue
         m = re.match(r"^ipv6 route\s+(\S+)\s+(\S+)", s)
         if m:
@@ -456,6 +484,7 @@ def parse_ios(text: str, warnings: list) -> Device:
                 dev.static.append(StaticRoute(norm_cidr_str(cidr), norm_ipv6(nh), "v6"))
             except Exception as e:                   # noqa: BLE001
                 warnings.append("ipv6 route parse failed: %s (%s)" % (s, e))
+            status[i] = "parsed"
             continue
 
         if context == "interface" and cur is not None:
@@ -463,21 +492,25 @@ def parse_ios(text: str, warnings: list) -> Device:
             m4 = re.match(r"^ip ospf\s+(\d+)\s+area\s+(\S+)", s)
             if m6:
                 pending_ospf3.append((cur, int(m6.group(1)), norm_ospf_area(m6.group(2))))
+                status[i] = "parsed"
             elif m4:
                 pending_ospf.append((cur, int(m4.group(1)), norm_ospf_area(m4.group(2))))
-            else:
-                _parse_iface_line(cur, s, warnings)
+                status[i] = "parsed"
+            elif _parse_iface_line(cur, s, warnings):
+                status[i] = "parsed"
         elif context == "bgp":
-            if s.startswith("address-family ipv6"):
-                bgp_af = "v6"
-            elif s.startswith("address-family ipv4"):
-                bgp_af = "v4"
-            elif s == "exit-address-family":
-                bgp_af = "v4"
-            else:
-                _parse_bgp_line(dev, s, bgp_af, bgp, warnings)
+            if (s.startswith("address-family ipv6") or s.startswith("address-family ipv4")
+                    or s == "exit-address-family"):
+                bgp_af = "v6" if s.startswith("address-family ipv6") else "v4"
+                status[i] = "parsed"
+            elif _parse_bgp_line(dev, s, bgp_af, bgp, warnings):
+                status[i] = "parsed"
         elif context == "ospf":
-            _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces, area_types)
+            if _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces, area_types):
+                status[i] = "parsed"
+
+    if line_status is not None:
+        line_status.extend(status)
 
     finish_iface()
     for iface, pid, area in pending_ospf3:

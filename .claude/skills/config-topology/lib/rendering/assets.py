@@ -205,6 +205,34 @@ g.segnode.stubnode ellipse { fill: var(--stub-fill); stroke: var(--stub-edge); }
 g.segnode.selected ellipse, g.segnode.hovered ellipse { stroke: var(--accent); stroke-width: 2; }
 g.segnode.search-hit ellipse { stroke: var(--search); stroke-width: 2; }
 
+/* STATIC ビュー: スタティック経路の方向線（矢じり）と blackhole/dangling 終端・トレース・ハイライト */
+.se-edge { fill: none; stroke: var(--se-edge, #e0a44a); stroke-width: 2; opacity: .9; }
+.se-edge.se-default { stroke-dasharray: 7 4; }            /* default 経路は破線 */
+.se-edge.se-ecmp { stroke-width: 3; }                     /* ECMP は太線 */
+.se-edge.se-blackhole { stroke: var(--danger); }
+.se-edge.se-dangling { stroke: #d08a2a; }
+.se-edge.se-viaif { stroke: #5b8def; }                    /* IF 名 next-hop（peer 不定） */
+.se-edge.trace-edge { stroke: var(--accent); stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent)); }
+g.sstubnode { cursor: default; }
+g.sstubnode ellipse { fill: var(--panel); stroke-width: 1.4; stroke-dasharray: 4 3; }
+g.sstubnode.se-blackhole ellipse { stroke: var(--danger); }
+g.sstubnode.se-dangling ellipse { stroke: #d08a2a; }
+g.sstubnode.se-viaif ellipse { stroke: #5b8def; }
+g.sstubnode text { font-size: 10px; fill: var(--ink-dim); }
+g.node.trace-hop rect.body { stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 60%, transparent)); }
+/* STATIC トレース UI コントロール */
+#trace-src, #trace-dst { background: var(--panel); color: var(--ink); border: 1px solid var(--panel-edge);
+  border-radius: 5px; padding: 2px 6px; font-size: 11px; }
+#trace-src { max-width: 150px; }
+#trace-dst { width: 150px; }
+#trace-src:focus, #trace-dst:focus { border-color: var(--search); outline: none; }
+#trace-verdict { font-size: 11px; font-weight: 600; }
+.badge.tv-delivered, #trace-verdict.tv-delivered { color: var(--accent2,#2a7); border-color: var(--accent2,#2a7); }
+.badge.tv-blackhole, #trace-verdict.tv-blackhole { color: var(--danger); border-color: var(--danger); }
+.badge.tv-loop, #trace-verdict.tv-loop { color: #d08a2a; border-color: #d08a2a; }
+.badge.tv-no-route, #trace-verdict.tv-no-route,
+.badge.tv-unreachable-nexthop, #trace-verdict.tv-unreachable-nexthop { color: var(--ink-dim); }
+
 /* 外部ピアは機器と同じノード描画（g.node スタイルを共用）。枠だけ点線で区別（凡例と対応） */
 g.node.ext rect.body { stroke-dasharray: 6 4; }
 
@@ -448,6 +476,103 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
 }
 #tableview tr.row-flash td { animation: rowflash 1.3s ease-out; }
 
+/* ---------- CONFIG ビュー（生 running-config 閲覧） ---------- */
+#tableview .cfgwarn {
+  max-width: 1080px; margin: 0 0 12px; padding: 7px 12px;
+  font-size: 11px; line-height: 1.6; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 7px; background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+#tableview .cfgwrap { display: flex; gap: 14px; max-width: 1080px; align-items: flex-start; }
+#tableview .cfglist {
+  flex: 0 0 200px; max-height: 70vh; overflow-y: auto;
+  border: 1px solid var(--panel-edge); border-radius: 8px; padding: 4px;
+}
+#tableview .cfgdev {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+#tableview .cfgdev:hover { background: color-mix(in srgb, var(--ink-dim) 9%, transparent); }
+#tableview .cfgdev.active { background: color-mix(in srgb, var(--search) 18%, transparent); color: var(--ink); }
+#tableview .cfgdev-h { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tableview .cfgdev-c { color: var(--ink-faint); font-size: 10px; flex: 0 0 auto; }
+#tableview .cfgbody { flex: 1 1 auto; min-width: 0; }
+#tableview .cfgbody-h { font-size: 12px; color: var(--ink-dim); margin-bottom: 6px; letter-spacing: .04em; }
+#tableview .cfgpre {
+  max-height: 70vh; overflow: auto;
+  border: 1px solid var(--panel-edge); border-radius: 8px;
+  background: var(--bg); padding: 8px 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px;
+}
+#tableview .cfgline { display: flex; white-space: pre; line-height: 1.55; min-width: max-content; position: relative; }
+#tableview .cfgline:hover { background: color-mix(in srgb, var(--ink-dim) 7%, transparent); }
+#tableview .cfgline.hit { background: color-mix(in srgb, var(--search) 22%, transparent); }
+#tableview .cfgline.cur { background: color-mix(in srgb, var(--search) 42%, transparent); outline: 1px solid var(--search); }
+/* 行折返し: pre-wrap にして横スクロールを止め、行内で折り返す */
+#tableview .cfgpre.wrap .cfgline { white-space: pre-wrap; min-width: 0; }
+#tableview .cfgpre.wrap .cfgtx { overflow-wrap: anywhere; }
+/* CONFIG ツールバー */
+#tableview .cfgtools {
+  display: flex; align-items: center; gap: 8px; max-width: 1080px;
+  margin: 0 0 10px; font-size: 11px;
+}
+#tableview .cfgtools .sp { flex: 1; }
+#tableview .cfgtools .tbtn.on { color: var(--search); border-color: color-mix(in srgb, var(--search) 55%, transparent); }
+#tableview .cfgnav { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-dim); }
+#tableview .cfgnav .tbtn { padding: 1px 7px; }
+#tableview .cfgnav #cfgnavpos { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+/* parse 状態モード: 行の左境界色で 3 状態を区別（unparsed=警告色で目立たせる） */
+#tableview .cfgline.ps-parsed   { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent2,#2a7) 80%, transparent); }
+#tableview .cfgline.ps-ignored  { box-shadow: inset 3px 0 0 var(--ink-faint); }
+#tableview .cfgline.ps-unparsed { box-shadow: inset 3px 0 0 var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+#tableview .cfgline.ps-unparsed .cfgln { color: var(--danger); }
+#tableview .cfglegend { display: inline-flex; gap: 10px; align-items: center; color: var(--ink-dim); font-size: 10px; }
+#tableview .cfglegend .ps-parsed   { color: var(--accent2,#2a7); }
+#tableview .cfglegend .ps-ignored  { color: var(--ink-faint); }
+#tableview .cfglegend .ps-unparsed { color: var(--danger); }
+/* 2ペイン比較・編集ワークベンチ */
+#tableview .cfgdiffsum { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+#tableview .cfgsplit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1080px; }
+#tableview .cfgpane { min-width: 0; display: flex; flex-direction: column; }
+#tableview .cfgpane-h { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 11px; }
+#tableview select.cfgsrc {
+  background: var(--panel); color: var(--ink); border: 1px solid var(--panel-edge);
+  border-radius: 5px; padding: 2px 6px; font-size: 11px; max-width: 180px;
+}
+#tableview .cfgsrc-fixed { font-weight: 600; }
+#tableview .cfgedited { color: var(--accent); font-size: 10px; }
+#tableview textarea.cfgedit {
+  width: 100%; min-height: 60vh; max-height: 70vh; resize: vertical; box-sizing: border-box;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--panel-edge); border-radius: 8px;
+  padding: 8px 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55;
+  /* 行整列のため折返さず横スクロール（左ペインの 1 論理行 = textarea の 1 行に対応させる） */
+  white-space: pre; overflow-x: auto;
+}
+#tableview textarea.cfgedit:focus { border-color: var(--search); outline: none; }
+/* 文字置換（リテラル全置換）行 */
+#tableview .cfgreplace { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+#tableview .cfgreplace input { flex: 1 1 0; min-width: 0; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--panel-edge); border-radius: 5px; padding: 3px 7px; font-size: 11px; }
+#tableview .cfgreplace input:focus { border-color: var(--search); outline: none; }
+#tableview .cfgreplmsg { color: var(--accent); font-size: 10px; flex: 0 0 auto; }
+/* 行差分（左=削除/赤系・右=追加/緑系）。parse 状態色とは別レイヤー */
+#tableview .cfgline.diff-del { background: color-mix(in srgb, var(--danger) 16%, transparent); box-shadow: inset 3px 0 0 var(--danger); }
+#tableview .cfgline.diff-add { background: color-mix(in srgb, var(--accent2,#2a7) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent2,#2a7); }
+/* 行整列の空行ギャップ（片側だけにある行に対応する反対側の空きスロット） */
+#tableview .cfgline.gap { background: color-mix(in srgb, var(--ink-dim) 5%, transparent); }
+/* 削除マーカー: 直後の左行に高さ0で重ねる赤い上線＋「−N行」チップ（レイアウト非変化で整列を保つ） */
+#tableview .cfgline.del-above { box-shadow: inset 0 2px 0 var(--danger); }
+#tableview .cfgline.del-above::after { content: "−" attr(data-del) "行"; position: absolute; right: 8px; top: -1px; font-size: 9px; color: var(--danger); pointer-events: none; }
+/* 末尾削除（後続行が無い）用のマーカー行 */
+#tableview .cfgdelmark { display: flex; line-height: 1.55; color: var(--danger); font-size: 11px; box-shadow: inset 0 2px 0 var(--danger); }
+#tableview .cfgdelmark .cfgln { flex: 0 0 48px; }
+#tableview .cfgln {
+  flex: 0 0 48px; text-align: right; padding: 0 12px 0 0; margin-right: 12px;
+  color: var(--ink-faint); user-select: none;
+  border-right: 1px solid var(--panel-edge);
+}
+#tableview .cfgtx { flex: 1 1 auto; padding-right: 14px; }
+
 /* ---------- 表示ノード指定パネル ---------- */
 #nodepanel {
   position: absolute; top: 12px; right: 14px; z-index: 25;
@@ -512,6 +637,15 @@ _BODY = """\
     <button class="tbtn gonly" id="btn-minimap">MAP</button>
     <button class="tbtn gonly" id="btn-legend">凡例</button>
     <span class="tsep gonly"></span>
+    <div class="tgroup static-only" title="スタティック経路トレース（始点機器から宛先への転送経路をシミュレート）">
+      <select id="trace-src" title="トレース始点機器"></select>
+      <input id="trace-dst" list="trace-dsts" placeholder="宛先 IP / prefix" title="宛先 IP または prefix" spellcheck="false">
+      <datalist id="trace-dsts"></datalist>
+      <button class="tbtn" id="trace-go" title="経路トレース実行">トレース</button>
+      <button class="tbtn" id="trace-clear" title="トレース結果をクリア">クリア</button>
+      <span id="trace-verdict"></span>
+    </div>
+    <span class="tsep static-only"></span>
     <div class="tgroup gonly">
       <button class="tbtn" id="exp-svg" title="現在の表示をSVGで保存">SVG</button>
       <button class="tbtn" id="exp-png" title="現在の表示をPNGで保存">PNG</button>
@@ -528,6 +662,9 @@ _BODY = """\
         <pattern id="dotgrid" width="26" height="26" patternUnits="userSpaceOnUse">
           <circle cx="1.2" cy="1.2" r="1.2" fill="var(--bg-dot)"/>
         </pattern>
+        <marker id="se-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--se-arrow,#e0a44a)"/>
+        </marker>
       </defs>
       <rect class="bgrect" id="bgrect" x="0" y="0" width="100%" height="100%"/>
       <g id="world"></g>
@@ -647,18 +784,29 @@ function presentASes(data) {
 
 /* ================= state ================= */
 let hoverLink = null, hoverNode = null, hoverBgp = null, hotBgp = null, hotNet = null;
+let cfgHitIdx = -1;   /* CONFIG 検索一致行ナビの現在位置（renderConfigView で -1 リセット） */
 const S = {
   view:"physical", k:1, tx:0, ty:0,
   sel:new Set(), search:"", matches:[], mi:-1,
   connectedOnly:false,
+  trace:{src:null, dst:"", result:null}, /* STATIC 経路トレース（始点機器・宛先・結果。ランタイム状態） */
   focusMode:false, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
   filters:{seg:true, lo:true, stub:true, ext:true},
   hiddenNodes:new Set(), nodePanel:false,
   legend:true, minimap:true, legendHot:null,
   sort:{addr:null, ifs:null},
   collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
+  configDev:null,   /* CONFIG ビューで選択中の device id（null=先頭機器） */
+  configWrap:false, /* CONFIG: 行折返し（true=pre-wrap） */
+  configGrep:false, /* CONFIG: 検索一致行のみ抜粋表示 */
+  configParse:false,        /* CONFIG: parse 状態モード（parsed/ignored/unparsed 色分け） */
+  configUnparsedOnly:false, /* CONFIG: parse 状態モードで未対応行のみ抜粋 */
+  configSplit:false,        /* CONFIG: 2ペイン横並び比較モード（自由比較・source 切替あり） */
+  configEdit:false,         /* CONFIG: ノード駆動編集モード（左=選択機器の原本/右=編集コピー・固定） */
+  configSrcL:null, configSrcR:null, /* CONFIG: 左右ペインの source key（dev:/prev:/scratch:） */
+  configScratch:{},         /* CONFIG: 編集スクラッチ {"scratch:<id>": text}（localStorage 永続） */
 };
-const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "checks" || S.view === "diff" || S.view === "usage";
+const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "checks" || S.view === "diff" || S.view === "config";
 const $ = s => document.querySelector(s);
 const world = $("#world"), tooltip = $("#tooltip");
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -728,6 +876,144 @@ function netOfV4(a) {
   return `${u32ToIp((ipToU32(host) & mask) >>> 0)}/${p}`;
 }
 
+/* ===== STATIC フォワーディング・トレース（DOM 非依存・純関数）=====
+   FIB（DATA.fib）に対する longest-prefix match と hop 連鎖。将来 dynamic も同 FIB 形で再利用。 */
+/* v6 アドレス→BigInt（"::" 圧縮対応・ゾーン除去。埋め込み v4 表記は非対応＝正規化済み RFC5952 前提）。 */
+function ip6ToBig(s) {
+  s = String(s).split("%")[0];
+  let head, tail;
+  if (s.indexOf("::") >= 0) {
+    const parts = s.split("::");
+    head = parts[0] ? parts[0].split(":") : [];
+    tail = parts[1] ? parts[1].split(":") : [];
+  } else { head = s.split(":"); tail = []; }
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0) return null;
+  const groups = head.concat(Array(missing).fill("0"), tail);
+  let v = 0n;
+  for (const g of groups) v = (v << 16n) | BigInt(parseInt(g || "0", 16) || 0);
+  return v;
+}
+/* ip が cidr に属するか（v4/v6 両対応・self-contained）。cidr は "net/plen"。 */
+function ipInCidr(ip, cidr) {
+  const slash = cidr.lastIndexOf("/");
+  const netAddr = slash >= 0 ? cidr.slice(0, slash) : cidr;
+  const isV6 = ip.indexOf(":") >= 0 || netAddr.indexOf(":") >= 0;
+  const max = isV6 ? 128 : 32;
+  let plen = slash >= 0 ? +cidr.slice(slash + 1) : max;
+  if (!(plen >= 0)) plen = 0;                 /* NaN/負は 0（不正入力ガード） */
+  if (plen > max) plen = max;                 /* 範囲外（例 /999）はホスト長に丸め負シフトを防ぐ */
+  if (isV6) {
+    const a = ip6ToBig(ip), n = ip6ToBig(netAddr);
+    if (a == null || n == null) return false;
+    if (plen <= 0) return true;
+    const sh = BigInt(128 - plen);
+    return (a >> sh) === (n >> sh);
+  }
+  const toU = h => { const o = h.split("."); return (((+o[0]) << 24) | ((+o[1]) << 16) | ((+o[2]) << 8) | (+o[3])) >>> 0; };
+  const a = toU(ip), n = toU(netAddr);
+  if (plen <= 0) return true;
+  const mask = (~0 << (32 - plen)) >>> 0;
+  return ((a & mask) >>> 0) === ((n & mask) >>> 0);
+}
+function afOf(ip) { return String(ip).indexOf(":") >= 0 ? "v6" : "v4"; }
+/* dev の FIB で dst（IP or prefix の代表ネットワークアドレス）に longest-prefix match するエントリを返す。
+   FIB は plen 降順→同 plen は connected が static より先（kind 昇順）でソート済みのため、最初の包含一致が LPM。 */
+function evalNode(fib, dev, dstStr, af) {
+  const dstIp = String(dstStr).split("/")[0];
+  const entries = (fib[dev] || []);
+  for (const e of entries) {
+    if (e.af !== af) continue;
+    if (ipInCidr(dstIp, e.net)) return e;
+  }
+  return null;
+}
+/* startDev から dst への転送経路を FIB トレース。verdict: delivered/blackhole/unreachable-nexthop/no-route/loop。 */
+function traceForward(fib, startDev, dstStr) {
+  const af = afOf(String(dstStr).split("/")[0]);
+  const hops = [], visited = new Set();
+  let dev = startDev, verdict = "no-route", ecmpBranches = [];
+  const cap = Object.keys(fib).length + 1;
+  for (let i = 0; i < cap; i++) {
+    if (visited.has(dev)) { verdict = "loop"; break; }
+    visited.add(dev);
+    const m = evalNode(fib, dev, dstStr, af);
+    if (!m) { hops.push({ dev, matched: null, next: null }); verdict = "no-route"; break; }
+    if (m.ecmpGroup) ecmpBranches = (fib[dev] || []).filter(
+      e => e.kind === "static" && e.af === af && e.ecmpGroup === m.ecmpGroup)
+      .map(e => ({ prefix: e.prefix, nh: e.nh, target: e.target }));
+    if (m.kind === "connected") { hops.push({ dev, matched: m, next: null }); verdict = "delivered"; break; }
+    if (m.via === "blackhole") { hops.push({ dev, matched: m, next: null }); verdict = "blackhole"; break; }
+    if (m.via === "dangling" || !m.target) { hops.push({ dev, matched: m, next: null }); verdict = "unreachable-nexthop"; break; }
+    hops.push({ dev, matched: m, next: m.target });
+    dev = m.target;
+  }
+  return { hops, verdict, visited: [...visited], ecmpBranches };
+}
+const TRACE_VERDICT = { delivered: "到達", blackhole: "破棄 (blackhole)",
+  "unreachable-nexthop": "next-hop 到達不可", "no-route": "経路なし", loop: "ループ" };
+/* verdict を class suffix に使う前の許可リスト検証（class 属性インジェクション防御・既知5値のみ） */
+function safeVerdict(v) { return TRACE_VERDICT[v] ? v : "no-route"; }
+/* トレース UI（始点機器ドロップダウン・宛先 datalist）を一度だけ充填 */
+function initTraceControls() {
+  const src = document.getElementById("trace-src");
+  if (src && !src.options.length) {
+    const devs = Object.entries(DATA.devices).map(([id, d]) => ({ id, name: d.hostname || id }))
+      .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    src.innerHTML = '<option value="">始点機器…</option>' +
+      devs.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("");
+  }
+  const dl = document.getElementById("trace-dsts");
+  if (dl && !dl.children.length) {
+    const nets = new Set();
+    for (const ents of Object.values(DATA.fib || {})) for (const e of ents) if (e.net) nets.add(e.net);
+    dl.innerHTML = [...nets].sort().map(n => `<option value="${esc(n)}"></option>`).join("");
+  }
+}
+/* S.trace と DOM コントロール・verdict バッジを同期 */
+function syncTraceControls() {
+  initTraceControls();
+  const src = document.getElementById("trace-src"), dst = document.getElementById("trace-dst"),
+        vb = document.getElementById("trace-verdict");
+  if (src && S.trace.src != null) src.value = S.trace.src;
+  if (dst) dst.value = S.trace.dst || "";
+  if (vb) { const r = S.trace.result;
+    vb.textContent = r ? (TRACE_VERDICT[r.verdict] || r.verdict) : "";
+    vb.className = r ? "tv-" + safeVerdict(r.verdict) : ""; }
+}
+/* トレース実行: 始点（未指定かつ単一選択ノードがあればそれ）＋宛先で traceForward */
+function runTrace() {
+  let src = (document.getElementById("trace-src") || {}).value || "";
+  if (!src && S.sel.size === 1) { const only = [...S.sel][0]; if (DATA.devices[only]) src = only; }
+  const dst = ((document.getElementById("trace-dst") || {}).value || "").trim();
+  S.trace.src = src; S.trace.dst = dst;
+  S.trace.result = (src && dst && DATA.fib && DATA.fib[src]) ? traceForward(DATA.fib, src, dst) : null;
+  update();
+}
+function clearTrace() {
+  S.trace.result = null; S.trace.dst = "";
+  const d = document.getElementById("trace-dst"); if (d) d.value = "";
+  update();
+}
+/* 詳細パネル用: トレース結果の hop 列＋verdict（全テキスト esc） */
+function renderTraceResult(r) {
+  const host = id => (DATA.devices[id] && DATA.devices[id].hostname) || id;
+  const rows = r.hops.map((h, i) => {
+    const m = h.matched;
+    let via = "—";
+    if (m) {
+      via = m.kind === "connected"
+        ? "connected (" + esc(m.ifname || "") + ")"
+        : esc(m.prefix) + " → " + (m.nh ? esc(m.nh) : "") + (m.target ? " [" + esc(host(m.target)) + "]" : "");
+    }
+    return `<tr><td>${i + 1}</td><td>${esc(host(h.dev))}</td><td class="dim-t">${via}</td></tr>`;
+  }).join("");
+  const ecmp = (r.ecmpBranches && r.ecmpBranches.length > 1)
+    ? `<div class="tnote" style="padding:6px 0">ECMP 候補: ${r.ecmpBranches.map(b => esc(b.nh || "") + (b.target ? "(" + esc(host(b.target)) + ")" : "")).join(" / ")}（トレースは先頭を選択）</div>` : "";
+  return `<div class="card"><div class="chead"><b>経路トレース</b> <span class="badge tv-${safeVerdict(r.verdict)}">${esc(TRACE_VERDICT[r.verdict] || r.verdict)}</span></div>` +
+    `<div class="csec"><table class="dt"><tr><th>#</th><th>機器</th><th>マッチ / next-hop</th></tr>${rows}</table>${ecmp}</div></div>`;
+}
+
 /* fcorpus.net = そのノードが接続する subnet 群（net: 演算子用。表ビューと同じ netOfV4 導出で件数を一致させる） */
 for (const [id,d] of Object.entries(DATA.devices)) {
   const nets = new Set();
@@ -760,6 +1046,9 @@ function adjacency() {
       if (e.kind === "loopback") add(e.a, e.b);
       if (e.kind === "external") add(e.a, e.ext);
     }
+  }
+  if (S.view === "static") {
+    for (const e of (DATA.static_edges || [])) if (e.b) add(e.a, e.b);
   }
   return adj;
 }
@@ -903,6 +1192,9 @@ function render() {
   /* 表ビュー: SVG の代わりに #tableview を表示し、グラフ専用コントロールを隠す */
   const tview = isTableView();
   document.querySelectorAll(".gonly").forEach(el => el.classList.toggle("hidden", tview));
+  /* STATIC 専用コントロール（経路トレース）は STATIC 図ビューのときだけ表示 */
+  document.querySelectorAll(".static-only").forEach(el => el.classList.toggle("hidden", S.view !== "static"));
+  if (S.view === "static") syncTraceControls();
   $("#tableview").style.display = tview ? "block" : "none";
   if (tview) {
     $("#legend").style.display = "none";
@@ -915,6 +1207,12 @@ function render() {
   graphSearchFeedback();   /* 表ビューから戻ったとき件数/警告をノード基準へ戻す */
   const showBgp  = S.view === "bgp";
   const showOspf = S.view === "ospf";
+  const showStatic = S.view === "static";
+  /* STATIC: トレース結果のハイライト集合（経路上の device と device→next エッジ） */
+  const traceResult = (showStatic && S.trace && S.trace.result) ? S.trace.result : null;
+  const traceDevs = new Set(traceResult ? traceResult.hops.map(h => h.dev) : []);
+  const traceEdgeSet = new Set();
+  if (traceResult) for (const h of traceResult.hops) if (h.next) traceEdgeSet.add(h.dev + ">" + h.next);
   const parts = [];
   const labelParts = [];  /* ライン/エッジのラベル（ノードより前面に描画するため device ノード後に統合）*/
 
@@ -1047,6 +1345,49 @@ function render() {
     }
   }
 
+  /* --- STATIC overlay（スタティック経路の方向線＋blackhole/dangling 終端＋トレース・ハイライト）--- */
+  if (showStatic) {
+    /* blackhole/dangling 終端ノードを親 device の周囲に扇状配置（POS 非登録・render 時派生・決定的） */
+    const sstubPos = {}, _sIdx = {};
+    for (const st of (DATA.static_stubs || [])) {
+      const base = POS[st.dev]; if (!base) continue;
+      const i = (_sIdx[st.dev] = (_sIdx[st.dev] || 0)); _sIdx[st.dev]++;
+      const ang = (35 + i * 30) * Math.PI / 180; const R = 120;   /* 物理 stub(-45°開始)と被らない向き */
+      sstubPos[st.id] = { x: Math.round((base.x + R * Math.cos(ang)) * 10) / 10,
+                          y: Math.round((base.y + R * Math.sin(ang)) * 10) / 10 };
+    }
+    /* 方向線（device → 対向 device or 終端 stub）。矢じり付き Q 曲線。 */
+    for (const e of (DATA.static_edges || [])) {
+      const a = POS[e.a]; if (!a) continue;
+      const b = e.b ? POS[e.b] : (e.stub ? sstubPos[e.stub] : null);
+      if (!b) continue;
+      const onTrace = e.b && traceEdgeSet.has(e.a + ">" + e.b);
+      const cls = ["se-edge"];
+      if (e.default) cls.push("se-default");
+      if (e.ecmp) cls.push("se-ecmp");
+      if (e.kind === "blackhole") cls.push("se-blackhole");
+      else if (e.kind === "dangling") cls.push("se-dangling");
+      else if (e.kind === "viaif") cls.push("se-viaif");
+      if (onTrace) cls.push("trace-edge");
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 26;
+      parts.push(`<path class="${cls.join(" ")}" data-elem="sedge" data-id="${esc(e.id)}" marker-end="url(#se-arrow)" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" style="cursor:pointer"/>`);
+      parts.push(`<path class="lk-hit" data-elem="sedge" data-id="${esc(e.id)}" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" fill="none"/>`);
+      /* ラベル（prefix・nh）: hover かトレース経路上のとき表示 */
+      if (hoverLink === e.id || onTrace) {
+        const lines = [e.prefix, e.nh ? "→ " + e.nh : null].filter(Boolean);
+        stackLabel(labelParts, mx, my - 9 - (lines.length - 1) * 13, lines, { show: true, deco: `sedge:${esc(e.id)}` });
+      }
+    }
+    /* 終端ノード（blackhole=✕ / dangling=? / viaif）。スポーク＋楕円。 */
+    for (const st of (DATA.static_stubs || [])) {
+      const base = POS[st.dev], p = sstubPos[st.id]; if (!base || !p) continue;
+      const glyph = st.kind === "blackhole" ? "✕" : st.kind === "dangling" ? "?" : "IF";
+      const ncls = ["sstubnode", st.kind === "blackhole" ? "se-blackhole" : st.kind === "dangling" ? "se-dangling" : "se-viaif"];
+      parts.push(`<g class="${ncls.join(" ")}" data-elem="sstub" data-id="${esc(st.id)}"><ellipse cx="${p.x}" cy="${p.y}" rx="52" ry="22"/>` +
+        `<text x="${p.x}" y="${p.y+4}" text-anchor="middle">${glyph} ${esc(st.label || st.kind)}</text></g>`);
+    }
+  }
+
   /* --- BGP edges --- */
   if (showBgp) {
     for (const e of DATA.bgpEdges) {
@@ -1130,6 +1471,7 @@ function render() {
     if (S.sel.has(id)) cls.push("selected");
     else if (hoverNode === id) cls.push("hovered");
     if (S.matches.includes(id)) cls.push("search-hit");
+    if (traceDevs.has(id)) cls.push("trace-hop");   /* STATIC トレース経路上の機器 */
     const vbarColor = S.view === "bgp" ? asColor(d.as) : (d.vendor === "cisco_ios" ? "#5b8def" : "#43b97f");
     const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
       : S.view === "bgp" ? (d.bgp_rid ? `rid ${d.bgp_rid}` : "bgp rid なし") : d.vendor;
@@ -1151,8 +1493,9 @@ function render() {
      （segById が DATA.segments を引けないとき stub_nodes をフォールバック）。
      同一 device 内の index を扇状に決定的配置（Math.round で決定化）。
      ハイライト・IF/IP ラベル（hover/選択/hot 時に stackLabel）も segment と完全に共通。
-     色は kind で区別（lpnode=loopback / stubnode=stub）。device ノードの後（前面）・labelParts 統合の前。 */
-  if (S.view !== "bgp") {
+     色は kind で区別（lpnode=loopback / stubnode=stub）。device ノードの後（前面）・labelParts 統合の前。
+     STATIC ビューでは描かない（forwarding オーバーレイに集中させ視覚ノイズを避ける）。 */
+  if (S.view !== "bgp" && S.view !== "static") {
     const _stubIdx = {};
     for (const st of (DATA.stub_nodes || [])) {
       if (S.view === "ospf" && !st.area) continue;   /* OSPF ビューは OSPF 参加（area あり）のみ */
@@ -1176,8 +1519,9 @@ function render() {
       const stroke = (showOspf && st.area) ? `stroke="${areaColor(String(st.area))}"` : "";
       parts.push(`<line class="lk ${edge?"sel-edge":""} ${segHot?"bgp-hot":""} ${hoverLink===sid?"lk-hover":""}" data-elem="seglink" data-id="${esid}" data-mem="${edev}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}" ${stroke}/>`);
       parts.push(`<line class="lk-hit" data-elem="seglink" data-id="${esid}" data-mem="${edev}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}"/>`);
-      /* IF/IP ラベル: 選択/ホバー/hot 時に segment と同じ stackLabel（楕円 hover でもスポーク hover でも出る） */
-      const showIf = S.sel.has(sid) || S.sel.has(st.dev) || hoverLink === sid || segHot;
+      /* IF/IP ラベル: この loopback/stub 自身の選択/スポークホバー/サブネット hot 時のみ（親機器選択には連動しない
+         ＝複数機器選択や、別 loopback/stub 選択で親機器が選択されても無関係なラベルを出さない）。 */
+      const showIf = S.sel.has(sid) || hoverLink === sid || segHot;
       if (showIf) {
         const t = 0.62;
         const lx = base.x + (sx-base.x)*t, ly = base.y + (sy-base.y)*t - 8;
@@ -1326,6 +1670,24 @@ function applyVisibility() {
       ? `seglink:${el.dataset.id}:${el.dataset.mem}` : `${el.dataset.elem}:${el.dataset.id}`;
     decoState[key] = { hidden, dim };
   });
+  /* STATIC オーバーレイ: 端点（始点 device・対向 device）が非表示/dim ならエッジも追従（宙吊り防止） */
+  world.querySelectorAll("[data-elem='sedge']").forEach(el => {
+    const e = (DATA.static_edges || []).find(x => x.id === el.dataset.id);
+    const ends = e ? [e.a, e.b].filter(Boolean) : [];
+    const hidden = !e || !ends.every(visible);
+    const dim = (S.matches.length > 0 && !ends.some(id => S.matches.includes(id)))
+             || (focusActive && !ends.every(id => focusSet.has(id)));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+  });
+  world.querySelectorAll("[data-elem='sstub']").forEach(el => {
+    const st = (DATA.static_stubs || []).find(x => x.id === el.dataset.id);
+    const dev = st ? st.dev : null;
+    const hidden = !dev || !visible(dev);
+    const dim = !!dev && ((S.matches.length > 0 && !S.matches.includes(dev)) || (focusActive && !focusSet.has(dev)));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+  });
   world.querySelectorAll("[data-deco]").forEach(el => {
     const st = decoState[el.dataset.deco];
     if (!st) return;
@@ -1350,7 +1712,9 @@ function renderDetails() {
   const sel = [...S.sel];
   $("#selcount").textContent = sel.length ? `${sel.length} selected` : "";
   const db = $("#dbody");
-  if (!sel.length) {
+  /* STATIC ビューでトレース結果があれば先頭に表示（選択が無くても表示する） */
+  const traceHtml = (S.view === "static" && S.trace && S.trace.result) ? renderTraceResult(S.trace.result) : "";
+  if (!sel.length && !traceHtml) {
     db.innerHTML = `<div class="placeholder">
       ノードを<b>クリック</b>すると詳細を表示します。<br>
       クリックで<b>選択/解除をトグル</b>（複数可）<br>
@@ -1379,6 +1743,7 @@ function renderDetails() {
     return;
   }
   const html = [];
+  if (traceHtml) html.push(traceHtml);
   /* 複数選択: 選択ノード間リンクの IF 情報 */
   if (sel.length >= 2) {
     const pairs = [];
@@ -1414,7 +1779,7 @@ function renderDetails() {
       </div>
       <div class="csec"><h4>INTERFACES (${d.ifs.length})</h4>
         <table class="dt"><tr><th>Name</th><th>IPv4</th><th>IPv6</th><th>Desc</th><th>St</th></tr>
-        ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=n0&&netDrawn(n0)?n0:null;const v6=ifV6List(i);return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}</td><td class="dim-t">${v6.length?v6.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>"):"—"}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
+        ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=(n0&&netDrawn(n0)?n0:null)||stubNetForDetail(id,i.n);const v6=ifV6List(i);return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}</td><td class="dim-t">${v6.length?v6.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>"):"—"}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
       ${d.bgp.length?`<div class="csec"><h4>BGP SESSIONS</h4>
         <table class="dt"><tr><th>neighbor</th><th>peer AS</th><th>type</th><th>af</th><th>src</th><th>attr</th></tr>
         ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td><td class="dim-t">${b.src?esc(b.src):"—"}</td><td class="dim-t">${[b.rr?"RR":null,b.nhs?"NHS":null].filter(Boolean).join(" ")||"—"}</td></tr>`).join("")}</table></div>`:""}
@@ -1494,7 +1859,7 @@ function graphSearchFeedback() {
 function renderTableView() {
   if (S.view === "checks") { $("#tableview").innerHTML = renderChecksView(); return; }
   if (S.view === "diff") { $("#tableview").innerHTML = renderDiffView(); return; }
-  if (S.view === "usage") { $("#tableview").innerHTML = renderSubnetUsageView(); return; }
+  if (S.view === "config") { $("#tableview").innerHTML = renderConfigView(); return; }
   $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
 }
 
@@ -1752,44 +2117,326 @@ function renderChecksView() {
   return html;
 }
 
-/* ================= SUBNETS view (D4 サブネット使用率集約) ================= */
-function renderSubnetUsageView() {
-  const usage = DATA.subnet_usage;
-  if (!usage || usage.length === 0) {
-    return '<div class="thead"><h3>SUBNETS</h3><span class="cnt">0 件</span></div>'
-      + '<div class="tnote" style="padding:18px 24px">v4 サブネット（/32 除外）が見つかりませんでした。</div>';
+/* ================= CONFIG view (生 running-config 閲覧・検索) =================
+   左ペイン=機器リスト（グローバル検索でフィルタ）/ 右ペイン=選択機器の生 config を行番号付きで表示。
+   検索 S.search は機器名/id/config 本文を横断し、一致機器を残し・一致行をハイライトする。
+   図との連動はしない（閲覧・検索専用）。原本そのまま表示のため機密が含まれ得る旨を警告する。 */
+
+/* ---- CONFIG ワークベンチ Phase B: 編集スクラッチ・source・行差分 ---- */
+const CFGSCRATCH_KEY = "ct-cfgscratch";
+(function initCfgScratch() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CFGSCRATCH_KEY) || "{}");
+    /* scratch:<id> キー・文字列値のみ採用（prototype 汚染・不正値の防御） */
+    for (const k of Object.keys(parsed)) {
+      if (k.startsWith("scratch:") && typeof parsed[k] === "string") S.configScratch[k] = parsed[k];
+    }
+  } catch (e) { /* localStorage 不可・不正 JSON はセッション内のみ */ }
+})();
+function saveCfgScratch() {
+  try { localStorage.setItem(CFGSCRATCH_KEY, JSON.stringify(S.configScratch)); } catch (e) { /* 永続化不可は無視 */ }
+}
+/* source key（"dev:<id>" / "prev:<id>"）→ 原本テキスト。
+   scratch:* は cfgTextOf 経由でのみ扱う（直接渡すと dev 扱いに誤落下するため呼び出し不可）。 */
+function cfgRawOf(key) {
+  const idx = key.indexOf(":");
+  const kind = key.slice(0, idx), id = key.slice(idx + 1);
+  if (kind === "prev") return (DATA.raw_configs_prev || {})[id] || "";
+  return (DATA.raw_configs || {})[id] || "";
+}
+/* 表示テキスト。scratch:* のみ編集バッファ（S.configScratch）を読む。
+   dev:/prev: は常に原本（cfgRawOf）→ 編集しても原本は保持され、原本 vs 編集の比較が成立する。 */
+function cfgTextOf(key) {
+  if (key.startsWith("scratch:")) return S.configScratch[key] != null ? S.configScratch[key] : cfgRawOf("dev:" + key.slice(8));
+  return cfgRawOf(key);
+}
+/* ペインの source key を解決: 自由比較は select.cfgsrc・編集モードは select 不在のため
+   textarea/ペインの data-cfgkey にフォールバック（保存/置換/差分/コピーで共通利用）。 */
+function cfgPaneKey(paneEl, ta) {
+  const sel = paneEl && paneEl.querySelector("select.cfgsrc");
+  if (sel) return sel.value;
+  return (ta && ta.dataset.cfgkey) || (paneEl && paneEl.dataset.cfgkey) || null;
+}
+/* 選択可能な source 一覧（現行 dev:* ＋ 前回 prev:* ＋ 既存の編集コピー scratch:*） */
+function cfgSources() {
+  const out = [];
+  const host = id => (DATA.devices[id] && DATA.devices[id].hostname) || id;
+  Object.keys(DATA.raw_configs || {}).sort().forEach(id => out.push({ key: "dev:" + id, label: host(id) }));
+  Object.keys(DATA.raw_configs_prev || {}).sort().forEach(id => out.push({ key: "prev:" + id, label: host(id) + " (前回)" }));
+  Object.keys(S.configScratch).sort().forEach(k => {
+    if (k.startsWith("scratch:")) out.push({ key: k, label: host(k.slice(8)) + " (編集中)" });
+  });
+  return out;
+}
+/* LCS 行整列: a→b の編集列を順序付き ops に分類（決定的）。
+   各 op は {t:"same",ai,bi} / {t:"del",ai}（a だけ＝削除） / {t:"add",bi}（b だけ＝追加）。
+   skipped=true は大規模で整列省略（呼び出し側は素のまま描画する）。 */
+function lineAlign(a, b) {
+  const n = a.length, m = b.length;
+  /* 同一テキストの早道（編集モード突入直後＝原本コピー等）: O(n) で全 same を返し DP を回避 */
+  if (n === m) {
+    let same = true;
+    for (let k = 0; k < n; k++) { if (a[k] !== b[k]) { same = false; break; } }
+    if (same) { const ops = []; for (let k = 0; k < n; k++) ops.push({ t: "same", ai: k, bi: k }); return { ops, skipped: false }; }
   }
-  const total = usage.length;
-  const exhausted_count = usage.filter(r => r.exhausted).length;
-  const summary = exhausted_count
-    ? `${total} サブネット（${exhausted_count} 件 exhausted）`
-    : `${total} サブネット`;
-  let html = `<div class="thead"><h3>SUBNETS</h3><span class="cnt">${esc(summary)}</span></div>`;
-  html += `<table class="dt" style="max-width:960px;margin:0 24px 48px"><tr>
-    <th>Subnet</th>
-    <th style="text-align:right">Usable</th>
-    <th style="text-align:right">Used</th>
-    <th style="text-align:right">Free</th>
-    <th style="text-align:right">Util%</th>
-    <th style="width:80px">Status</th></tr>`;
-  for (const r of usage) {
-    const utilPct = (r.util * 100).toFixed(1) + "%";
-    const statusCell = r.exhausted
-      ? `<span class="badge" style="color:var(--danger);border-color:var(--danger)">exhausted</span>`
-      : `<span class="badge" style="color:var(--accent2,#2a7)">ok</span>`;
-    const rowClass = r.exhausted ? ' class="trow chk-bad"' : ' class="trow"';
-    html += `<tr${rowClass}>
-      <td style="font-family:monospace">${esc(r.subnet)}</td>
-      <td style="text-align:right">${esc(r.usable)}</td>
-      <td style="text-align:right">${esc(r.used)}</td>
-      <td style="text-align:right">${esc(r.free)}</td>
-      <td style="text-align:right">${esc(utilPct)}</td>
-      <td>${statusCell}</td></tr>`;
+  /* O(n*m) DP のメモリ上限ガード（n*m が 4000000 以上＝約 2000行×2000行で整列省略） */
+  if (n * m >= 4000000) return { ops: [], skipped: true };
+  const dp = [];   /* Int32Array で行確保（ゼロ初期化・JS Array より省メモリ・LCS 長は min(n,m) で int32 内） */
+  for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { ops.push({ t: "same", ai: i, bi: j }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push({ t: "del", ai: i }); i++; }
+    else { ops.push({ t: "add", bi: j }); j++; }
   }
-  html += `</table>
-    <div class="tnote">使用率 = 使用 IP 数 / 収容可能数（v4・/32 除外）/ exhausted = 使用率 80% 以上（data_transform._EXHAUSTED_THRESHOLD=0.8 と同値）/
-    util 降順→ subnet 昇順で表示</div>`;
-  return html;
+  while (i < n) { ops.push({ t: "del", ai: i }); i++; }
+  while (j < m) { ops.push({ t: "add", bi: j }); j++; }
+  return { ops, skipped: false };
+}
+function cfgDiffCounts(ops) {
+  let adds = 0, dels = 0;
+  for (const o of ops) { if (o.t === "add") adds++; else if (o.t === "del") dels++; }
+  return { adds, dels };
+}
+/* 1 行の HTML（行番号セル＋本文。num=null は空セル・text=null は空行）。extraCls は前置きスペース込み */
+function cfgLineHtml(num, text, extraCls) {
+  const txt = text != null ? (esc(text) || "&nbsp;") : "&nbsp;";
+  return `<div class="cfgline${extraCls || ""}"><span class="cfgln">${num != null ? num : ""}</span><span class="cfgtx">${txt}</span></div>`;
+}
+/* 比較（両ペイン読取）の対称整列: same=両側に行・del=左に行(赤)＋右に空行・add=左に空行＋右に行(緑)。
+   両ペインの行数が一致＝完全整列。q は検索ヒット小文字。 */
+function cfgSymRows(lLines, rLines, q) {
+  const { ops, skipped } = lineAlign(lLines, rLines);
+  const hitCls = ln => (!!q && ln != null && ln.toLowerCase().includes(q)) ? " hit" : "";
+  if (skipped) {
+    return { left: lLines.map((ln, i) => cfgLineHtml(i + 1, ln, hitCls(ln))).join(""),
+             right: rLines.map((ln, i) => cfgLineHtml(i + 1, ln, hitCls(ln))).join(""),
+             adds: 0, dels: 0, skipped: true };
+  }
+  const L = [], R = [];
+  for (const o of ops) {
+    if (o.t === "same") { L.push(cfgLineHtml(o.ai + 1, lLines[o.ai], hitCls(lLines[o.ai]))); R.push(cfgLineHtml(o.bi + 1, rLines[o.bi], hitCls(rLines[o.bi]))); }
+    else if (o.t === "del") { L.push(cfgLineHtml(o.ai + 1, lLines[o.ai], " diff-del" + hitCls(lLines[o.ai]))); R.push(cfgLineHtml(null, null, " gap")); }
+    else { L.push(cfgLineHtml(null, null, " gap")); R.push(cfgLineHtml(o.bi + 1, rLines[o.bi], " diff-add" + hitCls(rLines[o.bi]))); }
+  }
+  const { adds, dels } = cfgDiffCounts(ops);
+  return { left: L.join(""), right: R.join(""), adds, dels, skipped: false };
+}
+/* 編集モードの左（編集前・読取）を右 textarea(=after) にライブ整列。
+   左はちょうど after.length 行（same→対応する before 行・add→空行ギャップ）＝textarea 各行と縦一致。
+   del（before だけの削除）は行を消費せず直後の左行に境界マーカー（.del-above[data-del=N]・高さ0）。
+   末尾削除のみ末尾に .cfgdelmark 行を許容（下に整列対象が無く安全）。 */
+function cfgEditLeftRows(before, after, q) {
+  const { ops, skipped } = lineAlign(before, after);
+  const { adds, dels } = skipped ? { adds: 0, dels: 0 } : cfgDiffCounts(ops);
+  const hit = ln => !!q && ln.toLowerCase().includes(q);
+  if (skipped) {
+    return { html: before.map((ln, i) => cfgLineHtml(i + 1, ln, hit(ln) ? " hit" : "")).join(""), adds, dels, skipped: true };
+  }
+  const rows = [];
+  let pendingDel = 0;
+  for (const o of ops) {
+    if (o.t === "del") { pendingDel++; continue; }
+    const delCls = pendingDel > 0 ? " del-above" : "";
+    const delAttr = pendingDel > 0 ? ` data-del="${pendingDel}"` : "";
+    pendingDel = 0;
+    if (o.t === "same") {
+      const ln = before[o.ai];
+      rows.push(`<div class="cfgline${hit(ln) ? " hit" : ""}${delCls}"${delAttr}><span class="cfgln">${o.ai + 1}</span><span class="cfgtx">${esc(ln) || "&nbsp;"}</span></div>`);
+    } else {   /* add: 右に追加された行に合わせ左は空行ギャップ */
+      rows.push(`<div class="cfgline gap${delCls}"${delAttr}><span class="cfgln"></span><span class="cfgtx">&nbsp;</span></div>`);
+    }
+  }
+  if (pendingDel > 0) rows.push(`<div class="cfgdelmark"><span class="cfgln"></span><span class="cfgtx">− 削除 ${pendingDel}行</span></div>`);
+  return { html: rows.join(""), adds, dels, skipped: false };
+}
+/* 編集モードのライブ差分更新: textarea(=after) と原本(=before) から左整列ペインのみ再描画
+   （textarea は触らずフォーカス保持・既存 300ms debounce）。比較モードは静的読取のため対象外。 */
+function updateCfgSplitDiff() {
+  if (!S.configEdit) return;
+  const split = document.querySelector("#tableview .cfgsplit");
+  if (!split) return;
+  const ta = split.querySelector("textarea.cfgedit");
+  const pre = split.querySelector(".cfgpre[data-cfgpre='L']");
+  if (!ta || !pre) return;
+  const leftPane = pre.closest(".cfgpane");
+  const lKey = leftPane && leftPane.dataset.cfgkey;   /* "dev:<cur>" */
+  const before = (lKey ? cfgTextOf(lKey) : "").replace(/\\n$/, "").split("\\n");
+  const after = ta.value.replace(/\\n$/, "").split("\\n");
+  const ed = cfgEditLeftRows(before, after, searchQuery().value);
+  pre.innerHTML = ed.html;
+  const sum = split.querySelector(".cfgdiffsum");
+  if (sum) sum.textContent = `+${ed.adds} −${ed.dels}` + (ed.skipped ? " (差分省略:大規模)" : "");
+}
+/* 2ペイン比較モード（読取専用・対称整列）。編集は「編集」モードへ分離（ここでは textarea を出さない）。 */
+function renderCfgSplit(q) {
+  const srcs = cfgSources();
+  let lKey = S.configSrcL || ("dev:" + (S.configDev || "")) ;
+  if (!srcs.some(s => s.key === lKey)) lKey = srcs[0].key;
+  let rKey = S.configSrcR || (srcs[1] ? srcs[1].key : srcs[0].key);
+  if (!srcs.some(s => s.key === rKey)) rKey = (srcs[1] || srcs[0]).key;
+  const lLines = cfgTextOf(lKey).replace(/\\n$/, "").split("\\n");
+  const rLines = cfgTextOf(rKey).replace(/\\n$/, "").split("\\n");
+  const sym = cfgSymRows(lLines, rLines, q);
+
+  const toolbar = `<div class="cfgtools">`
+    + `<button class="tbtn on" data-cfgtoggle="split" title="2ペイン比較を終了">比較</button>`
+    + `<button class="tbtn${S.configWrap ? " on" : ""}" data-cfgtoggle="wrap" title="長い行を折り返す">折返し</button>`
+    + `<span class="cfgdiffsum">+${sym.adds} −${sym.dels}${sym.skipped ? " (差分省略:大規模)" : ""}</span>`
+    + `<span class="sp"></span></div>`;
+
+  const selOf = (key, pane) => `<select class="cfgsrc" data-cfgpane="${pane}">`
+    + srcs.map(s => `<option value="${esc(s.key)}"${s.key === key ? " selected" : ""}>${esc(s.label)}</option>`).join("")
+    + `</select>`;
+  const pane = (key, side, rowsHtml) => `<div class="cfgpane">`
+    + `<div class="cfgpane-h">${selOf(key, side)}`
+    + `<button class="tbtn" data-cfgcopytext="${side}" title="このペインの内容をコピー">コピー</button></div>`
+    + `<div class="cfgpre${S.configWrap ? " wrap" : ""}" data-cfgpre="${side}">${rowsHtml}</div>`
+    + `</div>`;
+  return toolbar + `<div class="cfgsplit">`
+    + pane(lKey, "L", sym.left)
+    + pane(rKey, "R", sym.right)
+    + `</div>`;
+}
+
+/* ノード駆動編集モード（q=検索クエリ・cur=選択機器 id で固定）: 左=原本(編集前・読取専用)／
+   右=編集コピー(編集中・textarea)。source ドロップダウンは出さず data-cfgkey でペインの source を保持
+   （保存/置換/差分/コピーの各ハンドラが cfgPaneKey でそこから解決）。 */
+function renderCfgEdit(q, cur) {
+  const host = (DATA.devices[cur] && DATA.devices[cur].hostname) || cur;
+  const lKey = "dev:" + cur, rKey = "scratch:" + cur;
+  const before = cfgTextOf(lKey).replace(/\\n$/, "").split("\\n");
+  const after = cfgTextOf(rKey).replace(/\\n$/, "").split("\\n");
+  const ed = cfgEditLeftRows(before, after, q);
+
+  /* 折返しは出さない（行整列を保つため nowrap 固定） */
+  const toolbar = `<div class="cfgtools">`
+    + `<button class="tbtn on" data-cfgtoggle="edit" title="編集を終了して一覧に戻る">編集</button>`
+    + `<span class="cfgdiffsum">+${ed.adds} −${ed.dels}${ed.skipped ? " (差分省略:大規模)" : ""}</span>`
+    + `<span class="sp"></span></div>`;
+
+  /* 左: 読取専用・右 textarea にライブ整列（追加→空行ギャップ・削除→境界マーカー）。data-cfgkey で原本を保持 */
+  const lPane = `<div class="cfgpane" data-cfgkey="${esc(lKey)}">`
+    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="dim-t">(編集前)</span></span>`
+    + `<button class="tbtn" data-cfgcopytext="L" title="このペインの内容をコピー">コピー</button></div>`
+    + `<div class="cfgpre" data-cfgpre="L">${ed.html}</div></div>`;
+
+  /* 右: 編集コピー（find/replace＋textarea）。data-cfgkey で scratch を保持 */
+  const rPane = `<div class="cfgpane" data-cfgkey="${esc(rKey)}">`
+    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="cfgedited">編集中</span></span>`
+    + `<button class="tbtn" data-cfgcopytext="R" title="このペインの内容をコピー">コピー</button></div>`
+    + `<div class="cfgreplace"><input class="cfgfind" data-cfgpane="R" placeholder="検索文字列" spellcheck="false">`
+    + `<input class="cfgrepl" data-cfgpane="R" placeholder="置換文字列" spellcheck="false">`
+    + `<button class="tbtn" data-cfgreplace="R" title="検索文字列をすべて置換">全置換</button>`
+    + `<span class="cfgreplmsg" data-cfgpane="R"></span></div>`
+    + `<textarea class="cfgedit" data-cfgpane="R" data-cfgkey="${esc(rKey)}" spellcheck="false">${esc(cfgTextOf(rKey))}</textarea>`
+    + `</div>`;
+
+  return toolbar + `<div class="cfgsplit">` + lPane + rPane + `</div>`;
+}
+
+function renderConfigView() {
+  const raw = DATA.raw_configs || {};
+  const ids = Object.keys(raw).sort();
+  if (!ids.length) {
+    return '<div class="thead"><h3>CONFIG</h3><span class="cnt">0 件</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">保存された生 config がありません（再生成してください）。</div>';
+  }
+  /* 検索はグローバル検索バーを流用。演算子（host: 等）は素の値で扱い、未完演算子（"host:"）は
+     値が空＝フィルタ無効として他の表ビューとカウント表示を整合させる */
+  const q = searchQuery().value;
+  const hostOf = id => (DATA.devices[id] && DATA.devices[id].hostname) || id;
+  /* 検索: 機器名 / id / config 本文のいずれかにマッチする機器を残す（全文横断） */
+  const match = id => !q || hostOf(id).toLowerCase().includes(q)
+    || id.toLowerCase().includes(q) || raw[id].toLowerCase().includes(q);
+  const shown = ids.filter(match);
+  tableSearchFeedback(shown.length);
+
+  const head = `<div class="thead"><h3>CONFIG</h3><span class="cnt">${ids.length} 機器${q ? ` / ${shown.length} 一致` : ""}</span></div>`
+    + `<div class="cfgwarn">⚠ この表示は読み込んだ running-config を<b>原本のまま</b>含みます。`
+    + `password / secret / community / 鍵 等の機密が含まれる場合があります（共有・保存時は取り扱い注意）。</div>`;
+  if (!shown.length) {
+    return head + '<div class="tnote" style="padding:18px 24px">一致する機器がありません。</div>';
+  }
+  /* 2ペイン比較・編集モード（横並び。新旧版は --diff-against 時に prev:* が source に出る） */
+  if (S.configSplit) return head + renderCfgSplit(q);
+  /* 選択機器: 未選択/不在/絞り込みで外れた場合は一致先頭へ（cur は常に shown 内） */
+  let cur = S.configDev;
+  if (!cur || shown.indexOf(cur) < 0) cur = shown[0];
+  /* ノード駆動編集モード（選択機器の 編集前 vs 編集中）。編集対象は検索フィルタで切替えない
+     （編集中はリスト非表示・トグルの scratch 生成と同じ全機器ベースで cur を解決し機器すり替えを防ぐ） */
+  if (S.configEdit) {
+    let ecur = S.configDev;
+    if (!ecur || ids.indexOf(ecur) < 0) ecur = ids[0];
+    return head + renderCfgEdit(q, ecur);
+  }
+
+  /* 行数は本文と同じ数え方（末尾改行を1つ除いてから分割）でリストと本文を一致させる */
+  const lineCount = id => raw[id].replace(/\\n$/, "").split("\\n").length;
+  const devList = shown.map(id =>
+    `<div class="cfgdev${id === cur ? " active" : ""}" data-cfgdev="${esc(id)}">`
+    + `<span class="cfgdev-h">${esc(hostOf(id))}</span>`
+    + `<span class="cfgdev-c">${lineCount(id)} 行</span></div>`).join("");
+
+  /* parse 状態モード: DATA.parse_status[cur] が行配列としてあれば 3 段階色分け可能 */
+  const psArr = (DATA.parse_status || {})[cur];
+  const parseOn = S.configParse && Array.isArray(psArr);
+
+  /* 右ペイン本文: 末尾改行を除いて行分割し、行番号付きで描画（検索一致行をハイライト）。
+     grep モード時は一致行のみ・parse未対応のみ時は unparsed 行のみ抜粋（元行番号を保持）。 */
+  cfgHitIdx = -1;   /* ナビ位置をリセット（再描画ごと） */
+  const lines = raw[cur].replace(/\\n$/, "").split("\\n");
+  let hitCount = 0;
+  const psCount = { parsed: 0, ignored: 0, unparsed: 0 };
+  const rows = [];
+  lines.forEach((ln, i) => {
+    const hit = !!q && ln.toLowerCase().includes(q);
+    if (hit) hitCount++;
+    const ps = parseOn ? (psArr[i] || "unparsed") : null;
+    if (ps && psCount[ps] !== undefined) psCount[ps]++;
+    if (S.configGrep && q && !hit) return;                         /* grep: 一致行のみ */
+    if (parseOn && S.configUnparsedOnly && ps !== "unparsed") return; /* 未対応のみ */
+    /* ここは cfgLineHtml を使わない: parse 状態クラス(ps-*)と検索ナビ用 data-cfgi 属性が必要なため直書き */
+    rows.push(`<div class="cfgline${hit ? " hit" : ""}${ps ? " ps-" + ps : ""}" data-cfgi="${i}">`
+      + `<span class="cfgln">${i + 1}</span><span class="cfgtx">${esc(ln) || "&nbsp;"}</span></div>`);
+  });
+  const body = rows.join("");
+
+  /* ツールバー: 折返し / 一致行のみ(grep) / parse状態 トグル・検索一致行ナビ・全文コピー */
+  const navHtml = q
+    ? `<span class="cfgnav"><button class="tbtn" data-cfgnav="prev" title="前の一致行">‹</button>`
+      + `<span id="cfgnavpos">${hitCount ? "–/" + hitCount : "0/0"}</span>`
+      + `<button class="tbtn" data-cfgnav="next" title="次の一致行">›</button> 一致行</span>`
+    : "";
+  const parseToggle = Array.isArray(psArr)
+    ? `<button class="tbtn${S.configParse ? " on" : ""}" data-cfgtoggle="parse" title="parse できた行/未対応行を色分け">parse状態</button>`
+      + (parseOn ? `<button class="tbtn${S.configUnparsedOnly ? " on" : ""}" data-cfgtoggle="unparsed" title="未対応行のみ抜粋">未対応のみ</button>` : "")
+    : "";
+  const legend = parseOn
+    ? `<span class="cfglegend">`
+      + `<span class="ps-parsed">■</span>parse済 ${psCount.parsed}`
+      + ` <span class="ps-ignored">■</span>無視 ${psCount.ignored}`
+      + ` <span class="ps-unparsed">■</span>未対応 ${psCount.unparsed}</span>`
+    : "";
+  const toolbar = `<div class="cfgtools">`
+    + `<button class="tbtn" data-cfgtoggle="edit" title="選択中の機器を編集（編集前 vs 編集中）">編集</button>`
+    + `<button class="tbtn" data-cfgtoggle="split" title="2つの config を横並び比較">比較</button>`
+    + `<button class="tbtn${S.configWrap ? " on" : ""}" data-cfgtoggle="wrap" title="長い行を折り返す">折返し</button>`
+    + `<button class="tbtn${S.configGrep ? " on" : ""}" data-cfgtoggle="grep" title="検索一致行のみ抜粋">一致行のみ</button>`
+    + parseToggle
+    + navHtml
+    + legend
+    + `<span class="sp"></span>`
+    + `<button class="tbtn" data-cfgcopy="${esc(cur)}" title="この config 全文をコピー">コピー</button></div>`;
+
+  return head + toolbar
+    + `<div class="cfgwrap"><div class="cfglist">${devList}</div>`
+    + `<div class="cfgbody"><div class="cfgbody-h">${esc(hostOf(cur))} <span class="dim-t">(${esc(cur)})</span></div>`
+    + `<div class="cfgpre${S.configWrap ? " wrap" : ""}">${body}</div></div></div>`;
 }
 
 /* ================= DIFF view (D3b トポロジー差分表示) ================= */
@@ -2038,15 +2685,127 @@ $("#tableview").addEventListener("click", ev => {
     renderTableView(); return;
   }
   const cp = ev.target.closest("[data-copy]");
-  if (cp) copyTsv(cp);
+  if (cp) { copyTsv(cp); return; }
+  /* CONFIG ビュー: 左ペインの機器クリックで本文を切替 */
+  const cd = ev.target.closest("[data-cfgdev]");
+  if (cd) { S.configDev = cd.dataset.cfgdev; renderTableView(); return; }
+  /* CONFIG ツールバー: 折返し / grep トグル */
+  const ct = ev.target.closest("[data-cfgtoggle]");
+  if (ct) {
+    const t = ct.dataset.cfgtoggle;
+    if (t === "wrap") S.configWrap = !S.configWrap;
+    else if (t === "grep") S.configGrep = !S.configGrep;
+    else if (t === "parse") S.configParse = !S.configParse;
+    else if (t === "unparsed") S.configUnparsedOnly = !S.configUnparsedOnly;
+    else if (t === "split") { S.configSplit = !S.configSplit; if (S.configSplit) S.configEdit = false; }
+    else if (t === "edit") {
+      S.configEdit = !S.configEdit;
+      if (S.configEdit) {
+        S.configSplit = false;
+        /* 選択機器の編集コピーを原本から生成（既存編集は温存）。表示は cfgTextOf が原本フォールバック */
+        const keys = Object.keys(DATA.raw_configs || {}).sort();
+        let cur = S.configDev;
+        if (!cur || keys.indexOf(cur) < 0) cur = keys[0];
+        const sk = "scratch:" + cur;
+        if (cur && S.configScratch[sk] == null) { S.configScratch[sk] = cfgRawOf("dev:" + cur); saveCfgScratch(); }
+      }
+    }
+    renderTableView(); return;
+  }
+  /* CONFIG 2ペイン: ペイン内容コピー（編集中は textarea 値・通常は source テキスト） */
+  const cpt = ev.target.closest("[data-cfgcopytext]");
+  if (cpt) {
+    const paneEl = cpt.closest(".cfgpane");
+    const ta = paneEl && paneEl.querySelector("textarea.cfgedit");
+    const key = cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
+    copyText(ta ? ta.value : (key ? cfgTextOf(key) : ""), cpt);
+    return;
+  }
+  /* CONFIG 編集ペイン: リテラル全置換（検索文字列→置換文字列・全件）。再描画せず value 直接更新でフォーカス保持 */
+  const crp = ev.target.closest("[data-cfgreplace]");
+  if (crp) {
+    const paneEl = crp.closest(".cfgpane");
+    const ta = paneEl && paneEl.querySelector("textarea.cfgedit");
+    const find = paneEl && paneEl.querySelector("input.cfgfind");
+    const repl = paneEl && paneEl.querySelector("input.cfgrepl");
+    const msg = paneEl && paneEl.querySelector(".cfgreplmsg");
+    const key = ta && cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
+    if (ta && key && find) {
+      const f = find.value;
+      if (!f) { if (msg) msg.textContent = "検索文字列が空です"; return; }
+      const n = ta.value.split(f).length - 1;            /* リテラル一致件数 */
+      ta.value = ta.value.split(f).join(repl ? repl.value : "");
+      S.configScratch[key] = ta.value; saveCfgScratch();
+      updateCfgSplitDiff();
+      if (msg) msg.textContent = n + " 件置換";
+    }
+    return;
+  }
+  /* CONFIG 検索一致行ナビ: 再描画せず一致行へスクロール（フォーカス保持） */
+  const cn = ev.target.closest("[data-cfgnav]");
+  if (cn) {
+    const hits = [...document.querySelectorAll("#tableview .cfgline.hit")];
+    if (hits.length) {
+      hits.forEach(h => h.classList.remove("cur"));
+      /* 初回（cfgHitIdx=-1）は next→先頭・prev→末尾を選ぶ */
+      if (cfgHitIdx < 0) cfgHitIdx = cn.dataset.cfgnav === "next" ? 0 : hits.length - 1;
+      else cfgHitIdx = cn.dataset.cfgnav === "next"
+        ? (cfgHitIdx + 1) % hits.length
+        : (cfgHitIdx - 1 + hits.length) % hits.length;
+      const el = hits[cfgHitIdx];
+      el.classList.add("cur");
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      const pos = document.getElementById("cfgnavpos");
+      if (pos) pos.textContent = (cfgHitIdx + 1) + "/" + hits.length;
+    }
+    return;
+  }
+  /* CONFIG 全文コピー */
+  const cc = ev.target.closest("[data-cfgcopy]");
+  if (cc) { copyText((DATA.raw_configs || {})[cc.dataset.cfgcopy] || "", cc); return; }
 });
 /* 備考メモの編集確定（blur / Enter で change が発火）→ 永続保存。再描画は不要（値は DOM 反映済み） */
 $("#tableview").addEventListener("change", ev => {
+  /* CONFIG 2ペイン: source セレクタ切替 */
+  const sel = ev.target.closest("select.cfgsrc");
+  if (sel) {
+    if (sel.dataset.cfgpane === "L") S.configSrcL = sel.value;
+    else S.configSrcR = sel.value;
+    renderTableView(); return;
+  }
   const ni = ev.target.closest("input.noteinput");
   if (!ni) return;
   const [d, ...rest] = ni.dataset.note.split(":");
   setPortNote(d, rest.join(":"), ni.value.trim());
 });
+/* CONFIG 2ペイン: 編集スクラッチ入力 → localStorage 保存＋ライブ差分更新（textarea 再描画なし＝フォーカス保持）。
+   差分再計算は連続入力中の負荷を抑えるためデバウンス（保存自体は即時） */
+let _cfgDiffTimer = null;
+$("#tableview").addEventListener("input", ev => {
+  const ta = ev.target.closest("textarea.cfgedit");
+  if (!ta) return;
+  const paneEl = ta.closest(".cfgpane");
+  const key = cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
+  if (key) { S.configScratch[key] = ta.value; saveCfgScratch(); }
+  if (_cfgDiffTimer) clearTimeout(_cfgDiffTimer);
+  _cfgDiffTimer = setTimeout(updateCfgSplitDiff, 300);
+});
+/* 編集モードの縦スクロール同期: textarea ⇄ 左整列ペインの scrollTop を合わせ行整列を保つ
+   （scroll はバブリングしないため capture フェーズで受ける。再入は _cfgScrollLock で防止）。 */
+let _cfgScrollLock = false;
+$("#tableview").addEventListener("scroll", ev => {
+  if (!S.configEdit || _cfgScrollLock) return;
+  const t = ev.target;
+  if (!t.closest) return;
+  const split = t.closest(".cfgsplit");
+  if (!split) return;
+  const ta = split.querySelector("textarea.cfgedit");
+  const pre = split.querySelector(".cfgpre[data-cfgpre='L']");
+  if (!ta || !pre || (t !== ta && t !== pre)) return;
+  _cfgScrollLock = true;
+  if (t === ta) pre.scrollTop = ta.scrollTop; else ta.scrollTop = pre.scrollTop;
+  _cfgScrollLock = false;
+}, true);
 function copyTsv(btn) {
   const done = () => { btn.textContent = "✓"; setTimeout(() => { btn.textContent = "コピー"; }, 900); };
   const fallback = () => {
@@ -2057,6 +2816,20 @@ function copyTsv(btn) {
   };
   if (navigator.clipboard && navigator.clipboard.writeText)
     navigator.clipboard.writeText(lastTsv).then(done, fallback);
+  else fallback();
+}
+/* 任意テキストをクリップボードへ（copyTsv の汎用版・ボタンに ✓ フィードバック） */
+function copyText(text, btn) {
+  const orig = btn.textContent;
+  const done = () => { btn.textContent = "✓"; setTimeout(() => { btn.textContent = orig; }, 900); };
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* clipboard 不可環境では無視 */ }
+    ta.remove(); done();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
 
@@ -2150,11 +2923,15 @@ window.addEventListener("mousemove", ev => {
   let need = nid !== hoverNode;
   hoverNode = nid;
   /* ライン/セグメント hover はハイライト＋IF/IP ラベルのみ（説明ツールチップは出さない） */
-  const lk = ev.target.closest("[data-elem='link'],[data-elem='seglink'],[data-elem='bgpedge']");
+  const lk = ev.target.closest("[data-elem='link'],[data-elem='seglink'],[data-elem='bgpedge'],[data-elem='sedge']");
   const seg = ev.target.closest("[data-elem='seg']");
   if (lk && lk.dataset.elem === "link") {
     const l = DATA.links.find(x=>x.id===lk.dataset.id);
     if (hoverLink !== l.id) { hoverLink = l.id; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  } else if (lk && lk.dataset.elem === "sedge") {
+    /* STATIC 方向線 hover → prefix/nh ラベル表示（hoverLink に se:N を入れる） */
+    if (hoverLink !== lk.dataset.id) { hoverLink = lk.dataset.id; need = true; }
     if (hoverBgp) { hoverBgp = null; need = true; }
   } else if ((lk && lk.dataset.elem === "seglink") || seg) {
     const sid = seg ? seg.dataset.id : lk.dataset.id;
@@ -2233,6 +3010,16 @@ function lpId(st) { return st.dev + ":" + st.ifn; }
 /* stub/loopback ノードを id（dev:ifn）で O(1) 引きするための索引（DATA 不変なので一度だけ構築。
    segById が hover/click/applyVisibility のホットパスで線形 find しないため）。 */
 const STUB_BY_ID = new Map((DATA.stub_nodes || []).map(st => [lpId(st), st]));
+/* DEVICE DETAILS の IF 行用: その (dev, ifn) が現ビューで描画される stub/loopback ノードなら subnet を返す。
+   IP2NET には stub の IP が無いため詳細パネルの IF 行へ data-net を付けてクリック選択（setHotNet→netNodes）に乗せる。
+   BGP ビューは stub を描画しない・OSPF ビューは area 参加のみ描画＝それ以外は null（選択不可）。 */
+function stubNetForDetail(devId, ifn) {
+  const st = STUB_BY_ID.get(devId + ":" + ifn);
+  if (!st) return null;
+  if (S.view === "bgp") return null;
+  if (S.view === "ospf" && !st.area) return null;
+  return st.subnet;
+}
 /* stub/loopback ノードがカテゴリトグル（S.filters.lo / S.filters.stub）で非表示か。
    segment の S.filters.seg と対をなす全体表示トグル（visible/selectable 共用）。 */
 function stubFiltered(id) {
@@ -2342,6 +3129,11 @@ $("#zin").onclick = () => { S.k = Math.min(4, S.k*1.25); applyTransform(); };
 $("#zout").onclick = () => { S.k = Math.max(.25, S.k/1.25); applyTransform(); };
 $("#zfit").onclick = zoomFit;
 $("#zreset").onclick = zoomReset;
+
+/* STATIC 経路トレース UI */
+$("#trace-go").onclick = runTrace;
+$("#trace-clear").onclick = clearTrace;
+$("#trace-dst").addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); runTrace(); } });
 
 /* tabs */
 $("#tabs").addEventListener("click", ev => {
@@ -2533,7 +3325,7 @@ window.addEventListener("keydown", ev => {
     const si = $("#search"); si.focus(); si.select();
     return;
   }
-  if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName) || ev.target.isContentEditable) return;
   if (ev.key === "f" || ev.key === "F") zoomFit();
   else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
   else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }

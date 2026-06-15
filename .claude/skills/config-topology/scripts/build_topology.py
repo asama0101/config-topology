@@ -25,7 +25,7 @@ def main(argv=None):
     if not files:
         print("[WARN] 対象 config が見つかりません（拡張子: .cfg/.conf/.txt）", file=sys.stderr)
 
-    parsed, basenames, warnings, verdicts = [], [], [], []
+    parsed, basenames, raw_texts, parse_statuses, warnings, verdicts = [], [], [], [], [], []
     for f in files:
         try:
             text = Path(f).read_text(encoding="utf-8", errors="replace")
@@ -38,8 +38,9 @@ def main(argv=None):
             print("[WARN] %s: skipped (unknown vendor)" % name, file=sys.stderr)
             verdicts.append((name, None))
             continue
+        line_status = []                  # CONFIG parse 状態モード用に行ごとの認識可否を収集
         try:
-            dev = parse_config(text, warnings)
+            dev = parse_config(text, warnings, line_status=line_status)
         except Exception as e:                        # noqa: BLE001
             print("[WARN] %s: パース中の例外につきスキップ (%s)" % (name, e), file=sys.stderr)
             verdicts.append((name, None))
@@ -50,10 +51,12 @@ def main(argv=None):
             continue
         parsed.append(dev)
         basenames.append(name)
+        raw_texts.append(text)            # CONFIG ビュー用に生 config を保持（parsed と並走）
+        parse_statuses.append(line_status)
         verdicts.append((name, vendor))
         print("[INFO] %s: %s" % (name, vendor), file=sys.stderr)
 
-    topo = build_topology(parsed, basenames)
+    topo = build_topology(parsed, basenames, raw_texts=raw_texts, parse_statuses=parse_statuses)
 
     # §10.3 history 退避（既定パス運用時のみ ./topology.html もペア退避）
     out_dir = Path(args.output)

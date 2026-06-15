@@ -48,9 +48,14 @@
 ## パーサ共通インターフェース（lib/parsers/__init__.py）
 
 - `detect_vendor(text: str) -> str | None` — ベンダー ID を返す（JunOS → IOS の順で特異度高い順に判定。一元管理）
-- `parse_config(text: str, warnings) -> Device | None` — ベンダー判定 → 対応パーサへ dispatch・正規化モデルを返す
+- `parse_config(text, warnings=None, line_status=None) -> Device | None` — ベンダー判定 → 対応パーサへ dispatch・正規化モデルを返す
 
 `lib/inputs.py` / `scripts/parse_configs.py` はファイルごとに `parse_config()` を呼び、`Device` または `None` を受け取る。
+
+**`line_status` opt-in（CONFIG parse 状態モード用）**: `parse_config`／各パーサ（`parse_ios`/`parse_junos`）は任意の出力リスト `line_status` を受け取る。
+指定時は各行を `"parsed"`（モデルに寄与＝認識した行）/`"ignored"`（コメント・空行・`end`・機密行〔`is_sensitive_line`〕）/`"unparsed"`（パーサが見たが拾えない＝見落とし候補）に分類し、末尾で `extend` する。
+**判定基準は「正規表現/キーワードが一致したか」**（値が未対応・パース失敗でも認識すれば `"parsed"`）。`line_status` 未指定時はモデル出力・挙動は完全に従来通り。
+**新ベンダー追加時もこの opt-in を実装すること**（メインループを `enumerate` 化し、認識分岐で `"parsed"`・無視行で `"ignored"` を立て、未指定時は記録しない）。`build_topology` が device id をキーに `topo["parse_status"]` へ集約し `raw_config.yaml` に保存、`DATA.parse_status` 経由で CONFIG ビューが 3 色分け描画する。
 
 ## Cisco IOS / IOS-XE（lib/parsers/ios.py）
 

@@ -1944,3 +1944,56 @@ def test_ios_ip_ospf_iface_no_v4_addr_skipped_strict():
     assert ospf_v4 == []
     # Assert: 警告ゼロ（この最小 config では警告は一切出ない）
     assert warnings == []
+
+
+# ---------------------------------------------------------------------------
+# CONFIG parse 状態モード — line_status（実消費行記録・3段階）
+# ---------------------------------------------------------------------------
+
+def test_line_status_three_states():
+    """line_status に parsed / ignored / unparsed が行ごとに記録されること。"""
+    text = (
+        "!\n"                              # 0 ignored (comment)
+        "hostname R1\n"                    # 1 parsed
+        "\n"                               # 2 ignored (blank)
+        "interface Gi0/0\n"                # 3 parsed
+        " ip address 10.0.0.1 255.255.255.252\n"  # 4 parsed
+        " foobar-unknown-command\n"        # 5 unparsed (見落とし候補)
+        "!\n"                              # 6 ignored
+        "router ospf 1\n"                  # 7 parsed
+        " network 192.168.1.0 0.0.0.255 area 0\n"  # 8 parsed
+        "end\n"                            # 9 ignored
+    )
+    ls = []
+    parse_ios(text, [], line_status=ls)
+    assert len(ls) == len(text.splitlines())
+    assert ls[0] == "ignored"
+    assert ls[1] == "parsed"
+    assert ls[2] == "ignored"
+    assert ls[3] == "parsed"
+    assert ls[4] == "parsed"
+    assert ls[5] == "unparsed"
+    assert ls[6] == "ignored"
+    assert ls[7] == "parsed"
+    assert ls[8] == "parsed"
+    assert ls[9] == "ignored"
+
+
+def test_line_status_optional_no_regression(ios_cfg_text):
+    """line_status 未指定時は従来通り Device を返す（モデル出力不変・回帰ガード）。"""
+    dev_a = parse_ios(ios_cfg_text, [])
+    ls = []
+    dev_b = parse_ios(ios_cfg_text, [], line_status=ls)
+    # 同一入力 → 同一モデル（to_dict で比較）
+    assert dev_a.to_dict() == dev_b.to_dict()
+    # line_status は全行分の長さ
+    assert len(ls) == len(ios_cfg_text.splitlines())
+    assert set(ls) <= {"parsed", "ignored", "unparsed"}
+
+
+def test_line_status_comment_with_text_is_ignored():
+    """`! コメント文`（! の後にテキスト）も ignored 分類されること（unparsed 誤検知を防ぐ）。"""
+    text = "! this is a banner comment\nhostname R1\n"
+    ls = []
+    parse_ios(text, [], line_status=ls)
+    assert ls == ["ignored", "parsed"]

@@ -1,0 +1,70 @@
+parse_status:
+  r1:
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - ignored
+  r2:
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - unparsed
+  - parsed
+  - parsed
+raw_configs:
+  r1: "!\n! Cisco IOS / IOS-XE running-config (sample)\n!\nhostname R1\n!\ninterface\
+    \ GigabitEthernet0/0\n description to-R2\n ip address 10.0.0.1 255.255.255.252\n\
+    \ no shutdown\n!\ninterface GigabitEthernet0/1\n description LAN\n ip address\
+    \ 192.168.1.1 255.255.255.0\n!\ninterface Loopback0\n ip address 1.1.1.1 255.255.255.255\n\
+    !\nrouter bgp 65001\n neighbor 10.0.0.2 remote-as 65002\n!\nrouter ospf 1\n network\
+    \ 192.168.1.0 0.0.0.255 area 0\n!\nip route 0.0.0.0 0.0.0.0 10.0.0.2\n!\nend\n"
+  r2: '## Juniper JunOS configuration in `set` format (sample)
+
+    set system host-name R2
+
+    set interfaces ge-0/0/0 description to-R1
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.2/30
+
+    set interfaces ge-0/0/1 description LAN2
+
+    set interfaces ge-0/0/1 unit 0 family inet address 192.168.2.1/24
+
+    set interfaces lo0 unit 0 family inet address 2.2.2.2/32
+
+    set routing-options autonomous-system 65002
+
+    set protocols bgp group ext type external
+
+    set protocols bgp group ext neighbor 10.0.0.1 peer-as 65001
+
+    set routing-options static route 0.0.0.0/0 next-hop 10.0.0.1
+
+    '

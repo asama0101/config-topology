@@ -13,7 +13,8 @@ GOLDEN_DIR = REBUILD_ROOT / "dev" / "examples" / "topology"
 CLI = REBUILD_ROOT / "scripts" / "build_topology.py"
 
 GOLDEN_FILES = ["_meta.yaml", "devices.yaml", "physical.yaml",
-                "routing.bgp.yaml", "routing.ospf.yaml", "routing.static.yaml"]
+                "routing.bgp.yaml", "routing.ospf.yaml", "routing.static.yaml",
+                "raw_config.yaml"]
 
 
 def _build(out_dir):

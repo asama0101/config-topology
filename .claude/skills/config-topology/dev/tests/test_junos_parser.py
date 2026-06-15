@@ -727,3 +727,38 @@ def test_junos_group_peer_as_no_peer_group_field_emitted():
     dev, warnings = _parse(text)
     # Assert: peer_group は None（JunOS では設定しない）
     assert dev.bgp[0].peer_group is None
+
+
+# ---------------------------------------------------------------------------
+# CONFIG parse 状態モード — line_status（実消費行記録・3段階）
+# ---------------------------------------------------------------------------
+
+def test_line_status_three_states():
+    """JunOS: set 行=parsed / 非 set 行=ignored / 未対応 set 行=unparsed。"""
+    text = (
+        "## comment line\n"                                       # 0 ignored (非 set)
+        "set system host-name R2\n"                               # 1 parsed
+        "\n"                                                      # 2 ignored (blank)
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.2/30\n"  # 3 parsed
+        "set interfaces ge-0/0/0 unit 0 family mpls\n"            # 4 unparsed (未対応 body)
+        "set protocols frobnicate widget 5\n"                     # 5 unparsed (未対応 set 行)
+    )
+    ls = []
+    parse_junos(text, [], line_status=ls)
+    assert len(ls) == len(text.splitlines())
+    assert ls[0] == "ignored"
+    assert ls[1] == "parsed"
+    assert ls[2] == "ignored"
+    assert ls[3] == "parsed"
+    assert ls[4] == "unparsed"
+    assert ls[5] == "unparsed"
+
+
+def test_line_status_optional_no_regression(junos_cfg_text):
+    """line_status 未指定時は従来通り Device を返す（モデル出力不変・回帰ガード）。"""
+    dev_a = parse_junos(junos_cfg_text, [])
+    ls = []
+    dev_b = parse_junos(junos_cfg_text, [], line_status=ls)
+    assert dev_a.to_dict() == dev_b.to_dict()
+    assert len(ls) == len(junos_cfg_text.splitlines())
+    assert set(ls) <= {"parsed", "ignored", "unparsed"}

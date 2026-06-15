@@ -40,15 +40,19 @@ def detect_vendor(text):
     return None
 
 
-def parse_config(text, warnings=None):
-    """ベンダー判定 → 対応パーサへ dispatch。未知は None（§2.3）。"""
+def parse_config(text, warnings=None, line_status=None):
+    """ベンダー判定 → 対応パーサへ dispatch。未知は None（§2.3）。
+
+    line_status: 任意の出力リスト。指定時は各行の parse 状態（parsed/ignored/unparsed）を
+    パーサが末尾で extend する（CONFIG parse 状態モード用）。未指定時は従来挙動。
+    """
     if warnings is None:
         warnings = []
     vendor = detect_vendor(text)
     if vendor == "juniper_junos":
         from .junos import parse_junos
-        return parse_junos(text, warnings)
+        return parse_junos(text, warnings, line_status=line_status)
     if vendor == "cisco_ios":
         from .ios import parse_ios
-        return parse_ios(text, warnings)
+        return parse_ios(text, warnings, line_status=line_status)
     return None

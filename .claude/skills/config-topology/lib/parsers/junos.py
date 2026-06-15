@@ -58,10 +58,11 @@ def _ospf_v4_network(iface: Interface) -> str | None:
     return None
 
 
-def _parse_if_body(iface: Interface, rest: str, warnings: list) -> None:
+def _parse_if_body(iface: Interface, rest: str, warnings: list) -> bool:
     """`set interfaces <if> <rest>` の <rest> を解析し iface をミューテートする（§6.2）。
 
     認識できない行は無視する（クラッシュしない）。パース失敗は warnings へ追記する（§6.3）。
+    認識した（パターン一致した）場合 True、未対応は False を返す（parse 状態判定用）。
     対応フィールド:
       - description
       - disable → shutdown / admin_status
@@ -73,22 +74,22 @@ def _parse_if_body(iface: Interface, rest: str, warnings: list) -> None:
     m = re.match(r"^description\s+(.*)$", rest)
     if m:
         iface.description = m.group(1).strip().strip('"')
-        return
+        return True
     if rest == "disable":
         iface.shutdown = True
-        return
+        return True
     m = re.match(r"^mtu\s+(\d+)", rest)
     if m:
         iface.mtu = int(m.group(1))
-        return
+        return True
     m = re.match(r"^speed\s+(\S+)", rest)
     if m:
         iface.speed = m.group(1)
-        return
+        return True
     m = re.match(r"^encapsulation\s+(\S+)", rest)
     if m:
         iface.encapsulation = m.group(1)
-        return
+        return True
     m = re.match(r"^unit\s+\d+\s+family\s+inet\s+address\s+(\S+)", rest)
     if m:
         cidr = m.group(1)
@@ -98,7 +99,7 @@ def _parse_if_body(iface: Interface, rest: str, warnings: list) -> None:
             _set_l3(iface)
         except Exception as e:                       # noqa: BLE001
             warnings.append("junos inet address parse failed: %s (%s)" % (rest, e))
-        return
+        return True
     m = re.match(r"^unit\s+\d+\s+family\s+inet6\s+address\s+(\S+)", rest)
     if m:
         cidr = m.group(1)
@@ -109,16 +110,20 @@ def _parse_if_body(iface: Interface, rest: str, warnings: list) -> None:
             _set_l3(iface)
         except Exception as e:                       # noqa: BLE001
             warnings.append("junos inet6 address parse failed: %s (%s)" % (rest, e))
-        return
+        return True
     if re.match(r"^unit\s+\d+\s+family\s+ethernet-switching", rest):
         iface.l2_l3 = "l2"
-        return
+        return True
+    return False
 
 
-def parse_junos(text: str, warnings: list) -> Device:
+def parse_junos(text: str, warnings: list, line_status=None) -> Device:
     """JunOS set 形式 config を解析し正規化 Device を返す（要件書 §6.2）。
 
     パース失敗行は握りつぶし warnings(list) に文字列を追記し継続する（§6.3）。
+
+    line_status: 任意の出力リスト。指定時は各行を "parsed"/"ignored"/"unparsed" で分類し
+    末尾で extend する。非 set 行（コメント/空行等）は "ignored"。**未指定時はモデル出力は従来通り**。
 
     JunOS 固有の設計:
       - unit N address は base IF（ge-0/0/0.0 → ge-0/0/0）に集約（§6.2）
@@ -145,13 +150,20 @@ def parse_junos(text: str, warnings: list) -> Device:
             ifaces[name] = Interface(name=name)
         return ifaces[name]
 
-    for raw in text.splitlines():
+    lines = text.splitlines()
+    status = ["unparsed"] * len(lines)   # 既定は未対応。set 行は楽観的に parsed、未マッチ末尾で unparsed に戻す
+
+    for i, raw in enumerate(lines):
         if is_sensitive_line(raw):
+            # 機密行は意図的にパースしない設計 → "ignored"（見落とし候補=unparsed には含めない）
+            status[i] = "ignored"
             continue
         s = raw.strip()
         if not s.startswith("set "):
+            status[i] = "ignored"   # 非 set 行（コメント/空行/他ディレクティブ）はパース対象外
             continue
         body = s[4:].strip()
+        status[i] = "parsed"        # set 行は楽観的に parsed（どのハンドラにも一致しなければ末尾で unparsed）
 
         # system host-name
         m = re.match(r"^system host-name\s+(\S+)", body)
@@ -162,7 +174,8 @@ def parse_junos(text: str, warnings: list) -> Device:
         # interfaces <name> <rest>
         m = re.match(r"^interfaces\s+(\S+)\s+(.*)$", body)
         if m:
-            _parse_if_body(get_if(m.group(1)), m.group(2), warnings)
+            # interfaces 行と認識しても body（サブコマンド）が未対応なら unparsed（突合の正確性）
+            status[i] = "parsed" if _parse_if_body(get_if(m.group(1)), m.group(2), warnings) else "unparsed"
             continue
 
         # routing-options autonomous-system
@@ -323,6 +336,12 @@ def parse_junos(text: str, warnings: list) -> Device:
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos static parse failed: %s (%s)" % (body, e))
             continue
+
+        # どのハンドラにも一致しなかった set 行 = 未対応（見落とし候補）
+        status[i] = "unparsed"
+
+    if line_status is not None:
+        line_status.extend(status)
 
     # cluster を持つ group の neighbor に route_reflector_client=True を設定（末尾一括適用）
     # JunOS の next_hop_self はポリシーベースのため本実装では対象外（False 固定・docstring 明記）

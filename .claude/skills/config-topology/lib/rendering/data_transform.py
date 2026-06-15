@@ -8,10 +8,6 @@ from collections import defaultdict
 # ブロードキャスト・未指定アドレスを含む。
 _SPECIAL_NH = frozenset(["0.0.0.0", "::", "255.255.255.255"])
 
-# サブネット使用率 exhausted 判定閾値（util >= この値 → exhausted=True）。
-# assets.py の renderSubnetUsageView tnote 文言「exhausted = 使用率 80% 以上」と同値。
-_EXHAUSTED_THRESHOLD = 0.8
-
 # loopback インタフェース名の判定正規表現。JS の ifKind 判定 /^lo(opback)?\d*$/i と同一基準。
 # 一致例: lo / lo0 / Loopback0 / Lo10 / loopback1 / LOOPBACK0
 # 非一致例: GigabitEthernet0/0 / Gi0/0 / ge-0/0/0 / eth0 / Vlan1
@@ -217,6 +213,50 @@ def _ip_owner_if(topo, ip):
             if a["ip"] == ip:
                 return itf["device"], itf["name"]
     return None, None
+
+
+def _build_host_ip_index(topo):
+    """host IP → (device, ifname) 逆引き辞書（link-local 除外・(device,name) 辞書順で先勝ち固定）。
+
+    iBGP full-mesh 判定（neighbor_ip → 対向 device）と FIB の next-hop 解決で共用。
+    決定性のため辞書順ソート＋先勝ち。`_ip_to_device` と異なり link-local を除外する。
+    """
+    idx: dict = {}
+    for itf in sorted(topo["interfaces"], key=lambda x: (x["device"], x["name"])):
+        for a in itf["addresses"]:
+            if a.get("scope") == "link-local":
+                continue
+            ip = a.get("ip")
+            if ip and ip not in idx:
+                idx[ip] = (itf["device"], itf["name"])
+    return idx
+
+
+def _build_subnet_index(topo):
+    """全 IF の (network_object, device, ifname) リストと host IP 集合を返す（link-local 除外）。
+
+    static の next-hop がどの connected サブネット/ホスト IP に属すかの判定に使う
+    （static_dangling_next_hop チェックと FIB の next-hop 解決で共用）。
+    """
+    subnets = []            # [(network_obj, device, ifname)]
+    host_ips = set()
+    for itf in topo["interfaces"]:
+        for a in itf["addresses"]:
+            if a.get("scope") == "link-local":
+                continue
+            ip = a.get("ip")
+            if not ip:
+                continue
+            prefix = a.get("prefix")
+            if prefix is None:
+                continue
+            try:
+                net = ipaddress.ip_network("%s/%s" % (ip, prefix), strict=False)
+            except ValueError:
+                continue
+            subnets.append((net, itf["device"], itf["name"]))
+            host_ips.add(ip)
+    return subnets, host_ips
 
 
 def _link_id_for_pair(topo, ip_a, ip_b):
@@ -469,17 +509,9 @@ def _check_ibgp_fullmesh(topo):
     返り値: [{"severity": "warning", "kind": "ibgp_fullmesh_incomplete", ...}, ...]
       - refs = [di, dj, str(asn)]  di < dj（id 昇順）
     """
-    # host IP → device 逆引き（link-local 除外・先勝ち順固定）
-    # _ip_to_device() を使わない理由: link-local 除外と先勝ち順固定（device/name 辞書順）が必要。
-    # _ip_to_device() は link-local を含み・重複時の順序が保証されない。
-    host_ip_to_device: dict = {}
-    for itf in sorted(topo["interfaces"], key=lambda x: (x["device"], x["name"])):
-        for a in itf["addresses"]:
-            if a.get("scope") == "link-local":
-                continue
-            ip = a.get("ip")
-            if ip and ip not in host_ip_to_device:
-                host_ip_to_device[ip] = itf["device"]
+    # host IP → device 逆引き（link-local 除外・先勝ち順固定）。
+    # _build_host_ip_index は (device, ifname) を返すため device 部分のみ取り出す。
+    host_ip_to_device = {ip: dv for ip, (dv, _ifn) in _build_host_ip_index(topo).items()}
 
     # AS ごとに iBGP セッションを集約
     # as_sessions: {local_as: [entry]}
@@ -655,27 +687,10 @@ def build_checks(topo, links=None):
             })
 
     # ---- ルール 4: static_dangling_next_hop ----
-    # 全 IF のアドレスから、サブネット集合とホスト IP 集合を構築。
-    # link-local（scope="link-local"）は除外：fe80::/64 が all_subnets に入ると
-    # next_hop が fe80:: 帯に属するとして誤判定されるリスクがあるため。
-    all_subnets = []   # [(network_object, ...)]
-    all_host_ips = set()
-    for itf in topo["interfaces"]:
-        for a in itf["addresses"]:
-            if a.get("scope") == "link-local":
-                continue  # link-local は静的ルーティングの参照対象外
-            ip = a.get("ip")
-            if not ip:
-                continue
-            prefix = a.get("prefix")
-            if prefix is None:
-                continue
-            try:
-                net = ipaddress.ip_network("%s/%s" % (ip, prefix), strict=False)
-                all_subnets.append(net)
-                all_host_ips.add(ip)
-            except ValueError:
-                continue
+    # 全 IF のアドレスから、サブネット集合とホスト IP 集合を構築（link-local 除外）。
+    # link-local を除外する理由：fe80::/64 が混入すると next_hop が fe80:: 帯に属するとして誤判定するため。
+    _subnet_idx, all_host_ips = _build_subnet_index(topo)
+    all_subnets = [net for net, _dv, _ifn in _subnet_idx]
 
     for e in topo["routing"].get("static", []):
         nh = e.get("next_hop")
@@ -739,70 +754,6 @@ def build_checks(topo, links=None):
         c["kind"],
         "|".join(c["refs"]),
     ))
-    return results
-
-
-def build_subnet_usage(topo):
-    """v4 サブネット単位の使用率集約。使用率(util)降順 → subnet 文字列昇順で安定ソート。
-
-    返り値: [{"subnet":str,"af":"v4","usable":int,"used":int,"free":int,"util":float,"exhausted":bool}]
-
-    集計ルール:
-      - topo["interfaces"] の各 address で af=="v4"・scope!="link-local"・ip と prefix が有るもののみ対象。
-      - prefix==32（ホスト/ループバック）は除外。
-      - サブネットごとに used = len(set(host_ip))（重複排除）。secondary=True の IP も used にカウントする。
-      - usable = /31→2、他 2^(32-p)-2（例: /30→2^2-2=2、/24→2^8-2=254）。
-      - free = max(usable-used, 0)。
-      - util = round(used/usable, 4) if usable else 0.0。
-      - exhausted = util >= _EXHAUSTED_THRESHOLD（= 0.8）。
-    """
-    # サブネット文字列 → ホスト IP の set
-    subnet_hosts: dict = {}
-
-    for itf in topo["interfaces"]:
-        for a in itf["addresses"]:
-            # v4 のみ
-            if a.get("af") != "v4":
-                continue
-            # link-local 除外
-            if a.get("scope") == "link-local":
-                continue
-            ip = a.get("ip")
-            prefix = a.get("prefix")
-            if ip is None or prefix is None:
-                continue
-            # /32 除外（ホスト/ループバック）
-            if int(prefix) == 32:
-                continue
-            try:
-                net = ipaddress.ip_network("%s/%s" % (ip, prefix), strict=False)
-            except ValueError:
-                continue
-            subnet_str = str(net)
-            subnet_hosts.setdefault(subnet_str, set())
-            subnet_hosts[subnet_str].add(ip)
-
-    results = []
-    for subnet_str, host_set in subnet_hosts.items():
-        net = ipaddress.ip_network(subnet_str)
-        p = net.prefixlen
-        usable = 2 if p == 31 else (2 ** (32 - p) - 2)
-        used = len(host_set)
-        free = max(usable - used, 0)
-        util = round(used / usable, 4) if usable else 0.0
-        exhausted = util >= _EXHAUSTED_THRESHOLD
-        results.append({
-            "subnet": subnet_str,
-            "af": "v4",
-            "usable": usable,
-            "used": used,
-            "free": free,
-            "util": util,
-            "exhausted": exhausted,
-        })
-
-    # util 降順 → subnet 文字列昇順（安定ソート）
-    results.sort(key=lambda r: (-r["util"], r["subnet"]))
     return results
 
 
@@ -912,12 +863,201 @@ def build_stub_nodes(topo):
     return results
 
 
+# ---------------------------------------------------------------------------
+# FIB（protocol 非依存の最終 RIB）と STATIC オーバーレイ（§ STATIC 図ビュー）
+# 派生構造は render 層で計算し DATA に載せる（層別 YAML には焼かない）。
+# 将来 OSPF/BGP best-path を入れるときは build_fib に kind="ospf"/"bgp" エントリを足すだけ。
+# ---------------------------------------------------------------------------
+
+def _plen_of(prefix):
+    """CIDR 文字列の prefix 長を返す（"10.0.0.0/24"→24・"0.0.0.0/0"→0）。失敗時 0。"""
+    try:
+        return int(str(prefix).split("/", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _norm_net(prefix):
+    """CIDR をネットワークアドレス正規化（"10.0.0.5/24"→"10.0.0.0/24"）。失敗時は原文字列。"""
+    try:
+        return str(ipaddress.ip_network(prefix, strict=False))
+    except ValueError:
+        return prefix
+
+
+def _resolve_next_hop(nh, device, host_idx, subnet_idx, peer_idx, link_idx):
+    """static の next_hop を解決して {via, target, ifname, overLink} を返す（決定的）。
+      via: "device"（隣接機器へ）/ "via-interface"（IF 送出・peer は target）/ "blackhole" / "dangling"
+    host_idx: {ip:(dev,ifn)}・subnet_idx: [(net,dev,ifn)]・peer_idx: {(dev,ifn):peer_dev}（P2P のみ）・
+    link_idx: {(dev,peer):link_id}（共有リンク O(1) 引き）。
+    """
+    over = lambda tgt: (link_idx.get((device, tgt)) if tgt else None)
+    if nh in _SPECIAL_NH:
+        return {"via": "blackhole", "target": None, "ifname": None, "overLink": None}
+    try:
+        nh_addr = ipaddress.ip_address(nh)
+    except ValueError:
+        nh_addr = None
+    if nh_addr is not None:
+        hit = host_idx.get(nh)
+        if hit and hit[0] != device:   # 自機 IP は除外（connected が LPM で優先されるべき）
+            return {"via": "device", "target": hit[0], "ifname": None, "overLink": over(hit[0])}
+        owners = sorted({dv for (net, dv, _ifn) in subnet_idx if nh_addr in net and dv != device})
+        if owners:
+            return {"via": "device", "target": owners[0], "ifname": None, "overLink": over(owners[0])}
+        return {"via": "dangling", "target": None, "ifname": None, "overLink": None}
+    # 非 IP（IF 名 next-hop）。Null0 / loopback は破棄相当
+    if nh.lower().startswith("null") or _LOOPBACK_RE.match(nh):
+        return {"via": "blackhole", "target": None, "ifname": nh, "overLink": None}
+    peer = peer_idx.get((device, nh))
+    if peer:
+        return {"via": "via-interface", "target": peer, "ifname": nh, "overLink": over(peer)}
+    return {"via": "via-interface", "target": None, "ifname": nh, "overLink": None}
+
+
+def build_fib(topo, links):
+    """device 別の最終 RIB（connected + static）を構築。トレースの longest-prefix match の本体データ。
+
+    返り: { device_id: [entry,...] }（entry は plen 降順→af→prefix→kind→target→nh で決定的ソート）。
+    """
+    host_idx = _build_host_ip_index(topo)            # {ip:(dev,ifn)}
+    subnet_idx, _host_ips = _build_subnet_index(topo)  # [(net,dev,ifn)]
+    # P2P peer 索引: 1 本のリンクにしか現れない (dev,ifn) のみ peer を確定（IF 名 next-hop 用）。
+    # link_idx: (dev,peer)→link_id の双方向辞書で共有リンクを O(1) 引き（_over_link 線形走査を回避）。
+    if_peers = defaultdict(list)
+    link_idx = {}
+    for l in links:
+        if_peers[(l["a"], l["ai"])].append(l["b"])
+        if_peers[(l["b"], l["bi"])].append(l["a"])
+        link_idx[(l["a"], l["b"])] = l["id"]
+        link_idx[(l["b"], l["a"])] = l["id"]
+    peer_idx = {k: v[0] for k, v in if_peers.items() if len(v) == 1}
+
+    ifs_by_dev = defaultdict(list)
+    for itf in topo["interfaces"]:
+        ifs_by_dev[itf["device"]].append(itf)
+    static_by_dev = defaultdict(list)
+    for e in topo["routing"].get("static", []):
+        static_by_dev[e["device"]].append(e)
+
+    fib = {}
+    for d in topo["devices"]:
+        dev_id = d["id"]
+        entries = []
+        # connected: 各 IF の非 link-local アドレスのサブネット（secondary も含む）
+        for itf in ifs_by_dev.get(dev_id, []):
+            for a in itf["addresses"]:
+                if a.get("scope") == "link-local":
+                    continue
+                ip, prefix = a.get("ip"), a.get("prefix")
+                if not ip or prefix is None:
+                    continue
+                try:
+                    net = ipaddress.ip_network("%s/%s" % (ip, prefix), strict=False)
+                except ValueError:
+                    continue
+                entries.append({"prefix": str(net), "net": str(net), "plen": net.prefixlen,
+                                "af": a["af"], "kind": "connected", "via": "local", "target": None,
+                                "nh": None, "ifname": itf["name"], "overLink": None,
+                                "ecmpGroup": 0, "default": net.prefixlen == 0})
+        # static: (prefix, af) でグループ化し ECMP（複数 next_hop）に groupNo を付与
+        groups = defaultdict(list)
+        for e in static_by_dev.get(dev_id, []):
+            groups[(e["prefix"], e.get("af", "v4"))].append(e)
+        group_no = 0
+        for key in sorted(groups, key=lambda k: (k[1], k[0])):
+            rows = sorted(groups[key], key=lambda r: r["next_hop"])
+            ecmp = len(rows) > 1
+            if ecmp:
+                group_no += 1
+            pfx, af = key
+            for e in rows:
+                res = _resolve_next_hop(e["next_hop"], dev_id, host_idx, subnet_idx, peer_idx, link_idx)
+                entries.append({"prefix": pfx, "net": _norm_net(pfx), "plen": _plen_of(pfx),
+                                "af": af, "kind": "static", "via": res["via"], "target": res["target"],
+                                "nh": e["next_hop"], "ifname": res["ifname"], "overLink": res["overLink"],
+                                "ecmpGroup": group_no if ecmp else 0,
+                                "default": pfx in ("0.0.0.0/0", "::/0")})
+        entries.sort(key=lambda x: (-x["plen"], x["af"], x["prefix"], x["kind"],
+                                    x["target"] or "", x["nh"] or ""))
+        fib[dev_id] = entries
+    return fib
+
+
+def build_static_stubs(topo, fib):
+    """blackhole / dangling / via-interface(target なし) の終端ノード（STATIC ビュー専用・既存 stub とは別配列）。
+    返り: [{dev, id, kind:"blackhole"|"dangling"|"viaif", label, prefix, nh}]（決定的）。"""
+    seen = set()
+    out = []
+    for d in topo["devices"]:
+        for e in fib[d["id"]]:
+            if e["kind"] != "static":
+                continue
+            via = e["via"]
+            if via == "blackhole":
+                sid = "%s:se-bh" % d["id"]
+                kind, label = "blackhole", "Null0 / drop"
+            elif via == "dangling":
+                sid = "%s:se-dang:%s" % (d["id"], e["nh"])
+                kind, label = "dangling", e["nh"]
+            elif via == "via-interface" and not e["target"]:
+                sid = "%s:se-if:%s" % (d["id"], e["ifname"] or "")
+                kind, label = "viaif", (e["ifname"] or "")
+            else:
+                continue
+            if sid in seen:
+                continue
+            seen.add(sid)
+            out.append({"dev": d["id"], "id": sid, "kind": kind, "label": label,
+                        "prefix": e["prefix"], "nh": e["nh"]})
+    return out
+
+
+def build_static_edges(topo, fib):
+    """STATIC オーバーレイの描画エッジ（device→next-hop）。FIB の static エントリから射影し幾何で dedup。
+    返り: [{id, a, kind:"over-link"|"direct"|"viaif"|"blackhole"|"dangling", link, b, stub, prefix, nh, af, default, ecmp}]。"""
+    by_key = {}
+    order = []
+    for d in topo["devices"]:
+        for e in fib[d["id"]]:
+            if e["kind"] != "static":
+                continue
+            via = e["via"]
+            if via in ("device", "via-interface") and e["target"]:
+                kind = "over-link" if e["overLink"] else ("viaif" if via == "via-interface" else "direct")
+                link, b, stub = e["overLink"], e["target"], None
+            elif via == "blackhole":
+                kind, link, b, stub = "blackhole", None, None, "%s:se-bh" % d["id"]
+            elif via == "dangling":
+                kind, link, b, stub = "dangling", None, None, "%s:se-dang:%s" % (d["id"], e["nh"])
+            else:  # via-interface target なし
+                kind, link, b, stub = "viaif", None, None, "%s:se-if:%s" % (d["id"], e["ifname"] or "")
+            # 幾何で dedup（同じ始点・種別・下敷きリンク/対向/終端は 1 本に集約。flag は OR）
+            gkey = (d["id"], kind, link or "", b or "", stub or "")
+            if gkey not in by_key:
+                by_key[gkey] = {"id": "se:%d" % len(order), "a": d["id"], "kind": kind,
+                                "link": link, "b": b, "stub": stub, "prefix": e["prefix"],
+                                "nh": e["nh"], "af": e["af"], "default": e["default"],
+                                "ecmp": e["ecmpGroup"] != 0}
+                order.append(gkey)
+            else:
+                ed = by_key[gkey]
+                ed["default"] = ed["default"] or e["default"]
+                ed["ecmp"] = ed["ecmp"] or e["ecmpGroup"] != 0
+    return [by_key[k] for k in order]
+
+
 def build_data(topo):
-    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/subnet_usage/stub_nodes）。決定的。"""
+    """topology dict → DATA（devices/links/segments/extPeers/bgpEdges/meta/checks/stub_nodes/raw_configs/parse_status）。決定的。
+
+    raw_configs / parse_status は pass-through。raw_configs_prev（新旧版比較用）は build_data では付与せず、
+    render_html() が prev_raw_configs から後付けする（diff の埋め込みと同方式）。
+    """
     devices = build_devices(topo)
     links = build_links(topo)
     segments = build_segments(topo)
     bgp_topo = build_bgp_topology(topo)
+    fib = build_fib(topo, links)
 
     rows_by_dev = defaultdict(list)
     for r in bgp_topo["bgp_rows"]:
@@ -932,6 +1072,10 @@ def build_data(topo):
         "devices": devices, "links": links, "segments": segments,
         "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
         "checks": build_checks(topo, links=links),
-        "subnet_usage": build_subnet_usage(topo),
         "stub_nodes": build_stub_nodes(topo),
+        "fib": fib,
+        "static_edges": build_static_edges(topo, fib),
+        "static_stubs": build_static_stubs(topo, fib),
+        "raw_configs": topo.get("raw_configs") or {},
+        "parse_status": topo.get("parse_status") or {},
     }

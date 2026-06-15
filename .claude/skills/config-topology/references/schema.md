@@ -16,13 +16,15 @@ topology/
   routing.ospf.yaml               # ospf: [...]
   routing.static.yaml             # static: [...]
   routing.redistribute.yaml       # redistribute: [...]（非空時のみ生成）
+  raw_config.yaml                 # raw_configs: {device_id: 生 running-config} ＋ parse_status: {device_id: [行ごとの parsed/ignored/unparsed]}（非空時のみ生成・CONFIG ビュー用）
 ```
 - **devices と interfaces は同居**（links / routing が interface・device の ID を外部キー参照するため、基盤として 1 ファイルに集約）。
 - **空の routing.\*** は書き出さない／読込時は欠落＝空リスト扱い。
-- **`_meta.yaml` の `schema_version`**（現行 `"1.0"`）。未知メジャーは読込時に警告（前方互換）。
+- **`raw_config.yaml`**（CONFIG ビュー用）: 生 running-config を device id をキーに**原本のまま**保持する（`raw_configs`）＋各行の parse 状態（`parse_status`: `["parsed"/"ignored"/"unparsed", ...]`・行数は config 行数と一致）。いずれか（`raw_configs` または `parse_status`）が非空のときのみ生成し、devices.yaml を肥大化させないよう別レイヤーに分離する。欠落（旧成果物）時は空 dict 扱いで CONFIG タブ非表示（後方互換）。`parse_status` はパーサ（`parse_ios`/`parse_junos` の opt-in `line_status`）が実際に消費した行を記録したもので、モデル出力には影響しない。**機密（password/secret/community/鍵）を含み得る**点に注意。
+- **`_meta.yaml` の `schema_version`**（現行 `"1.0"`）。未知メジャーは読込時に警告（前方互換）。`raw_config.yaml` の追加は加算的拡張のため据え置き。
 - **直列化**: `yaml.safe_dump(sort_keys=True, default_flow_style=False, allow_unicode=True)` で決定的。読込は `yaml.safe_load` のみ（任意オブジェクト復元を禁止）。
-- **参照整合の検証**（`load_topology`）: `interfaces[].device`・`links[].{a,b}_device`/`{a,b}_if`・`segments[].members`・`routing[*][].device` が
-  devices / interface-ID 集合に存在するか検査し、不正（人手編集での dangling 参照等）は **ファイル名・フィールド・値を示す `ValueError`** を送出する。
+- **参照整合の検証**（`load_topology`）: `interfaces[].device`・`links[].{a,b}_device`/`{a,b}_if`・`segments[].members`・`routing[*][].device`・`raw_configs` のキー（device id）が
+  devices / interface-ID 集合に存在するか検査し、不正（人手編集での dangling 参照等）は **ファイル名・フィールド・値を示す `ValueError`** を送出する（`parse_status` のキーも同様に検査）。
 
 ## 目次
 - [設計原則](#設計原則)
@@ -171,6 +173,7 @@ network 宣言 1 件につき 1 エントリ。
 
 - **`af` フィールドなし旧 YAML**: `load_topology` は af フィールドを補完しない。利用側（render/build 等）が `entry.get("af", "v4")` で既定 v4 扱いする設計。`schema_version` は `"1.0"` に据え置き（af は addition-only の拡張フィールドであり、旧 YAML の読み書き互換性を破壊しない）。
 - **`schema_version` 据え置き方針**: フィールド追加（addition-only）は `schema_version` を上げない。スキーマ変更（既存フィールドの型変更・廃止等）のときのみバンプする。
+- **`raw_config.yaml` なし旧成果物**: `load_topology` は欠落時に `raw_configs`・`parse_status` を空 dict にフォールバックし、CONFIG タブは非表示（後方互換）。`raw_config.yaml`（`raw_configs`/`parse_status`）の追加は加算的拡張のため `schema_version` 据え置き。
 
 ## 拡張方法
 | 追加したいもの | 方法 | スキーマ影響 |
@@ -230,22 +233,6 @@ network 宣言 1 件につき 1 エントリ。
 `build_data()` は `"checks": build_checks(topo, links=links)` を返り値に追加するため、
 埋め込み `DATA.checks` として HTML に含まれ、ブラウザ側の `renderChecksView()` が描画する。
 
-### DATA.subnet_usage（D4 サブネット使用率ビュー）
-
-`build_subnet_usage(topo)` が返す v4 サブネット使用率集約のリスト。`DATA.subnet_usage` として HTML に埋め込まれ、`renderSubnetUsageView()`（SUBNETS タブ）が描画する。**層別 YAML スキーマ外の render 層導出**。
-
-| フィールド | 型 | 説明 |
-|-----------|----|------|
-| `subnet` | string | v4 サブネット CIDR（`ipaddress.ip_network(strict=False)` で正規化） |
-| `af` | string | 常に `"v4"` |
-| `usable` | int | 収容可能ホスト数。`/31`→2、他は `2^(32-p)-2` |
-| `used` | int | そのサブネットに属する一意ホスト IP 数（secondary も計上） |
-| `free` | int | `max(usable - used, 0)` |
-| `util` | float | `round(used/usable, 4)`（usable=0 のとき 0.0） |
-| `exhausted` | bool | `util >= _EXHAUSTED_THRESHOLD`（=0.8） |
-
-集計対象は interface address のうち **af=="v4"・非 link-local・prefix≠32**（`/32` ホスト/ループバックは除外）。同一サブネットは host IP の set で重複排除（複数 IF/device 跨ぎでも二重計上なし）。ソートは **util 降順 → subnet 文字列昇順**で決定的。
-
 ### DATA.stub_nodes（stub / loopback ノード）
 
 `build_stub_nodes(topo)` が返す **対向のない IF（stub / loopback）** のリスト。link（異機器2メンバー）にも segment（≥3メンバー）にも属さない IF-サブネットを抽出する（単独 IF サブネット・LAN 側・loopback /32・同一機器2メンバーを含む）。`DATA.stub_nodes` として HTML に埋め込まれ、render() が **segment 様式のノード**（`.segnode` 点線楕円 `rx=62 ry=26`＋subnet テキスト＋area-badge＋`.lk` スポーク＋`.lk-hit`）を描画する。**ビュー規則は segment と同じ**: Physical=全件 / OSPF=area あり（OSPF 参加）のみ / BGP=出さない。**`data-elem="seg"`・`data-id=dev:ifn`（=lpId・esc 済み）で segment と同じ hittest/選択/可視性/詳細パネル/凡例 dim に乗る**（`segById` が DATA.segments を引けないとき stub_nodes を members 1件に正規化してフォールバック。索引 `STUB_BY_ID` で O(1)）。色は `kind` で区別（`.lpnode`=loopback / `.stubnode`=stub）。**層別 YAML スキーマ外の render 層導出**。
@@ -260,6 +247,32 @@ network 宣言 1 件につき 1 エントリ。
 | `kind` | string | `"loopback"`（`_LOOPBACK_RE = ^lo(opback)?\d*$`・JS `ifKind` と同基準）/ `"stub"` |
 
 ソートは **dev → ifn 自然順**で決定的。配置座標は device 位置からの決定的扇状オフセット（`Math.round` 固定）。**ハイライトは segment と統一**: 楕円/スポーク hover で IF/IP ラベル（`stackLabel`）、クリックで `setHotNet`（subnet 連動選択＝親デバイス自動選択＋表行連動）。凡例に専用 `loopback`/`stub` 項目（クリックで該当群を強調・他を dim）。表示ノードパネルで個別非表示可、**ツールバーの loopback / スタブ チェックボックスでカテゴリ全体の表示/非表示を一括切替**（`S.filters.lo`/`S.filters.stub`・`stubFiltered(id)` が `visible()`/`selectable()` で判定・segment の `S.filters.seg` と対）。**stub は POS 非登録＝非ドラッグ（mousedown は POS 存在ガードで pan にフォールバック）**。adj/検索 corpus 非参加のため connectedOnly 時は非表示・検索中は dim（最小変更のため許容）。
+
+### DATA.fib / static_edges / static_stubs（STATIC フォワーディング・シミュレーション）
+
+`routing.static` 非空時に `tabs.py` が **STATIC 図ビュー**（physical の次）を出す。3 つの派生構造はいずれも **render 層 `build_data()` 導出・層別 YAML スキーマ外・schema_version 影響なし・決定的**。
+
+- **`DATA.fib`** = `build_fib(topo, links)` の返り `{device_id: [entry,...]}`。**protocol 非依存の最終 RIB**（connected＋static）。各 entry: `{prefix, net(正規化), plen, af, kind:"connected"|"static", via:"local"|"device"|"blackhole"|"dangling"|"via-interface", target:<device_id|null>, nh, ifname, overLink:<link_id|null>, ecmpGroup:<int 同prefix複数nhで連番・単一0>, default:<bool>}`。ソートは **plen 降順→af→prefix→kind→target→nh**（同 plen は `kind` 昇順で connected が static より先＝LPM で connected 優先）。next-hop 解決 `_resolve_next_hop`: `_SPECIAL_NH`/Null0/loopback名→blackhole・host IP 一致(自機除外)→device・サブネット内包→所有 device・未解決→dangling・IF名(P2P→peer / 不定→target=null)。索引 `_build_host_ip_index`/`_build_subnet_index` は iBGP full-mesh・static_dangling チェックと**共用**。**将来 OSPF/BGP のダイナミック・シミュレーションは `build_fib` に `kind="ospf"/"bgp"` の best-path エントリを足すだけ**（トレース JS は FIB しか見ないので無改修）。
+- **`DATA.static_edges`** = `build_static_edges(topo, fib)`。オーバーレイ描画用に static エントリを幾何 dedup した `[{id:"se:N", a:<device>, kind:"over-link"|"direct"|"viaif"|"blackhole"|"dangling", link, b:<device|null>, stub:<id|null>, prefix, nh, af, default, ecmp}]`。
+- **`DATA.static_stubs`** = `build_static_stubs(topo, fib)`。blackhole/dangling/viaif(target なし) の終端ノード `[{dev, id, kind, label, prefix, nh}]`（device 周囲に render 時扇状派生配置・POS 非登録）。
+
+ブラウザ側: `render()` が物理リンクを下敷きに `static_edges` を**矢じり付き Q 曲線**（`#se-arrow` marker・default=破線/ECMP=太線/blackhole=赤/dangling=橙/viaif=青）で重ね、`static_stubs` を終端ノード（✕/?/IF）として描く。純関数 `traceForward(fib,start,dst)`/`evalNode`/`ipInCidr`/`ip6ToBig` が **longest-prefix match** で hop 連鎖し verdict（`delivered`/`blackhole`/`unreachable-nexthop`/`no-route`/`loop`）を返す（ECMP は先頭を辿り候補併記・v6 は BigInt 比較）。トレース UI（`#trace-src`/`#trace-dst`・`runTrace`）・結果 `renderTraceResult`・経路ハイライト（`.trace-hop`/`.trace-edge`）・`applyVisibility` 連動（hidden/dim 伝播）。**トレースはランタイム状態（`S.trace`）で生成 HTML に焼かない**（決定性維持）。全テキスト `esc()`・verdict は `safeVerdict` 許可リストで class 注入防御。
+
+### DATA.raw_configs / parse_status / raw_configs_prev（CONFIG ワークベンチ）
+
+topology dict の `raw_configs`（`{device_id: 生 running-config}`）と `parse_status`（`{device_id: [行ごとの parsed/ignored/unparsed]}`）を `build_data()` がそのまま通す pass-through フィールド。`raw_config.yaml` 由来（無ければ空 dict）。さらに `--diff-against` 指定時は前回 raw_configs を `render_html(prev_raw_configs=)` 経由で `DATA.raw_configs_prev` に埋め込む（新旧版の横並び比較用・省略時は空）。`DATA.raw_configs` として HTML に埋め込まれ、`renderConfigView()`（CONFIG タブ）が描画する。タブは `has_config=bool(topo["raw_configs"])` のときのみ出る（`has_diff` と同じ条件付き方式）。
+
+**CONFIG タブは閲覧から「比較・編集ワークベンチ」に拡張**（いずれも図連動なし・閲覧/突合専用）:
+- 既定=単一ペイン: 左=機器リスト（`Object.keys().sort()` で決定的・グローバル検索 `searchQuery()` で機器名/id/config 本文を横断フィルタ）、右=選択機器の生 config を行番号付きで表示・一致行ハイライト。
+- **ユーティリティ**: 全文コピー（`copyText`）/ 行折返し（`S.configWrap`）/ 検索一致行ナビ（件数＋次/前・`cfgHitIdx`）/ grep（一致行のみ抜粋・`S.configGrep`）。
+- **parse 状態モード**（`S.configParse`・突合の核心）: `DATA.parse_status[id]` と行を zip し 3 色分け（parsed/ignored/unparsed）＋件数凡例。「未対応のみ」（`S.configUnparsedOnly`）で見落とし候補抽出。
+- **2ペイン比較・編集**（`S.configSplit`・`renderCfgSplit`）: 左右に source を選択。source 種別は `dev:<id>`（原本・読取専用）/ `prev:<id>`（前回版・`--diff-against` 時のみ）/ `scratch:<id>`（編集コピー）。`lineDiff`（LCS）で行差分を add/del 色分け。
+  - **原本保持の要**: `cfgTextOf` は `scratch:*` のみ `S.configScratch` を読み、`dev:`/`prev:` は常に原本を返す → 編集しても原本は不変で「原本 vs 編集」の比較が成立。
+  - **「コピーして編集」**: dev/prev ペインのボタンで `scratch:<id>` を原本から生成しそのペインに割当（編集可能 `<textarea>`）。反対ペインに原本を残せば差分が見える。
+  - **文字置換**: 編集ペインに `[検索][置換][全置換]`。`value.split(find).join(repl)` のリテラル全置換（正規表現なし）→ `S.configScratch` 保存 → `updateCfgSplitDiff` でライブ差分更新（再描画せず value 直接更新でフォーカス保持）。
+  - 編集スクラッチは localStorage（`ct-cfgscratch`）永続。**HTML 内では結線を再計算しない**（編集→コピー→CLI 再生成で前後比較する運用）。
+
+生 config・機器名・id・行内容はすべて `esc()` でエスケープ、`</script>` は template の `_json()` が `<\/` 化（XSS 安全）。編集スクラッチ・トグル状態は**ランタイム状態**（生成 HTML のバイトに焼かない＝決定性維持）。**規模注意**: 生 config（＋ `--diff-against` 時は前回版）は HTML に平文埋め込みのため、50 台超・台あたり 100KB 超では HTML サイズが 10MB を超え得る（数台〜数十台は問題なし）。`lineDiff` は n×m≥4,000,000（≈2000行×2000行）で差分省略（toolbar に明示）。**原本そのまま表示のため機密を含み得る**旨を UI 上部の警告バナーで開示する。`DATA.raw_configs`/`parse_status`/`raw_configs_prev` は render 層 pass-through であり **schema_version への影響なし**。
 
 ---
 

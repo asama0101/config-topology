@@ -65,7 +65,9 @@ def main(argv=None):
             return 1
         diff = diff_topology(prev, topo)
 
-    html = render_html(topo, diff=diff, layout=args.layout)
+    # CONFIG ワークベンチの新旧版比較用に前回 raw_configs を渡す（--diff-against 時のみ）
+    prev_raw = prev.get("raw_configs") if args.diff_against else None
+    html = render_html(topo, diff=diff, layout=args.layout, prev_raw_configs=prev_raw)
 
     # §10.3 既存 HTML を退避（生成前）
     retained = retain_for_render(Path(args.output), current_timestamp())

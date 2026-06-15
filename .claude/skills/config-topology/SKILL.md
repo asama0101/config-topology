@@ -16,7 +16,7 @@ description: >-
 ルーティングを読み取り、中間表現（**レイヤー別 YAML**）を経て**インタラクティブなHTML構成図**を生成する。
 
 - **入力**: Cisco IOS / IOS-XE running-config、Juniper JunOS（set 形式）。複数機器を一括。
-- **出力**: `./topology/`（**ベンダー中立のレイヤー別 YAML 正本**＝`_meta.yaml`/`devices.yaml`/`physical.yaml`/`routing.*.yaml`）＋ `./topology.html`（自己完結・`file://` で開ける）。中間表現は YAML で、人手編集して再描画できる（round-trip）。
+- **出力**: `./topology/`（**ベンダー中立のレイヤー別 YAML 正本**＝`_meta.yaml`/`devices.yaml`/`physical.yaml`/`routing.*.yaml`＋生 config 保持の `raw_config.yaml`〔CONFIG ビュー用〕）＋ `./topology.html`（自己完結・`file://` で開ける）。中間表現は YAML で、人手編集して再描画できる（round-trip）。
 - **依存**: 唯一の依存は **PyYAML**（pure Python）。system `python3` で `import yaml` できればそのまま使う。できなければ `pip install pyyaml` するか、任意で venv を作る（**venv は必須ではない**。作る場合は gitignore すること）。`python3` を使う（`python` エイリアスは無い前提）。
 
 このスキルは**ホストプロジェクトのディレクトリ（cwd）から呼び出される**。スキルバンドルはそのホスト配下の
@@ -27,7 +27,7 @@ SKILL=".claude/skills/config-topology"   # ホスト cwd からの相対パス
 ```
 入力・出力はすべて**ホスト cwd 相対**（`./workspace/` に入力、`./topology/`・`./topology.html` に出力）。
 
-> **注意（機密情報）**: config の `interface description` 等に管理者が誤って community 文字列やパスワードを書いている場合、その値はそのまま 層別 YAML・`topology.html` に出力される（パーサは `password`/`secret`/`snmp community` 行自体はパースしないが description 等の自由記述は通す）。生成物を共有・保存する際は取り扱いに注意すること。
+> **注意（機密情報）**: config の `interface description` 等に管理者が誤って community 文字列やパスワードを書いている場合、その値はそのまま 層別 YAML・`topology.html` に出力される（パーサは `password`/`secret`/`snmp community` 行自体はパースしないが description 等の自由記述は通す）。**さらに `CONFIG` ビュー（`raw_config.yaml`）は読み込んだ running-config 全文を原本のまま保持・表示するため、`password`/`secret`/`snmp community`/鍵 等の機密行そのものが `raw_config.yaml` と `topology.html` に平文で載る**（UI 上部に警告バナーを表示）。生成物を共有・保存する際は取り扱いに注意すること。
 
 ## アーキテクチャ（3層パイプライン）
 
@@ -65,7 +65,7 @@ SKILL=".claude/skills/config-topology"   # ホスト cwd からの相対パス
 ```bash
 python3 "$SKILL/scripts/build_topology.py" [paths...] -o ./topology
 # paths 省略時は ./workspace/ を自動走査。-o は出力ディレクトリ（既定 topology/）
-# → ./topology/ に _meta.yaml / devices.yaml / physical.yaml / routing.*.yaml を生成
+# → ./topology/ に _meta.yaml / devices.yaml / physical.yaml / routing.*.yaml ＋ raw_config.yaml（生 config 保持・CONFIG ビュー用）を生成
 ```
 - 生成された層別 YAML を**必ず目視確認**する（YAML なので読みやすく、必要なら手で補正可）。特に:
   - `devices.yaml`: 機器・IF・IP が漏れなく拾えているか（特に description / shutdown / loopback）。
@@ -90,8 +90,11 @@ python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html --diff
 # --diff-against が明示されている場合は --diff-against が優先される
 python3 "$SKILL/scripts/render_topology.py" ./topology -o ./topology.html --diff-against-history
 ```
-- **図ビュー**（上部タブ）: `PHYSICAL`（L1物理＝機器+リンク+セグメント）＋プロトコル別（`BGP`・`OSPF` … `routing` キーから動的生成。例: BGP ネイバー隣接・OSPF エリア別）。**Physical / OSPF 両ビュー**で、対向のない IF（stub / loopback）を機器ノード脇に **segment 様式のノード**（点線楕円＋subnet＋area バッジ・色で区別: loopback=紫 / stub=緑）として表示する（segment と同規則: Physical=全件・OSPF=OSPF 参加〔area あり〕のみ・BGP=出さない）。ハイライトは segment と統一: **楕円/スポークに hover で IF 名 + IP ラベル**、**クリックでサブネット連動選択**（親デバイス自動選択＋表行連動）。凡例に **loopback / スタブ** 専用項目（クリックで該当群を強調）、表示ノードパネルで個別非表示可、**ツールバーの loopback / スタブ チェックボックスでカテゴリ全体を一括表示/非表示**（セグメント・外部ピアと同様）。
-- **表ビュー**（上部タブ）: `ADDRESSES`（インターフェース集約・IP 一覧）・`INTERFACES`（インターフェース詳細・状態・速度・description）・`CHECKS`（設計検証パネル：重複 IP・OSPF/BGP router-id 重複・MTU 不一致・BGP local_ip 未解決・到達不可 next_hop・OSPF area0 非接続・RR 不在 iBGP の full-mesh 欠落・OSPF area 不一致 等の設計上の注意点を severity / kind / message / refs でリスト表示。0 件なら「問題は検出されませんでした」）・`SUBNETS`（v4 サブネット使用率集約：subnet / usable / used / free / util% / status を使用率降順で表示。util≥80% は exhausted 強調。/32・link-local 除外。ADDRESSES の IP 一覧に対しサブネット集約・枯渇監視で差別化）。`DIFF`（条件付き：`--diff-against` 指定時のみ表示 — 前回との差分を devices/interfaces/links/segments/routing_bgp/routing_ospf/routing_static の固定順で added(+)/removed(-)/changed(~) のセクションと件数サマリで表示。差分ゼロなら「差分なし」を明示）。
+- **図ビュー**（上部タブ）: `PHYSICAL`（L1物理＝機器+リンク+セグメント）＋プロトコル別（`STATIC`〔`routing.static` 非空時・physical の次〕・`BGP`・`OSPF` … `routing` キーから動的生成。例: BGP ネイバー隣接・OSPF エリア別）。
+  - `STATIC`（**スタティック経路フォワーディング・シミュレーション**）: 各スタティックルートを device→next-hop の**方向線**（矢じり付き）で物理トポロジ上に重ね描き。default=破線・ECMP=太線・blackhole(Null0)=赤✕終端・dangling(未解決 next-hop)=橙?終端・IF名 next-hop(peer 不定)=青IF終端 で区別。**経路トレース**: ツールバーで始点機器（未指定なら単一選択ノード）＋宛先 IP/prefix を指定し「トレース」→ FIB（connected＋static の longest-prefix match）で hop ごとの転送経路をハイライト＋結果パネル表示（verdict: 到達 / 破棄(blackhole) / next-hop 到達不可 / 経路なし / ループ）。ECMP は先頭を辿り候補を併記。トレースはブラウザ内ランタイム状態（生成 HTML に焼かない）。将来の OSPF/BGP ダイナミック・シミュレーションは同じ protocol 非依存 FIB に best-path を流し込む拡張で対応予定。**Physical / OSPF 両ビュー**で、対向のない IF（stub / loopback）を機器ノード脇に **segment 様式のノード**（点線楕円＋subnet＋area バッジ・色で区別: loopback=紫 / stub=緑）として表示する（segment と同規則: Physical=全件・OSPF=OSPF 参加〔area あり〕のみ・BGP=出さない）。ハイライトは segment と統一: **楕円/スポークに hover で IF 名 + IP ラベル**、**クリックでサブネット連動選択**（親デバイス自動選択＋表行連動）。凡例に **loopback / スタブ** 専用項目（クリックで該当群を強調）、表示ノードパネルで個別非表示可、**ツールバーの loopback / スタブ チェックボックスでカテゴリ全体を一括表示/非表示**（セグメント・外部ピアと同様）。
+- **表ビュー**（上部タブ・順序 = `ADDRESSES INTERFACES [CONFIG] [DIFF] CHECKS`）: `ADDRESSES`（インターフェース集約・IP 一覧）・`INTERFACES`（インターフェース詳細・状態・速度・description）・`CONFIG`（条件付き）・`DIFF`（条件付き）・`CHECKS`（設計検証パネル：重複 IP・OSPF/BGP router-id 重複・MTU 不一致・BGP local_ip 未解決・到達不可 next_hop・OSPF area0 非接続・RR 不在 iBGP の full-mesh 欠落・OSPF area 不一致 等を severity / kind / message / refs でリスト表示。0 件なら「問題は検出されませんでした」）。
+  - `DIFF`（`--diff-against` 指定時のみ）: 前回との差分を devices/interfaces/links/segments/routing_bgp/routing_ospf/routing_static の固定順で added(+)/removed(-)/changed(~) と件数サマリで表示。差分ゼロなら「差分なし」を明示。
+  - `CONFIG`（`raw_config.yaml` 保持時のみ）: 生 running-config の**閲覧・比較・編集ワークベンチ**。図連動なし・突合専用。**原本そのまま＝機密を含み得る**旨を警告表示。機能: ①閲覧（左=機器リスト＋検索、右=行番号付き本文・一致行ハイライト・全文コピー・折返し・grep・検索ナビ）②**parse 状態モード**（各行を parse済/既知の無視/未対応で 3 色分け＋「未対応のみ」抽出で、ツール未対応行＝読み落とし候補を炙り出す）③**2ペイン横並び比較（読取専用）**（左右に機器/前回版〔`--diff-against` 時〕/編集中コピーを選択し、対応行を縦に揃えた**対称整列**で行差分を色分け表示。閲覧専用＝編集は④へ）④**ノード駆動編集**（ツールバー「編集」で選択中の機器を *編集前(左・原本/読取専用) vs 編集中(右・編集 textarea)* の固定2ペインで開き、右側で編集しながら原本との差分を確認。**右の編集行に左を縦整列**（追加行は左に空行・削除は境界マーカー）＋縦スクロール同期。**文字置換（リテラル全置換）**も可。編集内容はブラウザ内のみ・編集→コピーで CLI 再生成にフィードバックする簡易シミュレーション。結線再計算はしない）。
 - **検索ボックス**: 自由文字列 / 演算子（`host:`/`ip:`/`desc:`/`as:`/`vendor:`/`net:`）で絞り込み。0 件警告（赤）。`/` または `Ctrl+F` で検索欄へフォーカス。
 - **選択モデル**: クリックで機器・セグメント・ネイバーを選択。右欄で詳細・リンク一覧・ルーティング情報を表示（複数選択時は選択ノード間リンク）。
 - **ノードドラッグ**: セッション内でノードを再配置可（リロードで初期配置に戻る）。

@@ -58,7 +58,7 @@ def test_tab_rules_golden_has_bgp_ospf():
     assert 'data-view="addr"' in html and 'data-view="ifs"' in html
     assert 'data-view="bgp"' in html and 'data-view="ospf"' in html
     assert 'data-view="checks"' in html    # D2: checks タブは常設
-    assert 'data-view="static"' not in html
+    assert 'data-view="static"' in html    # golden は routing.static あり → STATIC 図ビュー出現
 
 
 def test_tabs_conditional_no_bgp(tmp_path):
@@ -111,13 +111,14 @@ def test_data_stats_not_embedded_in_html():
     assert "stats" not in data
 
 
-def test_checks_is_first_table_view_in_html():
-    """改修⑥後: VIEWS 配列の先頭表ビューが checks であること。"""
+def test_table_view_order_in_html():
+    """改修後: 表ビュー順は addr→ifs→[config]→[diff]→checks（先頭=addr・末尾=checks・usage 無し）。"""
     html = _html()
     views = json.loads(_embedded(html, "VIEWS"))
-    # golden: physical, bgp, ospf, checks, addr, ifs, usage
-    table_views = [v for v in views if v not in ("physical", "bgp", "ospf", "diff")]
-    assert table_views[0] == "checks", "checks が表ビュー先頭でない: %s" % table_views
+    assert "usage" not in views
+    table_views = [v for v in views if v not in ("physical", "static", "bgp", "ospf")]
+    assert table_views[0] == "addr", "addr が表ビュー先頭でない: %s" % table_views
+    assert table_views[-1] == "checks", "checks が表ビュー末尾でない: %s" % table_views
 
 
 # ---------------------------------------------------------------------------
@@ -325,3 +326,102 @@ def test_render_html_script_tag_in_diff_escaped():
     assert "<\\/script>" in html or "&lt;/script&gt;" in html, (
         "</script> のエスケープが存在しない"
     )
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ビュー — template / DATA 埋め込み
+# ---------------------------------------------------------------------------
+
+def _topo_with_raw():
+    topo = _minimal_topo()
+    topo["raw_configs"] = {"r1": "hostname R1\n!\ninterface Gi0/0\n"}
+    return topo
+
+
+def test_config_tab_absent_without_raw():
+    """raw_configs が無いトポロジーでは config タブが出ないこと（既定・後方互換）。"""
+    html = render_html(_minimal_topo())
+    assert 'data-view="config"' not in html
+
+
+def test_config_tab_present_with_raw():
+    """raw_configs を持つトポロジーでは config タブが出ること。"""
+    html = render_html(_topo_with_raw())
+    assert 'data-view="config"' in html
+
+
+def test_data_raw_configs_embedded_with_raw():
+    """raw_configs が埋め込み DATA.raw_configs に入ること。"""
+    html = render_html(_topo_with_raw())
+    data = json.loads(_embedded(html, "DATA"))
+    assert data["raw_configs"]["r1"].startswith("hostname R1")
+
+
+def test_config_view_in_views_array_with_raw():
+    """埋め込み VIEWS 配列に 'config' が含まれ、ifs の後・checks の前に配置されること（raw あり時）。"""
+    html = render_html(_topo_with_raw())
+    views = json.loads(_embedded(html, "VIEWS"))
+    assert "config" in views
+    assert views.index("ifs") < views.index("config") < views.index("checks")
+
+
+def test_render_html_deterministic_with_raw():
+    """raw_configs ありでも render_html が2回バイト一致すること（決定性）。"""
+    topo = _topo_with_raw()
+    assert render_html(topo) == render_html(topo)
+
+
+def test_golden_has_config_tab():
+    """golden（再生成後 raw_config.yaml を持つ）に config タブが出ること。"""
+    html = render_html(load_topology(str(GOLDEN)))
+    assert 'data-view="config"' in html
+
+
+def test_raw_config_script_tag_escaped():
+    """raw_configs に </script> を含む生 config を埋め込んでも script ブロックが
+    早期終了しないこと（_json の </ → <\\/ エスケープが DATA.raw_configs にも効く）。"""
+    topo = _minimal_topo()
+    topo["raw_configs"] = {"r1": "banner motd </script><script>alert(1)</script>\n"}
+    html = render_html(topo)
+    assert "</script><script>alert(1)" not in html
+    assert "<\\/script>" in html
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ワークベンチ Phase B — raw_configs_prev 配線
+# ---------------------------------------------------------------------------
+
+def test_raw_configs_prev_embedded_when_passed():
+    topo = _topo_with_raw()
+    html = render_html(topo, prev_raw_configs={"r1": "hostname R1-old\n"})
+    data = json.loads(_embedded(html, "DATA"))
+    assert data["raw_configs_prev"]["r1"].startswith("hostname R1-old")
+
+
+def test_raw_configs_prev_empty_by_default():
+    html = render_html(_topo_with_raw())
+    data = json.loads(_embedded(html, "DATA"))
+    assert data["raw_configs_prev"] == {}
+
+
+# ---------------------------------------------------------------------------
+# STATIC 図ビュー（フォワーディング・トレース）— HTML/DATA 組み込み確認
+# ---------------------------------------------------------------------------
+
+def test_static_view_and_trace_controls_in_html():
+    """golden は routing.static あり → STATIC タブ・トレース UI・矢じり marker が HTML に含まれる。"""
+    html = _html()
+    assert 'data-view="static"' in html
+    assert 'id="trace-src"' in html and 'id="trace-dst"' in html and 'id="trace-go"' in html
+    assert 'id="se-arrow"' in html                 # 方向矢じり marker
+    assert 'data-elem="sedge"' in html             # STATIC エッジ描画コード（render JS 内）
+
+
+def test_static_data_keys_embedded():
+    """埋め込み DATA に fib / static_edges / static_stubs キーが含まれ、static_edges が非空。"""
+    html = _html()
+    data = json.loads(_embedded(html, "DATA"))
+    assert isinstance(data["fib"], dict) and data["fib"]
+    assert isinstance(data["static_edges"], list) and len(data["static_edges"]) >= 1
+    assert isinstance(data["static_stubs"], list)
+    assert "static" in json.loads(_embedded(html, "VIEWS"))

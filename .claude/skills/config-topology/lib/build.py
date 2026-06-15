@@ -254,13 +254,27 @@ def annotate_ospf(links, segments, ospf_entries, iface_device_map):
             seg["ospf_network"] = seg["subnet"]
 
 
-def build_topology(parsed, generated_from, title=DEFAULT_TITLE):
+def build_topology(parsed, generated_from, title=DEFAULT_TITLE, raw_texts=None,
+                   parse_statuses=None):
     """正規化 Device 群 → topology dict（§5・§7）。全リストを §7.5 の決定的順序で出力。
 
     generated_from は順序付きシーケンス（list）であること（set 渡しは決定性を壊す）。
+    raw_texts は parsed と並走する生 config テキスト列（省略可）。指定時は device id を
+    キーに raw_configs へ写像する（CONFIG ビュー用・原本そのまま保持）。
+    parse_statuses は parsed と並走する行ステータス列（各要素は ["parsed"/"ignored"/"unparsed", ...]）。
+    指定時は device id をキーに parse_status へ写像する（CONFIG parse 状態モード用）。
     """
     device_ids, devices, interfaces = build_devices_interfaces(parsed)
     id_dev = list(zip(device_ids, parsed))
+    # raw_texts / parse_statuses は parsed と 1:1 対応。長さ不一致は zip の暗黙切り捨てで欠損を招くため明示的に弾く
+    if raw_texts is not None and len(raw_texts) != len(parsed):
+        raise ValueError("raw_texts length (%d) != parsed length (%d)"
+                         % (len(raw_texts), len(parsed)))
+    if parse_statuses is not None and len(parse_statuses) != len(parsed):
+        raise ValueError("parse_statuses length (%d) != parsed length (%d)"
+                         % (len(parse_statuses), len(parsed)))
+    raw_configs = dict(zip(device_ids, raw_texts)) if raw_texts else {}
+    parse_status = dict(zip(device_ids, parse_statuses)) if parse_statuses else {}
 
     links, segments = infer_links_segments(interfaces)
     bgp = build_bgp(id_dev)
@@ -285,4 +299,6 @@ def build_topology(parsed, generated_from, title=DEFAULT_TITLE):
         "devices": devices, "interfaces": interfaces,
         "links": links, "segments": segments,
         "routing": {"bgp": bgp, "ospf": ospf, "static": static, "redistribute": redistribute},
+        "raw_configs": raw_configs,
+        "parse_status": parse_status,
     }

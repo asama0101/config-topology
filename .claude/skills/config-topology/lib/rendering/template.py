@@ -31,7 +31,7 @@ def _inject_tabs(body, nav_html):
     return new_body
 
 
-def render_html(topo, diff=None, layout="force"):
+def render_html(topo, diff=None, layout="force", prev_raw_configs=None):
     """topology dict → 自己完結 HTML 文字列（決定的）。
 
     Parameters
@@ -46,10 +46,15 @@ def render_html(topo, diff=None, layout="force"):
         "force"（既定）: 決定的 force-directed レイアウト（既存挙動）。
         "hierarchical": AS 列グリッドレイアウト（A3）。
         省略時は "force" で従来通り（既定 force → golden byte 不変）。
+    prev_raw_configs : dict or None
+        --diff-against 指定時の前回 raw_configs（{device_id: text}）。
+        CONFIG ワークベンチの新旧版 横並び比較用に DATA.raw_configs_prev へ埋め込む（省略時は空）。
     """
     data = build_data(topo)
+    data["raw_configs_prev"] = prev_raw_configs or {}
     pos = compute_positions(data, mode=layout)
-    tabs = build_tabs(topo["routing"], has_diff=diff is not None)
+    tabs = build_tabs(topo["routing"], has_diff=diff is not None,
+                      has_config=bool(topo.get("raw_configs")))
     views = [t["view"] for t in tabs]
 
     body = _inject_tabs(_BODY, _tabs_nav(tabs))

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from lib.topology_io import load_topology
-from lib.rendering.data_transform import build_data, build_links, build_bgp_topology, _build_if, build_checks, build_devices, build_subnet_usage, _EXHAUSTED_THRESHOLD, build_stub_nodes, _LOOPBACK_RE
+from lib.rendering.data_transform import build_data, build_links, build_bgp_topology, _build_if, build_checks, build_devices, build_stub_nodes, _LOOPBACK_RE, build_fib, build_static_edges, build_static_stubs
 
 pytestmark = pytest.mark.integration
 
@@ -2766,398 +2766,6 @@ def test_build_checks_ibgp_fullmesh_two_devices_complete_no_warning():
     )
 
 
-# ===========================================================================
-# D4: サブネット使用率集約ビュー — build_subnet_usage テスト
-# ===========================================================================
-
-def _make_if_with_addrs(device, name, addresses):
-    """build_subnet_usage 用の最小 interface dict。"""
-    return {
-        "id": "%s::%s" % (device, name),
-        "device": device,
-        "name": name,
-        "ip": None,
-        "vlan": None,
-        "description": None,
-        "shutdown": False,
-        "admin_status": "up",
-        "oper_status": None,
-        "mtu": None,
-        "speed": None,
-        "duplex": None,
-        "l2_l3": None,
-        "switchport": None,
-        "encapsulation": None,
-        "source": "parsed",
-        "addresses": addresses,
-    }
-
-
-def _minimal_topo_for_usage(**overrides):
-    """build_subnet_usage 用の最小 topology dict。"""
-    base = {
-        "meta": {"generated_from": []},
-        "devices": [],
-        "interfaces": [],
-        "links": [],
-        "segments": [],
-        "routing": {"bgp": [], "ospf": [], "static": []},
-    }
-    base.update(overrides)
-    return base
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_slash24_two_hosts():
-    """/24 に 2 ホストが存在する場合の各フィールドが正しいこと（壊すと赤）。
-
-    usable=254, used=2, free=252, util~0.0079, exhausted=False。
-    """
-    # Arrange
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "192.168.1.1", "prefix": 24}]),
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "192.168.1.2", "prefix": 24}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert
-    assert len(result) == 1
-    row = result[0]
-    assert row["subnet"] == "192.168.1.0/24"
-    assert row["af"] == "v4"
-    assert row["usable"] == 254
-    assert row["used"] == 2
-    assert row["free"] == 252
-    assert row["exhausted"] is False
-    assert abs(row["util"] - round(2 / 254, 4)) < 1e-6
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_slash30_exhausted():
-    """/30 に 2 ホストが存在する場合 exhausted=True（util=1.0）になること（壊すと赤）。
-
-    usable=2, used=2, free=0, util=1.0, exhausted=True。
-    exhausted 閾値（0.8）以上は True。
-    """
-    # Arrange
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert
-    assert len(result) == 1
-    row = result[0]
-    assert row["usable"] == 2
-    assert row["used"] == 2
-    assert row["free"] == 0
-    assert row["util"] == 1.0
-    assert row["exhausted"] is True, (
-        "/30 に 2 ホスト（usable=2 / used=2）は util=1.0 >= 0.8 なので exhausted=True のはず"
-    )
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_slash31_usable_is_2():
-    """/31（ポイントツーポイント）の usable が 2 になること。"""
-    # Arrange: /31 に 2 ホスト
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.0", "prefix": 31}]),
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 31}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert
-    assert len(result) == 1
-    row = result[0]
-    assert row["usable"] == 2
-    assert row["used"] == 2
-    assert row["util"] == 1.0
-    assert row["exhausted"] is True
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_slash32_excluded():
-    """/32（ホスト/ループバック）は除外されること（壊すと赤）。
-
-    /32 が結果に出てしまう誤実装はこのテストで失敗する。
-    """
-    # Arrange: /32 のみの IF
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),
-            _make_if_with_addrs("r2", "Lo0", [{"af": "v4", "ip": "2.2.2.2", "prefix": 32}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert: /32 は使用率計画の対象外 → 結果は空
-    assert result == [], (
-        "/32 ループバックは build_subnet_usage の結果に出てはならない。"
-        "実際の結果: %s" % result
-    )
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_link_local_excluded():
-    """link-local（scope=link-local）は除外されること。"""
-    # Arrange: fe80:: のみの IF（link-local）
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [
-                {"af": "v6", "ip": "fe80::1", "prefix": 64, "scope": "link-local"},
-            ]),
-            # v4 link-local 相当（scope 指定あり）
-            _make_if_with_addrs("r2", "Gi0", [
-                {"af": "v4", "ip": "169.254.0.1", "prefix": 24, "scope": "link-local"},
-            ]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert: link-local は除外 → 結果は空
-    assert result == []
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_v6_excluded():
-    """v6 アドレスは除外されること（v4 のみ対象）。"""
-    # Arrange: v6 GUA のみの IF
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 64}]),
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v6", "ip": "2001:db8::2", "prefix": 64}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert: v6 は除外 → 結果は空
-    assert result == []
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_no_double_count_same_host_ip():
-    """同一 host_ip が複数 IF に現れても二重計上しないこと。"""
-    # Arrange: 同一ホスト IP が 2 つの IF に存在（used=set で排除）
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
-            _make_if_with_addrs("r1", "Gi1", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),  # 同一 host_ip
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert: 同一 host_ip は排除されるので used=2（10.0.0.1 と 10.0.0.2 各1回）
-    assert len(result) == 1
-    row = result[0]
-    assert row["used"] == 2, (
-        "同一 host_ip が重複して used が 3 になる誤実装を検知。used は %d" % row["used"]
-    )
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_sort_util_desc_then_subnet_asc():
-    """util 降順→同率 subnet 昇順の安定ソートであること。"""
-    # Arrange: 3 サブネット
-    # - 10.0.0.0/30 (usable=2, used=2, util=1.0)
-    # - 192.168.0.0/24 (usable=254, used=1, util~0.0039)
-    # - 10.1.0.0/24 (usable=254, used=1, util~0.0039 - 同率で subnet 文字列昇順)
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
-            _make_if_with_addrs("r3", "Gi0", [{"af": "v4", "ip": "192.168.0.1", "prefix": 24}]),
-            _make_if_with_addrs("r4", "Gi0", [{"af": "v4", "ip": "10.1.0.1", "prefix": 24}]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert: util 降順 → subnet 昇順
-    assert len(result) == 3
-    subnets = [r["subnet"] for r in result]
-    # 10.0.0.0/30 (util=1.0) が先頭
-    assert subnets[0] == "10.0.0.0/30", "util 最大サブネットが先頭に来ていない"
-    # 残り 2 つは util 同率 → subnet 昇順（10.1.0.0/24 < 192.168.0.0/24）
-    assert subnets[1] == "10.1.0.0/24", "同率 util のとき subnet 昇順になっていない"
-    assert subnets[2] == "192.168.0.0/24"
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_empty_topo_returns_empty():
-    """interfaces が空の場合は空リストを返すこと。"""
-    topo = _minimal_topo_for_usage()
-    result = build_subnet_usage(topo)
-    assert result == []
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_deterministic():
-    """2 回呼んで同一結果になること（決定性）。"""
-    import json
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
-            _make_if_with_addrs("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
-            _make_if_with_addrs("r3", "Lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]),  # /32 除外
-        ],
-    )
-    a = json.dumps(build_subnet_usage(topo), sort_keys=True)
-    b = json.dumps(build_subnet_usage(topo), sort_keys=True)
-    assert a == b
-
-
-@pytest.mark.integration
-def test_build_data_has_subnet_usage_key():
-    """build_data の返り値に 'subnet_usage' キーが含まれること。"""
-    topo = load_topology(str(GOLDEN))
-    data = build_data(topo)
-    assert "subnet_usage" in data, "build_data に subnet_usage キーがない"
-    assert isinstance(data["subnet_usage"], list)
-
-
-@pytest.mark.integration
-def test_build_data_subnet_usage_consistent():
-    """build_data の subnet_usage が build_subnet_usage(topo) と同一内容であること。"""
-    import json
-    topo = load_topology(str(GOLDEN))
-    data = build_data(topo)
-    expected = build_subnet_usage(topo)
-    assert json.dumps(data["subnet_usage"], sort_keys=True) == json.dumps(expected, sort_keys=True)
-
-
-# ---------------------------------------------------------------------------
-# D4 レビュー指摘: exhausted 境界値テスト（壊すと赤）
-# ---------------------------------------------------------------------------
-
-@pytest.mark.unit
-def test_exhausted_threshold_constant_value():
-    """_EXHAUSTED_THRESHOLD が 0.8 であること（定数値の固定）。"""
-    assert _EXHAUSTED_THRESHOLD == 0.8
-
-
-@pytest.mark.unit
-def test_exhausted_threshold_inclusive_at_boundary():
-    """_EXHAUSTED_THRESHOLD は >= 0.8 であること（ちょうど 0.8 で True。> 0.8 誤実装は赤）。
-
-    壊すと赤: _EXHAUSTED_THRESHOLD を 0.8 から変えるか、比較を > に変えると失敗する。
-    """
-    # util == 0.8 ちょうどは exhausted=True（>=）
-    assert (0.8 >= _EXHAUSTED_THRESHOLD) is True
-
-
-@pytest.mark.unit
-def test_exhausted_threshold_false_just_below():
-    """util が _EXHAUSTED_THRESHOLD より小さい場合は exhausted=False であること。
-
-    壊すと赤: 閾値を 0.8 以下に変えると失敗する。
-    """
-    # util = 0.7999 は exhausted=False（閾値未満）
-    assert (0.7999 >= _EXHAUSTED_THRESHOLD) is False
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_exhausted_at_exact_08_boundary():
-    """build_subnet_usage で util がちょうど 0.8 になる場合に exhausted=True となること（壊すと赤）。
-
-    /28: usable=14, used=12 → util=round(12/14, 4)=0.8571 >= 0.8 → exhausted=True。
-    /28: usable=14, used=11 → util=round(11/14, 4)=0.7857 < 0.8  → exhausted=False。
-
-    境界感度: > 0.8 の誤実装では「used=11 のみ False」となり used=12 は通る。
-    しかし上記 test_exhausted_threshold_inclusive_at_boundary が「0.8 ちょうど→True」を固定する。
-
-    壊すと赤（このテスト）: usable=14, used=12 の exhausted が False になると失敗。
-    """
-    # Arrange: /28 に 12 ホスト（exhausted=True）
-    topo_12 = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r%d" % i, "Gi0", [
-                {"af": "v4", "ip": "10.1.0.%d" % i, "prefix": 28}
-            ])
-            for i in range(1, 13)
-        ],
-    )
-    result_12 = build_subnet_usage(topo_12)
-    assert len(result_12) == 1
-    row_12 = result_12[0]
-    assert row_12["usable"] == 14
-    assert row_12["used"] == 12
-    assert row_12["util"] == round(12 / 14, 4)
-    assert row_12["exhausted"] is True, (
-        "/28 used=12 usable=14: util=%s >= 0.8 なので exhausted=True のはず" % row_12["util"]
-    )
-
-    # Arrange: /28 に 11 ホスト（exhausted=False）
-    topo_11 = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r%d" % i, "Gi0", [
-                {"af": "v4", "ip": "10.1.0.%d" % i, "prefix": 28}
-            ])
-            for i in range(1, 12)
-        ],
-    )
-    result_11 = build_subnet_usage(topo_11)
-    assert len(result_11) == 1
-    row_11 = result_11[0]
-    assert row_11["usable"] == 14
-    assert row_11["used"] == 11
-    assert row_11["util"] == round(11 / 14, 4)
-    assert row_11["exhausted"] is False, (
-        "/28 used=11 usable=14: util=%s < 0.8 なので exhausted=False のはず" % row_11["util"]
-    )
-
-
-@pytest.mark.unit
-def test_build_subnet_usage_secondary_address_counted_as_used():
-    """secondary IP（secondary=True）が used にカウントされること（仕様確認テスト）。
-
-    実装は既に secondary を除外しない設計 → このテストは仕様を固定する確認テスト。
-    secondary=True の IP が used から除かれると fail する。
-    """
-    # Arrange: 同一サブネット /24 に primary 1 件 + secondary 1 件
-    topo = _minimal_topo_for_usage(
-        interfaces=[
-            _make_if_with_addrs("r1", "Gi0", [
-                {"af": "v4", "ip": "192.168.1.1", "prefix": 24},
-                {"af": "v4", "ip": "192.168.1.2", "prefix": 24, "secondary": True},
-            ]),
-        ],
-    )
-
-    # Act
-    result = build_subnet_usage(topo)
-
-    # Assert: primary + secondary の 2 ホストが used にカウントされる
-    assert len(result) == 1
-    row = result[0]
-    assert row["used"] == 2, (
-        "secondary IP も used にカウントされるべき。実際の used=%d" % row["used"]
-    )
-
-
 # ---------------------------------------------------------------------------
 # 改修⑥ STATS タブ削除
 # ---------------------------------------------------------------------------
@@ -4261,3 +3869,214 @@ def test_build_stub_nodes_self_loop_is_stub():
     )
     for r in result:
         assert r["kind"] == "stub", f"非 loopback IF は kind=stub のはずだが: {r['kind']}"
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ビュー — DATA.raw_configs
+# ---------------------------------------------------------------------------
+
+def test_build_data_includes_raw_configs():
+    """topo["raw_configs"] が DATA.raw_configs にそのまま入ること。"""
+    topo = load_topology(str(GOLDEN))
+    topo["raw_configs"] = {"r1": "hostname R1\n", "r2": "hostname R2\n"}
+    data = build_data(topo)
+    assert data["raw_configs"] == {"r1": "hostname R1\n", "r2": "hostname R2\n"}
+
+
+def test_build_data_raw_configs_empty_when_absent():
+    """topo に raw_configs が無いとき DATA.raw_configs は空 dict。"""
+    topo = load_topology(str(GOLDEN))
+    topo.pop("raw_configs", None)
+    data = build_data(topo)
+    assert data["raw_configs"] == {}
+
+
+def test_build_data_includes_parse_status():
+    topo = load_topology(str(GOLDEN))
+    topo["parse_status"] = {"r1": ["parsed"], "r2": ["ignored"]}
+    data = build_data(topo)
+    assert data["parse_status"] == {"r1": ["parsed"], "r2": ["ignored"]}
+
+
+def test_build_data_parse_status_empty_when_absent():
+    topo = load_topology(str(GOLDEN))
+    topo.pop("parse_status", None)
+    assert build_data(topo)["parse_status"] == {}
+
+
+# ===========================================================================
+# FIB（build_fib）と STATIC オーバーレイ（build_static_edges / build_static_stubs）
+# ===========================================================================
+
+def _dlink(a_dev, a_if, b_dev, b_if, subnet):
+    """topo["links"] 用の dict-link（v4/v6 別行）。"""
+    return {"a_device": a_dev, "a_if": a_if, "b_device": b_dev, "b_if": b_if, "subnet": subnet}
+
+
+def _fib(topo):
+    return build_fib(topo, build_links(topo))
+
+
+@pytest.mark.unit
+def test_fib_connected_entries():
+    """各 IF の非 link-local サブネットが connected エントリ（via=local・正しい plen/af/ifname）になる。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+                    _make_if("r1", "Lo0", [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}])],
+    )
+    ents = _fib(topo)["r1"]
+    conn = {e["prefix"]: e for e in ents if e["kind"] == "connected"}
+    assert conn["10.0.0.0/30"]["via"] == "local" and conn["10.0.0.0/30"]["plen"] == 30
+    assert conn["10.0.0.0/30"]["ifname"] == "Gi0" and conn["10.0.0.0/30"]["af"] == "v4"
+    assert conn["1.1.1.1/32"]["plen"] == 32
+    # plen 降順ソート（/32 が /30 より先）
+    plens = [e["plen"] for e in ents]
+    assert plens == sorted(plens, reverse=True)
+
+
+@pytest.mark.unit
+def test_fib_static_resolves_to_neighbor_device_over_link():
+    """static next_hop が隣接 IF のホスト IP → via=device・target=隣接・共有リンクは overLink。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+                    _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}])],
+        links=[_dlink("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30")],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "192.168.5.0/24", "next_hop": "10.0.0.2", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "device" and st["target"] == "r2"
+    assert st["overLink"] and "r1::Gi0" in st["overLink"] and "r2::Gi0" in st["overLink"]
+
+
+@pytest.mark.unit
+def test_fib_static_subnet_containment_resolves_owner():
+    """host IP 完全一致が無くても、next_hop を含む connected サブネットの所有機器に解決。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "192.168.1.1", "prefix": 24}]),
+                    _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.6", "prefix": 29}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "8.8.8.0/24", "next_hop": "10.0.0.2", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "device" and st["target"] == "r2"
+
+
+@pytest.mark.unit
+def test_fib_static_dangling():
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "8.8.8.0/24", "next_hop": "172.16.99.1", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "dangling" and st["target"] is None
+
+
+@pytest.mark.unit
+def test_fib_static_blackhole_null0_and_special():
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [], "static": [
+            {"device": "r1", "prefix": "203.0.113.0/24", "next_hop": "Null0", "af": "v4"},
+            {"device": "r1", "prefix": "0.0.0.0/0", "next_hop": "0.0.0.0", "af": "v4"}]},
+    )
+    by_pfx = {e["prefix"]: e for e in _fib(topo)["r1"] if e["kind"] == "static"}
+    assert by_pfx["203.0.113.0/24"]["via"] == "blackhole"
+    assert by_pfx["0.0.0.0/0"]["via"] == "blackhole" and by_pfx["0.0.0.0/0"]["default"] is True
+
+
+@pytest.mark.unit
+def test_fib_static_ecmp_grouped_and_deterministic():
+    """同一 prefix に複数 next_hop → ecmpGroup 非0・両エントリ存在・next_hop 昇順で決定的。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2"), _make_dev("r3")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+                    _make_if("r1", "Gi1", [{"af": "v4", "ip": "10.0.1.1", "prefix": 30}]),
+                    _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+                    _make_if("r3", "Gi0", [{"af": "v4", "ip": "10.0.1.2", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [], "static": [
+            {"device": "r1", "prefix": "8.8.8.0/24", "next_hop": "10.0.1.2", "af": "v4"},
+            {"device": "r1", "prefix": "8.8.8.0/24", "next_hop": "10.0.0.2", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static" and e["prefix"] == "8.8.8.0/24"]
+    assert len(st) == 2 and all(e["ecmpGroup"] != 0 for e in st)
+    assert len({e["ecmpGroup"] for e in st}) == 1   # 同一グループ番号
+    # 決定性: 2 回ビルドで一致
+    assert _fib(topo) == _fib(topo)
+
+
+@pytest.mark.unit
+def test_fib_static_v6():
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 64}]),
+                    _make_if("r2", "Gi0", [{"af": "v6", "ip": "2001:db8::2", "prefix": 64}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "2001:db8:5::/48", "next_hop": "2001:db8::2", "af": "v6"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["af"] == "v6" and st["via"] == "device" and st["target"] == "r2"
+
+
+@pytest.mark.unit
+def test_fib_via_interface_p2p_peer_and_unresolvable():
+    """IF 名 next-hop: P2P リンクなら peer 解決(via-interface,target=peer)。リンク無しは target=None。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+                    _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]),
+                    _make_if("r1", "Gi9", [{"af": "v4", "ip": "10.9.9.1", "prefix": 24}])],
+        links=[_dlink("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30")],
+        routing={"bgp": [], "ospf": [], "static": [
+            {"device": "r1", "prefix": "8.8.8.0/24", "next_hop": "Gi0", "af": "v4"},
+            {"device": "r1", "prefix": "9.9.9.0/24", "next_hop": "Gi9", "af": "v4"}]},
+    )
+    by_pfx = {e["prefix"]: e for e in _fib(topo)["r1"] if e["kind"] == "static"}
+    assert by_pfx["8.8.8.0/24"]["via"] == "via-interface" and by_pfx["8.8.8.0/24"]["target"] == "r2"
+    assert by_pfx["9.9.9.0/24"]["via"] == "via-interface" and by_pfx["9.9.9.0/24"]["target"] is None
+
+
+@pytest.mark.unit
+def test_static_edges_over_link_and_stub():
+    """static_edges: 隣接かつ共有リンク → over-link。blackhole/dangling → stub 参照。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+                    _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}])],
+        links=[_dlink("r1", "Gi0", "r2", "Gi0", "10.0.0.0/30")],
+        routing={"bgp": [], "ospf": [], "static": [
+            {"device": "r1", "prefix": "8.8.8.0/24", "next_hop": "10.0.0.2", "af": "v4"},
+            {"device": "r1", "prefix": "203.0.113.0/24", "next_hop": "Null0", "af": "v4"},
+            {"device": "r1", "prefix": "9.9.9.0/24", "next_hop": "172.16.99.1", "af": "v4"}]},
+    )
+    fib = _fib(topo)
+    edges = build_static_edges(topo, fib)
+    stubs = build_static_stubs(topo, fib)
+    by_pfx = {e["prefix"]: e for e in edges}
+    assert by_pfx["8.8.8.0/24"]["kind"] == "over-link" and by_pfx["8.8.8.0/24"]["b"] == "r2"
+    assert by_pfx["8.8.8.0/24"]["af"] == "v4" and by_pfx["8.8.8.0/24"]["default"] is False and by_pfx["8.8.8.0/24"]["ecmp"] is False
+    assert by_pfx["203.0.113.0/24"]["kind"] == "blackhole" and by_pfx["203.0.113.0/24"]["stub"]
+    assert by_pfx["9.9.9.0/24"]["kind"] == "dangling" and by_pfx["9.9.9.0/24"]["stub"]
+    stub_kinds = {s["kind"] for s in stubs}
+    assert "blackhole" in stub_kinds and "dangling" in stub_kinds
+    # edge.stub が実在する static_stubs の id を指す（参照整合）
+    stub_ids = {s["id"] for s in stubs}
+    for e in edges:
+        if e["stub"]:
+            assert e["stub"] in stub_ids
+
+
+@pytest.mark.unit
+def test_build_data_has_fib_static_keys():
+    """build_data の返り値に fib / static_edges / static_stubs キーが含まれる。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    assert isinstance(data["fib"], dict)
+    assert isinstance(data["static_edges"], list)
+    assert isinstance(data["static_stubs"], list)

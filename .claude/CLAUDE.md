@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 コードの実体はほぼ全て `.claude/skills/config-topology/`（以下 `$SKILL`）配下にある。
 ルート直下はスキルの入出力ワークスペース:
 - `workspace/` … 入力 config（`*.cfg *.conf *.txt`）
-- `topology/` … 中間表現（レイヤー別 YAML 正本）= 出力①
+- `topology/` … 中間表現（レイヤー別 YAML 正本）= 出力①（`raw_config.yaml` は生 config 保持時のみ・CONFIG ビュー用）
 - `topology.html` … 自己完結 HTML 構成図 = 出力②
 - `history/<YYYY-MM-DD_HHMM>/` … 再生成前に退避した旧成果物
 
@@ -41,8 +41,8 @@ workspace/*.{cfg,conf,txt}
 - **dual-stack**: `interfaces[].addresses`（`[{af,ip,prefix,secondary?,scope?}]`）が IP の正本。
   `interfaces[].ip` は最初の非 secondary v4 から派生する後方互換フィールド（§4.1）。
 - **render の実体は `lib/rendering/`**（`render_topology.py` は薄い CLI）。CSS/JS 定数 `_CSS`/`_BODY`/`_JS`
-  は `assets.py`（設計検証パネル描画 `renderChecksView`・サブネット使用率ビュー描画 `renderSubnetUsageView`・差分ビュー描画 `renderDiffView`・隣接フォーカス `nHopNeighbors`/`S.focusMode`・URL ハッシュ状態 `encodeState`/`decodeState`・degree 連動ノードサイズ `nodeScale`・データ駆動凡例 `presentAreas`/`presentASes`・リンクラベル法線オフセット `edgeNormalOffset`・ラベル省略表示 `truncateLabel`/`nodeLabelMaxChars`・キーボードショートカット `keyToAction`/`toggleShortcutsOverlay`（g/h/m/l/?・図ビュー専用＋ヘルプ overlay）含む）、
-  データ変換・設計検証（`build_checks`→`DATA.checks`・OSPF area 不一致 `ospf_area_mismatch` 含む）・サブネット使用率（`build_subnet_usage`→`DATA.subnet_usage`）・stub / loopback ノード（`build_stub_nodes`→`DATA.stub_nodes`・Physical/OSPF 両ビューで segment 様式ノード描画〔`data-elem="seg"`・`lpId`/`segById`/`STUB_BY_ID`〕・色で区別〔`.lpnode`/`.stubnode`〕・hover で IF/IP ラベル・クリックで `setHotNet` subnet 連動選択・専用凡例・カテゴリ全体トグル `S.filters.lo`/`stub`〔`#f-lo`/`#f-stub`・`stubFiltered`〕）・接続数（`_compute_degrees`→`DATA.devices[].degree`）は
+  は `assets.py`（設計検証パネル描画 `renderChecksView`・差分ビュー描画 `renderDiffView`・生 config 閲覧/比較/編集ワークベンチ描画 `renderConfigView`/`renderCfgSplit`〔CONFIG タブ・図連動なし・機密警告バナー。`DATA.raw_configs`/`parse_status`/`raw_configs_prev` 参照。ユーティリティ（`copyText`・折返し `S.configWrap`・grep `S.configGrep`・検索ナビ `cfgHitIdx`）・parse 状態 3 色分け `S.configParse`〔`.ps-parsed/ignored/unparsed`・未対応のみ `S.configUnparsedOnly`〕・2ペイン比較 `S.configSplit`〔**読取専用**・source `dev:/prev:/scratch:`・原本保持は `cfgTextOf`〔scratch のみ編集バッファ参照〕・行整列 `lineAlign`〔LCS 順序付き ops・同一テキスト早道・`n*m>=4e6` で省略〕→ 比較は対称整列 `cfgSymRows`（両ペイン同数＋空行ギャップ）・行 HTML は `cfgLineHtml`〕・ノード駆動編集 `renderCfgEdit`/`S.configEdit`〔`data-cfgtoggle="edit"`・選択機器を 編集前(左=`dev:`原本/読取専用) vs 編集中(右=`scratch:`/textarea) の固定2ペイン・source ドロップダウンなし・split と排他・左を右 textarea にライブ整列 `cfgEditLeftRows`〔追加=空行ギャップ `.cfgline.gap`・削除=行非消費の境界マーカー `.del-above[data-del]`/末尾 `.cfgdelmark`〕・編集スクラッチ `S.configScratch`〔localStorage〕・リテラル全置換 `data-cfgreplace`・ライブ差分 `updateCfgSplitDiff`（編集左のみ再描画・縦スクロール同期 `_cfgScrollLock`）〕・ペイン source 解決ヘルパ `cfgPaneKey`〔select 優先→`data-cfgkey` フォールバック・保存/置換/コピーで共通〕〕・隣接フォーカス `nHopNeighbors`/`S.focusMode`・URL ハッシュ状態 `encodeState`/`decodeState`・degree 連動ノードサイズ `nodeScale`・データ駆動凡例 `presentAreas`/`presentASes`・リンクラベル法線オフセット `edgeNormalOffset`・ラベル省略表示 `truncateLabel`/`nodeLabelMaxChars`・キーボードショートカット `keyToAction`/`toggleShortcutsOverlay`（g/h/m/l/?・図ビュー専用＋ヘルプ overlay）含む）、
+  データ変換・設計検証（`build_checks`→`DATA.checks`・OSPF area 不一致 `ospf_area_mismatch` 含む）・**STATIC 図ビュー（スタティック経路フォワーディング・シミュレーション）**〔FIB 構築 `build_fib`→`DATA.fib`（protocol 非依存の最終 RIB＝connected＋static・将来 OSPF/BGP best-path を同形で流し込む拡張点）・next-hop 解決 `_resolve_next_hop`（host/サブネット/dangling/blackhole/IF名 P2P・`_build_host_ip_index`/`_build_subnet_index` 索引を iBGP/dangling チェックと共用）・オーバーレイ `build_static_edges`→`DATA.static_edges`/`build_static_stubs`→`DATA.static_stubs`・JS は純関数トレース `evalNode`/`traceForward`/`ipInCidr`/`ip6ToBig`〔LPM・verdict delivered/blackhole/unreachable-nexthop/no-route/loop・ECMP 先頭〕・トレース UI `runTrace`/`syncTraceControls`・`S.trace`・結果 `renderTraceResult`・方向矢じり marker `#se-arrow`・`tabs.py` で `routing.static` 非空時に STATIC タブ〕・stub / loopback ノード（`build_stub_nodes`→`DATA.stub_nodes`・Physical/OSPF 両ビューで segment 様式ノード描画〔`data-elem="seg"`・`lpId`/`segById`/`STUB_BY_ID`〕・色で区別〔`.lpnode`/`.stubnode`〕・クリックで `setHotNet` subnet 連動選択・IF/IP ラベルは **loopback/stub 自身**の選択/hover/hot 時のみ表示〔`showIf`・親機器選択には連動しない〕・DEVICE DETAILS の IF 行からも選択可〔`stubNetForDetail`→行 `data-net`〕・専用凡例・カテゴリ全体トグル `S.filters.lo`/`stub`〔`#f-lo`/`#f-stub`・`stubFiltered`〕）・生 config pass-through（`topo["raw_configs"]`→`DATA.raw_configs`・CONFIG タブは `has_config` 条件付き）・接続数（`_compute_degrees`→`DATA.devices[].degree`）は
   `data_transform.py`、決定的レイアウトは `layout.py`（AS クラスタリング初期配置 `cluster_order`・AS グループ化ヘルパ `_group_by_asn`・force/hierarchical 切替 `compute_positions(mode=)`＋階層グリッド `_hierarchical_positions`（`--layout hierarchical`）含む）、ビューロジックは `tabs.py`、
   テンプレート組立は `template.py` にそれぞれ分離。CSS/JS や色を直すときは `assets.py` を見る。
 
@@ -93,4 +93,7 @@ python3 "$SKILL/scripts/diff_topology.py" old_topology/ new_topology/ [-o diff.m
 
 ## 機密情報の注意
 config の `interface description` 等の自由記述はそのまま層別 YAML・`topology.html` に出力される
-（password/secret/snmp community 行自体はパースしない）。生成物の共有・保存時は取り扱い注意。
+（password/secret/snmp community 行自体はパースしない）。**加えて CONFIG ビュー（`raw_config.yaml`）は
+running-config 全文を原本のまま保持・表示するため、password/secret/snmp community/鍵 等の機密行そのものが
+`raw_config.yaml` と `topology.html` に平文で載る**（UI に警告バナー・ユーザーが明示的に受容した設計）。
+ファイル権限は他の層別 YAML 同様 umask 依存。生成物の共有・保存時は取り扱い注意。

@@ -62,8 +62,8 @@ def test_node_check_syntax():
         pytest.skip("node 不在のため構文チェックをスキップ")
     stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
             "meta:{generated_from:[]},"
-            "checks:[]};"
-            "const POS={};const VIEWS=['physical','checks','addr','ifs','usage'];"
+            "checks:[],raw_configs:{},parse_status:{},raw_configs_prev:{},stub_nodes:[],fib:{},static_edges:[],static_stubs:[]};"
+            "const POS={};const VIEWS=['physical','addr','ifs','checks'];"
             "const DIFF=null;\n")
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
         f.write(stub + assets._JS)
@@ -154,9 +154,9 @@ def test_node_check_syntax_with_diff():
         pytest.skip("node 不在のため構文チェックをスキップ")
     stub = ("const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
             "meta:{generated_from:[]},"
-            "checks:[]};"
+            "checks:[],raw_configs:{},parse_status:{},raw_configs_prev:{},stub_nodes:[],fib:{},static_edges:[],static_stubs:[]};"
             "const POS={};"
-            "const VIEWS=['physical','diff','checks','addr','ifs','usage'];"
+            "const VIEWS=['physical','addr','ifs','diff','checks'];"
             "const DIFF={devices:{added:[],removed:[],changed:[]},"
             "interfaces:{added:[],removed:[],changed:[]},"
             "links:{added:[],removed:[],changed:[]},"
@@ -2944,250 +2944,6 @@ def test_a5_extmaxc_outside_ext_for_loop():
     )
 
 
-# ---------------------------------------------------------------------------
-# D4: サブネット使用率集約ビュー — JS アセットテスト
-# ---------------------------------------------------------------------------
-
-def test_render_subnet_usage_view_function_exists():
-    """JS に renderSubnetUsageView 関数が定義されていること。"""
-    assert "function renderSubnetUsageView" in assets._JS
-
-
-def test_is_table_view_includes_usage():
-    """isTableView() が 'usage' を table view として扱うこと。"""
-    assert 'S.view === "usage"' in assets._JS
-
-
-def test_render_table_view_dispatches_to_usage():
-    """renderTableView が usage ビューに対して renderSubnetUsageView を呼び出すこと。"""
-    assert "renderSubnetUsageView()" in assets._JS
-
-
-def test_render_subnet_usage_view_reads_data_subnet_usage():
-    """renderSubnetUsageView が DATA.subnet_usage を参照すること。"""
-    assert "DATA.subnet_usage" in assets._JS
-
-
-def test_render_subnet_usage_view_uses_esc():
-    """renderSubnetUsageView が esc() で XSS 対策していること。"""
-    start = assets._JS.find("function renderSubnetUsageView")
-    assert start != -1
-    section = assets._JS[start:start + 3000]
-    assert "esc(" in section
-
-
-def test_render_subnet_usage_view_zero_message():
-    """DATA.subnet_usage が 0 件のとき具体的な説明メッセージが JS ソースに含まれること。
-
-    役割: JS ソース静的検査（テンプレート文字列の存在確認）。
-    0 件時の node 実行検証は test_render_subnet_usage_view_zero_items_node が担う。
-
-    壊すと赤: 0 件メッセージ文字列を削除・変更すると失敗する。
-    """
-    start = assets._JS.find("function renderSubnetUsageView")
-    assert start != -1
-    section = assets._JS[start:start + 3000]
-    # 0件時の具体的なメッセージ文字列が関数内に存在すること
-    assert "v4 サブネット（/32 除外）が見つかりませんでした" in section, (
-        "renderSubnetUsageView の 0件メッセージ文字列が見つからない。"
-        "0件のとき空ではなく説明テキストを返す実装が必要。"
-    )
-
-
-def test_render_subnet_usage_view_has_columns():
-    """renderSubnetUsageView が必要な列ヘッダを持つこと（Subnet/Usable/Used/Free/Util%/Status）。"""
-    start = assets._JS.find("function renderSubnetUsageView")
-    assert start != -1
-    section = assets._JS[start:start + 3000]
-    # 必須列名が存在すること
-    for col in ["Subnet", "Usable", "Used", "Free", "Util"]:
-        assert col in section, "renderSubnetUsageView に '%s' 列ヘッダがない" % col
-
-
-def test_render_subnet_usage_view_exhausted_highlight():
-    """renderSubnetUsageView が exhausted 行を視覚強調すること。"""
-    start = assets._JS.find("function renderSubnetUsageView")
-    assert start != -1
-    section = assets._JS[start:start + 3000]
-    # exhausted フィールドを参照していること
-    assert "exhausted" in section
-
-
-def test_node_check_syntax_with_subnet_usage():
-    """subnet_usage を DATA stub に含めた状態で node --check が通ること。"""
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node 不在のため構文チェックをスキップ")
-    stub = (
-        "const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
-        "meta:{generated_from:[]},"
-        "stats:{devices:0,interfaces:0,links:0,segments:0,"
-        "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
-        "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
-        "checks:[],"
-        "subnet_usage:[]};"
-        "const POS={};"
-        "const VIEWS=['physical','stats','checks','addr','ifs','usage'];"
-        "const DIFF=null;\n"
-    )
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
-        f.write(stub + assets._JS)
-        path = f.name
-    try:
-        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
-        assert r.returncode == 0, r.stderr
-    finally:
-        os.unlink(path)
-
-
-def _node_run_renderSubnetUsageView(subnet_usage_json):
-    """node で renderSubnetUsageView を実行するヘルパー。document/window を stub 化して実行。
-
-    document.querySelector が即時呼ばれるため、top-level の $ 定義が走らないよう
-    document stub を先に挿入する。
-    """
-    node = shutil.which("node")
-    if not node:
-        return None  # caller は skip
-    # document stub（$ の即時実行と addEventListener を吸収する最小実装）
-    doc_stub = (
-        "const _el = {innerHTML:'',textContent:'',classList:{toggle:()=>{},add:()=>{},remove:()=>{},contains:()=>false},"
-        "addEventListener:()=>{},removeEventListener:()=>{},getBoundingClientRect:()=>({left:0,top:0,width:0,height:0}),"
-        "style:{},children:[],querySelectorAll:()=>[],setAttribute:()=>{},getAttribute:()=>null,value:'',checked:false,"
-        "dataset:{},parentNode:null,childNodes:[]};\n"
-        "const document = { querySelector: () => _el, querySelectorAll: () => [], addEventListener: () => {}, "
-        "getElementById: () => _el, createElement: () => _el };\n"
-        "const location = { hash: '', search: '', pathname: '/', href: '' };\n"
-        "const history = { replaceState: () => {}, pushState: () => {} };\n"
-        "const window = { addEventListener: () => {}, removeEventListener: () => {}, innerWidth: 1280, innerHeight: 720, "
-        "location, history, requestAnimationFrame: cb => {} };\n"
-        "const localStorage = { getItem: () => null, setItem: () => {} };\n"
-        "const requestAnimationFrame = cb => {};\n"
-    )
-    data_stub = (
-        "const DATA={devices:{},links:[],segments:[],extPeers:[],bgpEdges:[],"
-        "meta:{generated_from:[]},"
-        "stats:{devices:0,interfaces:0,links:0,segments:0,"
-        "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
-        "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
-        "checks:[],"
-        "subnet_usage:%s};\n"
-        "const POS={};\n"
-        "const VIEWS=['physical','stats','checks','addr','ifs','usage'];\n"
-        "const DIFF=null;\n"
-    ) % subnet_usage_json
-    runner = (
-        "\ntry { "
-        "var result = renderSubnetUsageView();"
-        "process.stdout.write(result);"
-        "} catch(e) { process.stderr.write(String(e)); process.exit(1); }\n"
-    )
-    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
-        f.write(doc_stub + data_stub + assets._JS + runner)
-        path = f.name
-    try:
-        r = subprocess.run([node, path], capture_output=True, text=True)
-        return r
-    finally:
-        os.unlink(path)
-
-
-def test_render_subnet_usage_view_node_execution():
-    """node で renderSubnetUsageView を実際に実行し、行数・exhausted 強調・util% 表示を検証。
-
-    stub DATA.subnet_usage に既知データを渡し、出力 HTML の期待値をアサートする（壊すと赤）。
-
-    役割: node 実行による動的検証（trow 件数・util 小数桁・exhausted 強調）。
-    0 件時の検証は test_render_subnet_usage_view_zero_items_node が担う。
-    0 件メッセージ文字列の静的検査は test_render_subnet_usage_view_zero_message が担う。
-    """
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node 不在のため実行テストをスキップ")
-
-    # /30 exhausted（util=1.0）+ /24 not exhausted（util=0.0394 → 3.9%）の 2 サブネット
-    subnet_usage_json = (
-        '['
-        '{"subnet":"10.0.0.0/30","af":"v4","usable":2,"used":2,"free":0,"util":1.0,"exhausted":true},'
-        '{"subnet":"192.168.1.0/24","af":"v4","usable":254,"used":10,"free":244,"util":0.0394,"exhausted":false}'
-        ']'
-    )
-    r = _node_run_renderSubnetUsageView(subnet_usage_json)
-    assert r is not None
-    assert r.returncode == 0, "renderSubnetUsageView 実行エラー: %s" % r.stderr
-    html = r.stdout
-
-    # 両サブネットのアドレスが含まれること
-    assert "10.0.0.0/30" in html, "exhausted サブネットが出力に含まれない"
-    assert "192.168.1.0/24" in html, "通常サブネットが出力に含まれない"
-
-    # trow 件数 == 投入サブネット数（2件）であること（壊すと赤: テーブル構造を崩すと失敗）
-    import re as re_mod
-    trow_count = len(re_mod.findall(r'class="trow', html))
-    assert trow_count == 2, (
-        "投入サブネット 2 件に対して trow が %d 件出力された（期待: 2）。"
-        "テーブル行生成ロジックが壊れている可能性がある。" % trow_count
-    )
-
-    # util% の小数1桁表示（toFixed(1) 精度）を検証（壊すと赤: toFixed(0) に変えると失敗）
-    # util=1.0 → "100.0%"（toFixed(1) は "100.0"、toFixed(0) は "100"）
-    assert "100.0%" in html, (
-        "util=1.0 のとき '100.0%%' が出力されるべき（toFixed(1)）だが出力にない。"
-        "toFixed(0) に変えると '100%%' になり失敗する（壊すと赤）。"
-    )
-    # util=0.0394 → (0.0394*100).toFixed(1) = "3.9%"
-    assert "3.9%" in html, (
-        "util=0.0394 のとき '3.9%%' が出力されるべき（toFixed(1)）だが出力にない。"
-        "toFixed(0) に変えると '4%%' になり失敗する（壊すと赤）。"
-    )
-
-    # exhausted 強調が含まれること（クラス or danger 参照）
-    assert "exhausted" in html.lower() or "chk-bad" in html or "danger" in html, \
-        "exhausted 行の視覚強調が HTML に含まれない"
-
-
-def test_render_subnet_usage_view_zero_items_node():
-    """DATA.subnet_usage が空リストのとき 0 件メッセージが出ること（node 実行）。
-
-    役割: node 実行による動的検証（0 件パス）。
-    JS ソース静的検査は test_render_subnet_usage_view_zero_message が担う。
-    """
-    node = shutil.which("node")
-    if not node:
-        pytest.skip("node 不在のため実行テストをスキップ")
-
-    r = _node_run_renderSubnetUsageView("[]")
-    assert r is not None
-    assert r.returncode == 0, "renderSubnetUsageView 0件実行エラー: %s" % r.stderr
-    html = r.stdout
-    # 0 件時の説明メッセージが含まれること
-    assert len(html) > 0, "0件のとき出力が空"
-    # 具体的な 0 件メッセージが HTML に含まれること（壊すと赤）
-    assert "v4 サブネット" in html or "見つかりませんでした" in html, (
-        "0件のとき具体的なメッセージが出力されていない。"
-        "実際の出力: %s" % html[:200]
-    )
-    # テーブル行がないこと（<tr class="trow"> が出ない）
-    import re as re_mod
-    trow_count = len(re_mod.findall(r'class="trow"', html))
-    assert trow_count == 0, "0件のとき trow 行が %d 件出てしまっている" % trow_count
-
-
-def test_render_subnet_usage_tnote_references_threshold():
-    """renderSubnetUsageView の tnote が 'exhausted = 使用率 80% 以上' に言及していること。
-
-    _EXHAUSTED_THRESHOLD=0.8 と assets.py の tnote 文言「80%」が対応付けられていること。
-    壊すと赤: tnote から「80%」の文言を消すと失敗する。
-    """
-    start = assets._JS.find("function renderSubnetUsageView")
-    assert start != -1
-    section = assets._JS[start:start + 3000]
-    assert "80%" in section, (
-        "renderSubnetUsageView の tnote に '80%%' 文言がない。"
-        "_EXHAUSTED_THRESHOLD=0.8 と tnote 文言 '80%%' は対応付けられるべき。"
-    )
-
-
 # ===========================================================================
 # B5: キーボードショートカット拡充
 # ===========================================================================
@@ -3273,26 +3029,25 @@ def test_b5_keydown_dispatch_after_input_guard():
     これを逆転させると検索欄入力中にも g/h/m/l が発火する（入力欄ガード跨ぎバグ）。
     """
     js = assets._JS
-    guard_pos = js.find('ev.target.tagName === "INPUT"')
+    guard_pos = js.find("INPUT|SELECT|TEXTAREA")
     action_pos = js.find("keyToAction(ev.key)")
-    assert guard_pos != -1, '_JS に INPUT ガードが存在しない（入力欄ガード削除を検出）'
+    assert guard_pos != -1, '_JS に入力欄ガードが存在しない（入力欄ガード削除を検出）'
     assert action_pos != -1, '_JS に keyToAction(ev.key) が存在しない'
     assert guard_pos < action_pos, (
-        "keyToAction(ev.key) の呼び出しが INPUT/SELECT ガードより前にある"
+        "keyToAction(ev.key) の呼び出しが入力欄ガードより前にある"
         "（ガードを跨いでいる: 回帰防止テスト）"
     )
 
 
 @pytest.mark.unit
 def test_b5_input_select_guard_preserved():
-    """INPUT/SELECT ガードが keydown ハンドラに残存していること（削除を検出する回帰防止）。
+    """入力欄ガード（INPUT/SELECT/TEXTAREA）が keydown ハンドラに残存していること（削除を検出する回帰防止）。
 
-    壊すと赤: ガードを削除すると検索入力中に g/h/m/l 等が奪われる。
+    壊すと赤: ガードを削除すると検索入力中・config 編集中に g/h/m/l 等が奪われる。
+    TEXTAREA はワークベンチの編集スクラッチ（textarea.cfgedit）でキーが奪われないために必須。
     """
-    assert 'ev.target.tagName === "INPUT"' in assets._JS, \
-        'keydown ハンドラに INPUT ガードが存在しない（入力欄ガード削除を検出）'
-    assert 'ev.target.tagName === "SELECT"' in assets._JS, \
-        'keydown ハンドラに SELECT ガードが存在しない（入力欄ガード削除を検出）'
+    for tag in ("INPUT", "SELECT", "TEXTAREA"):
+        assert tag in assets._JS, "keydown ハンドラに %s ガードが存在しない（入力欄ガード削除を検出）" % tag
 
 
 @pytest.mark.unit
@@ -3497,7 +3252,7 @@ def test_b5_node_check_syntax_with_shortcuts(node_bin):
         "stats:{devices:0,interfaces:0,links:0,segments:0,"
         "by_vendor:{},by_as:{},by_area:{},link_kinds:{link:0,segment:0,stub:0},"
         "dualstack_ifs:0,bgp_sessions:0,ospf_networks:0,static_routes:0},"
-        "checks:[],subnet_usage:[]};"
+        "checks:[]};"
         "const POS={};const VIEWS=['physical','stats','checks','addr','ifs'];"
         "const DIFF=null;\n"
     )
@@ -4235,7 +3990,7 @@ def test_stub_hover_ellipse_shows_label():
     js = assets._JS
     mv = js.find('window.addEventListener("mousemove"')
     assert mv != -1, "mousemove ハンドラが見つからない"
-    ctx = js[mv:mv + 1600]
+    ctx = js[mv:mv + 2000]
     assert "const s = segById(sid)" in ctx, "mousemove の seg/seglink hover が segById を使っていない"
     assert "const want = s ? s.id : sid" in ctx, \
         "楕円 hover で want=s.id（ラベル表示）になっていない（旧 want=null のまま）"
@@ -4355,3 +4110,627 @@ def test_stub_segnode_css_reused_and_legacy_removed():
         "g.segnode の共通 CSS が消えている（stub の楕円/テキストが消える）"
     assert ".lpstub" not in css, "旧 .lpstub CSS が残っている"
     assert 'g.segnode[data-deco^="lpstub:"]' not in css, "旧 lpstub cursor 上書きが残っている"
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ビュー — JS アセット構造
+# ---------------------------------------------------------------------------
+
+def test_js_has_render_config_view():
+    """renderConfigView 関数が定義されていること。"""
+    assert "function renderConfigView(" in assets._JS
+
+
+def test_is_table_view_includes_config():
+    """isTableView が config を表ビューとして扱うこと。"""
+    m = re.search(r"const isTableView = \(\) => (.*?);", assets._JS)
+    assert m and 'S.view === "config"' in m.group(1)
+
+
+def test_render_table_view_dispatches_config():
+    """renderTableView が config を renderConfigView へ振り分けること。"""
+    assert 'S.view === "config"' in assets._JS
+    assert "renderConfigView()" in assets._JS
+
+
+def test_js_has_config_state():
+    """S に選択機器状態 configDev が存在すること。"""
+    assert "configDev" in assets._JS
+
+
+def test_config_view_reuses_global_search():
+    """CONFIG ビューはグローバル検索を流用すること（専用入力でフォーカスを失わないため）。
+    searchQuery() を介して S.search を解釈する。"""
+    m = re.search(r"function renderConfigView\(\) \{(.*?)\n\}", assets._JS, re.DOTALL)
+    assert m and "searchQuery()" in m.group(1)
+
+
+def test_config_view_secret_warning_present():
+    """機密がそのまま含まれる旨の警告文言が含まれること。"""
+    assert "機密" in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ワークベンチ Phase A — ペイン内ユーティリティ
+# ---------------------------------------------------------------------------
+
+def test_js_has_copy_text_helper():
+    """汎用クリップボードコピー copyText が定義されていること。"""
+    assert "function copyText(" in assets._JS
+
+
+def test_config_view_has_toolbar_toggles():
+    """renderConfigView に 折返し/grep トグルとコピー/ナビの data 属性があること。"""
+    m = re.search(r"function renderConfigView\(\) \{(.*?)\n\}", assets._JS, re.DOTALL)
+    body = m.group(1)
+    assert 'data-cfgtoggle="wrap"' in body
+    assert 'data-cfgtoggle="grep"' in body
+    assert "data-cfgcopy" in body
+    assert "data-cfgnav" in body
+
+
+def test_js_has_config_wrap_grep_state():
+    """S に configWrap / configGrep 状態があること。"""
+    assert "configWrap" in assets._JS and "configGrep" in assets._JS
+
+
+def test_config_view_grep_filters_lines():
+    """grep モードのとき一致行のみを描く分岐（S.configGrep）が renderConfigView にあること。"""
+    m = re.search(r"function renderConfigView\(\) \{(.*?)\n\}", assets._JS, re.DOTALL)
+    assert "S.configGrep" in m.group(1)
+
+
+def test_tableview_handles_config_toggles():
+    """#tableview のイベント委譲に cfgtoggle / cfgnav / cfgcopy の分岐があること。"""
+    assert "data-cfgtoggle" in assets._JS
+    assert "data-cfgnav" in assets._JS
+    assert "data-cfgcopy" in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ワークベンチ Phase P — parse 状態モード
+# ---------------------------------------------------------------------------
+
+def test_config_view_parse_status_mode():
+    """renderConfigView に parse 状態モード（DATA.parse_status・3段階・凡例・未対応のみ）があること。"""
+    m = re.search(r"function renderConfigView\(\) \{(.*?)\n\}", assets._JS, re.DOTALL)
+    body = m.group(1)
+    assert "DATA.parse_status" in body
+    assert 'data-cfgtoggle="parse"' in body
+    assert 'data-cfgtoggle="unparsed"' in body
+    assert "ps-" in body
+
+
+def test_js_has_config_parse_state():
+    """S に configParse / configUnparsedOnly 状態があること。"""
+    assert "configParse" in assets._JS and "configUnparsedOnly" in assets._JS
+
+
+def test_css_has_parse_status_colors():
+    """parse 状態の 3 色（ps-parsed/ps-ignored/ps-unparsed）の CSS があること。"""
+    assert ".cfgline.ps-unparsed" in assets._CSS
+    assert ".cfgline.ps-parsed" in assets._CSS
+    assert ".cfgline.ps-ignored" in assets._CSS
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ワークベンチ — アウトライン・折りたたみ廃止（負テスト）
+# ---------------------------------------------------------------------------
+
+def test_outline_and_fold_removed():
+    """アウトライン/折りたたみ関連（cfgSections・data-cfgoutline/cfgfold・outline トグル・
+    configOutline/collapsedCfg・CSS）が完全に除去されていること。"""
+    js = assets._JS
+    for tok in ["cfgSections", "data-cfgoutline", "data-cfgfold", 'data-cfgtoggle="outline"',
+                "configOutline", "collapsedCfg"]:
+        assert tok not in js, "アウトライン/折りたたみ残骸: %s" % tok
+    for css in [".cfgoutline", ".cfgolink", ".cfgfold", ".cfghead"]:
+        assert css not in assets._CSS, "アウトライン/折りたたみ CSS 残骸: %s" % css
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ワークベンチ Phase B — 2ペイン比較＋編集＋ライブ差分
+# ---------------------------------------------------------------------------
+
+def test_js_has_line_align_and_split():
+    for fn in ["function lineAlign(", "function cfgSymRows(", "function cfgEditLeftRows(",
+               "function renderCfgSplit(", "function updateCfgSplitDiff(", "function cfgSources("]:
+        assert fn in assets._JS, fn
+    assert "function lineDiff(" not in assets._JS, "旧 lineDiff が残存（lineAlign へ移行済みのはず）"
+
+
+def test_js_has_split_state_and_scratch():
+    for s in ["configSplit", "configSrcL", "configSrcR", "configScratch", "ct-cfgscratch"]:
+        assert s in assets._JS, s
+
+
+def test_config_split_readonly_no_edit_affordances():
+    """比較モードは読取専用化: renderCfgSplit に textarea/find-replace/「コピーして編集」を出さない。
+    編集系（textarea.cfgedit・data-cfgreplace）は編集モード（renderCfgEdit）にのみ存在。"""
+    js = assets._JS
+    body = _extract_fn(js, "renderCfgSplit")   # balanced-brace 抽出（regex の非貪欲より頑健）
+    for forbidden in ["textarea", "data-cfgcopyedit", "data-cfgreplace", "cfgedit"]:
+        assert forbidden not in body, f"比較モードに編集要素が残存: {forbidden}"
+    assert "data-cfgcopytext" in body and 'class="cfgsrc"' in body  # コピー・source 選択は残す
+    # 「コピーして編集」ハンドラ自体が JS から除去されていること（dead code 清掃）
+    assert "data-cfgcopyedit" not in js, "data-cfgcopyedit が残存（読取専用化で全廃のはず）"
+
+
+def test_css_has_split_and_diff_styles():
+    for s in [".cfgsplit", ".cfgpane", "textarea.cfgedit", ".cfgline.diff-add", ".cfgline.diff-del",
+              ".cfgreplace"]:
+        assert s in assets._CSS, s
+
+
+def test_scratch_is_separate_source_preserves_original():
+    """編集モデル: cfgTextOf は scratch:* のみ scratch を読み、dev:/prev: は原本（cfgRawOf）を返す
+    （= 原本保持・原本 vs 編集の比較が成立）。コピーして編集・全置換のシンボルも存在。"""
+    js = assets._JS
+    # cfgTextOf が scratch: 分岐で startsWith を使い、dev/prev は cfgRawOf を返す
+    m = re.search(r"function cfgTextOf\(key\) \{(.*?)\n\}", js, re.DOTALL)
+    assert m and 'startsWith("scratch:")' in m.group(1) and "cfgRawOf(key)" in m.group(1)
+    # 旧トグル方式は廃止
+    assert "configEditL" not in js and "configEditR" not in js
+    # cfgSources が scratch:* を含める
+    ms = re.search(r"function cfgSources\(\) \{(.*?)\n\}", js, re.DOTALL)
+    assert ms and "scratch:" in ms.group(1)
+    # リテラル全置換（split().join()）
+    assert ".split(f).join(" in js
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ワークベンチ — ノード駆動「編集」モード（編集前 vs 編集中）
+# ---------------------------------------------------------------------------
+
+def _extract_fn(js: str, name: str) -> str:
+    """_JS から `function <name>(` ブロックをバランス中括弧で切り出す。"""
+    start_marker = "function " + name + "("
+    idx = js.find(start_marker)
+    if idx == -1:
+        raise ValueError(name + " not found in _JS")
+    brace_depth = 0
+    func_start = js.index("{", idx)
+    i = func_start
+    while i < len(js):
+        if js[i] == "{":
+            brace_depth += 1
+        elif js[i] == "}":
+            brace_depth -= 1
+            if brace_depth == 0:
+                return js[idx:i + 1]
+        i += 1
+    raise ValueError(name + ": unbalanced braces")
+
+
+def test_config_edit_state_and_button():
+    """S に configEdit 状態があり、単一ペイン toolbar に「編集」「比較」両ボタンが併存すること。"""
+    assert "configEdit" in assets._JS
+    m = re.search(r"function renderConfigView\(\) \{(.*?)\n\}", assets._JS, re.DOTALL)
+    body = m.group(1)
+    assert 'data-cfgtoggle="edit"' in body, "編集ボタンが無い"
+    assert 'data-cfgtoggle="split"' in body, "比較ボタンが消えた（併存させること）"
+
+
+def test_config_edit_function_and_dispatch():
+    """renderCfgEdit が定義され、renderConfigView が S.configEdit で振り分けること。"""
+    assert "function renderCfgEdit(" in assets._JS
+    m = re.search(r"function renderConfigView\(\) \{(.*?)\n\}", assets._JS, re.DOTALL)
+    assert "renderCfgEdit(" in m.group(1) and "S.configEdit" in m.group(1)
+
+
+def test_config_edit_toggle_creates_scratch_and_excludes_split():
+    """編集トグル分岐: scratch を原本から生成し、split と排他にすること（ハンドラ構造）。"""
+    js = assets._JS
+    m = re.search(r'else if \(t === "edit"\) \{(.*?)\n    \}', js, re.DOTALL)
+    assert m, "edit トグル分岐が見つからない"
+    branch = m.group(1)
+    assert "S.configSplit = false" in branch, "edit 時に split を倒していない（排他）"
+    assert 'cfgRawOf("dev:" + cur)' in branch, "scratch を原本から生成していない"
+    # split 突入時も edit を倒す（排他）
+    assert "if (S.configSplit) S.configEdit = false" in js
+
+
+def test_config_edit_handlers_key_fallback():
+    """編集モードは select.cfgsrc が無いため、保存/置換/差分/コピーは共通の cfgPaneKey で
+    source を解決すること（select 優先・無ければ data-cfgkey フォールバック）。"""
+    js = assets._JS
+    assert "function cfgPaneKey(" in js, "キー解決ヘルパ cfgPaneKey が無い"
+    m = re.search(r"function cfgPaneKey\(paneEl, ta\) \{(.*?)\n\}", js, re.DOTALL)
+    body = m.group(1)
+    assert "select.cfgsrc" in body and "ta.dataset.cfgkey" in body and "paneEl.dataset.cfgkey" in body
+    # 利用箇所（input 保存・全置換・コピー）＋定義 が cfgPaneKey に集約されていること
+    assert js.count("cfgPaneKey(") >= 4, "cfgPaneKey が各ハンドラで共通利用されていない"
+
+
+def _run_line_align(node_bin, a_js, b_js):
+    """lineAlign(a,b) を実行し {ops, skipped} を返す。"""
+    driver = (
+        _extract_fn(assets._JS, "lineAlign") + "\n"
+        + f'const d = lineAlign({a_js}, {b_js});\n'
+        + 'process.stdout.write(JSON.stringify({ops:d.ops, skipped: !!d.skipped}));\n'
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_line_align_identical_shortcut(node_bin):
+    """lineAlign: 同一内容は DP を回さず全 same op を返し skipped を立てない。"""
+    d = _run_line_align(node_bin, '["x","y","z"]', '["x","y","z"]')
+    assert d["skipped"] is False
+    assert [o["t"] for o in d["ops"]] == ["same", "same", "same"]
+
+
+def test_line_align_add_del_change(node_bin):
+    """lineAlign: 追加=add・削除=del・変更=del+add（行全体不一致）を順序付き ops で返す。"""
+    # 追加のみ
+    d = _run_line_align(node_bin, '["a"]', '["a","b"]')
+    assert [o["t"] for o in d["ops"]] == ["same", "add"]
+    # 削除のみ
+    d = _run_line_align(node_bin, '["a","b"]', '["a"]')
+    assert [o["t"] for o in d["ops"]] == ["same", "del"]
+    # 変更（b 行が全て別物）= same → del → add（del 優先は dp[i+1][j] >= dp[i][j+1] で決定的）
+    d = _run_line_align(node_bin, '["a","old"]', '["a","new"]')
+    assert [o["t"] for o in d["ops"]] == ["same", "del", "add"]
+    # 空入力
+    d = _run_line_align(node_bin, '[]', '[]')
+    assert d["ops"] == [] and d["skipped"] is False
+
+
+def _run_cfg_pane_key(node_bin: str, scenario_js: str):
+    """cfgPaneKey(paneEl, ta) を疑似 DOM スタブで実行し戻り値（key or null）を返す。"""
+    driver = (
+        _extract_fn(assets._JS, "cfgPaneKey") + "\n"
+        + scenario_js + "\n"
+        + 'process.stdout.write(JSON.stringify(cfgPaneKey(paneEl, ta)));\n'
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_cfg_pane_key_prefers_select(node_bin):
+    """自由比較ペイン（select.cfgsrc あり）は select の値を優先すること。"""
+    scenario = (
+        'const paneEl = { querySelector: s => s === "select.cfgsrc" ? { value: "prev:r9" } : null,'
+        ' dataset: { cfgkey: "dev:r1" } };\n'
+        'const ta = { dataset: { cfgkey: "scratch:r1" } };\n'
+    )
+    assert _run_cfg_pane_key(node_bin, scenario) == "prev:r9"
+
+
+def test_cfg_pane_key_falls_back_to_textarea_key(node_bin):
+    """編集モード（select 無し）: textarea の data-cfgkey（scratch:）で解決すること（編集保存の核心）。"""
+    scenario = (
+        'const paneEl = { querySelector: () => null, dataset: { cfgkey: "scratch:r1" } };\n'
+        'const ta = { dataset: { cfgkey: "scratch:r1" } };\n'
+    )
+    assert _run_cfg_pane_key(node_bin, scenario) == "scratch:r1"
+
+
+def test_cfg_pane_key_falls_back_to_pane_key_readonly(node_bin):
+    """編集モードの読取専用ペイン（select も textarea も無い）: pane の data-cfgkey（dev:）で解決すること。"""
+    scenario = (
+        'const paneEl = { querySelector: () => null, dataset: { cfgkey: "dev:r1" } };\n'
+        'const ta = null;\n'
+    )
+    assert _run_cfg_pane_key(node_bin, scenario) == "dev:r1"
+
+
+_CFG_ALIGN_STUBS = (
+    'const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");\n'
+)
+
+
+def _run_render_cfg_edit(node_bin: str) -> str:
+    """renderCfgEdit("", "r1") を整列レンダラ群＋スタブで実行し HTML 断片を返す。
+    before="alpha\\nold"／after(scratch)="alpha\\nnew" で 1 行変更（=del+add）を作る。"""
+    driver = (
+        _extract_fn(assets._JS, "lineAlign") + "\n"
+        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
+        + _extract_fn(assets._JS, "cfgLineHtml") + "\n"
+        + _extract_fn(assets._JS, "cfgEditLeftRows") + "\n"
+        + _extract_fn(assets._JS, "renderCfgEdit") + "\n"
+        + _CFG_ALIGN_STUBS
+        + 'const S = { configWrap: false };\n'
+        + 'const DATA = { devices: { r1: { hostname: "R1" } } };\n'
+        + 'function cfgTextOf(key){ return key.indexOf("scratch:") === 0 ? "alpha\\nnew" : "alpha\\nold"; }\n'
+        + 'process.stdout.write(renderCfgEdit("", "r1"));\n'
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver,
+                           capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return r.stdout
+
+
+def test_render_cfg_edit_markup_aligned(node_bin):
+    """renderCfgEdit: 左=dev原本(read-only・data-cfgkey=dev:・整列)／右=scratch(textarea・data-cfgkey=scratch:)。
+    source ドロップダウンを出さず、編集前/編集中ラベル・find/replace・diff サマリを含む。
+    削除行(old)は本文表示せず境界マーカー・追加に対し左は空行ギャップ。"""
+    out = _run_render_cfg_edit(node_bin)
+    assert 'data-cfgkey="dev:r1"' in out and 'data-cfgkey="scratch:r1"' in out
+    assert '<textarea class="cfgedit" data-cfgpane="R"' in out
+    assert "<select" not in out, "編集モードに source ドロップダウンが出ている（固定にすること）"
+    assert "編集前" in out and "編集中" in out
+    assert 'data-cfgreplace="R"' in out
+    # 右 textarea に編集後 new・左は同一行 alpha を表示。削除行 old は本文に出さない（マーカーのみ）
+    assert "new" in out and "alpha" in out
+    assert ">old<" not in out, "削除行の本文が表示されている（マーカーのみにするはず）"
+    # 行整列の痕跡: 空行ギャップ＋削除マーカー
+    assert 'class="cfgline gap' in out, "追加に対する左の空行ギャップが無い"
+    assert "del-above" in out and 'data-del=' in out, "削除の境界マーカーが無い"
+    assert "+1 −1" in out, "行差分サマリ +1 −1 が出ていない"
+
+
+def _run_cfg_edit_left_rows(node_bin, before_js, after_js):
+    """cfgEditLeftRows(before, after, "") を実行し {html, adds, dels, skipped} を返す。"""
+    driver = (
+        _extract_fn(assets._JS, "lineAlign") + "\n"
+        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
+        + _extract_fn(assets._JS, "cfgLineHtml") + "\n"
+        + _extract_fn(assets._JS, "cfgEditLeftRows") + "\n"
+        + _CFG_ALIGN_STUBS
+        + f'const r = cfgEditLeftRows({before_js}, {after_js}, "");\n'
+        + 'process.stdout.write(JSON.stringify(r));\n'
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_cfg_edit_left_rows_aligns_to_after(node_bin):
+    """編集左ペイン整列: 行数 == 編集後行数（追加→空行ギャップ・削除→行を消費せず境界マーカー）。"""
+    # before=keep/old, after=keep/new1/new2 → same + del(old) + add(new1) + add(new2)
+    r = _run_cfg_edit_left_rows(node_bin, '["keep","old"]', '["keep","new1","new2"]')
+    rows = r["html"].count('<div class="cfgline')      # cfgline 行（gap 含む・cfgdelmark は別class）
+    assert rows == 3, f"左行数 {rows} が編集後行数 3 と不一致（textarea アンカー整列の核心）"
+    assert r["adds"] == 2 and r["dels"] == 1
+    assert "del-above" in r["html"] and 'data-del="1"' in r["html"]
+    assert r["html"].count("cfgline gap") == 2, "追加2行に対する空行ギャップが2つ無い"
+
+
+def test_cfg_edit_left_rows_trailing_deletion_marker(node_bin):
+    """末尾削除（編集後に対応行が無い）は末尾 .cfgdelmark 行で表現。"""
+    r = _run_cfg_edit_left_rows(node_bin, '["a","b","c"]', '["a"]')
+    assert r["dels"] == 2 and r["adds"] == 0
+    assert "cfgdelmark" in r["html"], "末尾削除マーカー行が無い"
+
+
+def _run_cfg_sym_rows(node_bin, l_js, r_js):
+    driver = (
+        _extract_fn(assets._JS, "lineAlign") + "\n"
+        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
+        + _extract_fn(assets._JS, "cfgLineHtml") + "\n"
+        + _extract_fn(assets._JS, "cfgSymRows") + "\n"
+        + _CFG_ALIGN_STUBS
+        + f'const r = cfgSymRows({l_js}, {r_js}, "");\n'
+        + 'process.stdout.write(JSON.stringify(r));\n'
+    )
+    rr = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                        capture_output=True, text=True, timeout=10)
+    if rr.returncode != 0:
+        rr = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert rr.returncode == 0, f"node failed: {rr.stderr}"
+    return json.loads(rr.stdout)
+
+
+def test_cfg_sym_rows_both_panes_equal_and_gapped(node_bin):
+    """比較の対称整列: 左右ペインの行数が一致し、片側のみの行に対し反対側へ空行ギャップが入る。"""
+    r = _run_cfg_sym_rows(node_bin, '["a","b"]', '["a","c","d"]')
+    lc = r["left"].count('<div class="cfgline')
+    rc = r["right"].count('<div class="cfgline')
+    assert lc == rc and lc > 0, f"左右行数不一致: {lc} != {rc}"
+    # ["a","b"] vs ["a","c","d"]: b 削除→右に gap・c/d 追加→左に gap。両側に空行ギャップが入る
+    assert "cfgline gap" in r["left"] and "cfgline gap" in r["right"], "両ペインに整列の空行ギャップが無い"
+    assert "diff-del" in r["left"] and "diff-add" in r["right"]
+
+
+# ---------------------------------------------------------------------------
+# Part C — loopback/stub の IF/IP ラベルにじみ抑制（親機器選択に連動しない）
+# ---------------------------------------------------------------------------
+
+def test_stub_label_not_triggered_by_parent_device():
+    """stub/loopback の IF/IP ラベル表示条件 showIf が親機器条件 S.sel.has(st.dev) を含まず、
+    自身の選択(sid)/スポークホバー/サブネット hot のみで構成されること（空白差異に頑健）。"""
+    js = assets._JS
+    # showIf 代入行を抽出（stub 描画ブロックの IF/IP ラベル条件）。空白を除去して比較。
+    m = re.search(r"const showIf = ([^;]*S\.sel\.has\(sid\)[^;]*);", js)
+    assert m, "stub の showIf 代入が見つからない"
+    cond = m.group(1).replace(" ", "")
+    assert cond == "S.sel.has(sid)||hoverLink===sid||segHot", f"stub ラベル条件が新仕様でない: {cond}"
+    assert "st.dev" not in cond, "親機器条件 st.dev が showIf に残存（親機器連動でラベルを出している）"
+
+
+# ---------------------------------------------------------------------------
+# Part D — DEVICE DETAILS で loopback/stub を選択可能化（stubNetForDetail）
+# ---------------------------------------------------------------------------
+
+def _run_stub_net_for_detail(node_bin, view, dev, ifn):
+    driver = (
+        _extract_fn(assets._JS, "stubNetForDetail") + "\n"
+        + 'const STUB_BY_ID = new Map(['
+        + '["r1:Lo0",{kind:"loopback",subnet:"1.1.1.1/32",area:"1"}],'
+        + '["r1:Et9",{kind:"stub",subnet:"10.9.9.0/30",area:null}]'
+        + ']);\n'
+        + f'const S = {{ view: {json.dumps(view)} }};\n'
+        + f'process.stdout.write(JSON.stringify(stubNetForDetail({json.dumps(dev)}, {json.dumps(ifn)})));\n'
+    )
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
+                       capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_stub_net_for_detail_by_view(node_bin):
+    """stubNetForDetail: physical=subnet／ospf は area 有のみ／bgp=null／非 stub IF=null。"""
+    # physical: area 有無に関わらず subnet（physical は全 stub 描画）
+    assert _run_stub_net_for_detail(node_bin, "physical", "r1", "Lo0") == "1.1.1.1/32"
+    assert _run_stub_net_for_detail(node_bin, "physical", "r1", "Et9") == "10.9.9.0/30"
+    # ospf: area 有のみ
+    assert _run_stub_net_for_detail(node_bin, "ospf", "r1", "Lo0") == "1.1.1.1/32"
+    assert _run_stub_net_for_detail(node_bin, "ospf", "r1", "Et9") is None
+    # bgp: stub/loopback は描画しないので選択不可
+    assert _run_stub_net_for_detail(node_bin, "bgp", "r1", "Lo0") is None
+    # 非 stub の IF（map に無い）
+    assert _run_stub_net_for_detail(node_bin, "physical", "r1", "Gi0/0") is None
+
+
+def test_render_details_if_row_uses_stub_net():
+    """renderDetails の INTERFACES 行が stubNetForDetail(id, i.n) を data-net 解決に使うこと。"""
+    assert "stubNetForDetail(id,i.n)" in assets._JS or "stubNetForDetail(id, i.n)" in assets._JS
+
+
+# ---------------------------------------------------------------------------
+# STATIC フォワーディング・トレース（evalNode / traceForward / ipInCidr・純関数）
+# ---------------------------------------------------------------------------
+
+_TRACE_FNS = ["ip6ToBig", "ipInCidr", "afOf", "evalNode", "traceForward"]
+
+
+def _trace_driver_prelude():
+    return "\n".join(_extract_fn(assets._JS, fn) for fn in _TRACE_FNS) + "\n"
+
+
+def test_js_has_trace_functions():
+    for fn in _TRACE_FNS:
+        assert ("function %s(" % fn) in assets._JS, fn
+
+
+def _run_ip_in_cidr(node_bin, ip, cidr):
+    driver = (_extract_fn(assets._JS, "ip6ToBig") + "\n" + _extract_fn(assets._JS, "ipInCidr") + "\n"
+              + f'process.stdout.write(JSON.stringify(ipInCidr({json.dumps(ip)}, {json.dumps(cidr)})));\n')
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver, capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def test_ip_in_cidr_v4_v6_and_default(node_bin):
+    assert _run_ip_in_cidr(node_bin, "10.0.0.5", "10.0.0.0/24") is True
+    assert _run_ip_in_cidr(node_bin, "10.0.1.5", "10.0.0.0/24") is False
+    assert _run_ip_in_cidr(node_bin, "1.2.3.4", "0.0.0.0/0") is True           # default は全一致
+    assert _run_ip_in_cidr(node_bin, "8.8.8.8", "8.8.8.8/32") is True          # host route
+    assert _run_ip_in_cidr(node_bin, "2001:db8:5::1", "2001:db8:5::/48") is True
+    assert _run_ip_in_cidr(node_bin, "2001:db8:6::1", "2001:db8:5::/48") is False
+    assert _run_ip_in_cidr(node_bin, "2001:db8::1", "::/0") is True            # v6 default
+
+
+def _run_trace(node_bin, fib, start, dst):
+    driver = (_trace_driver_prelude()
+              + f'const fib = {json.dumps(fib)};\n'
+              + f'process.stdout.write(JSON.stringify(traceForward(fib, {json.dumps(start)}, {json.dumps(dst)})));\n')
+    r = subprocess.run([node_bin, "--input-type=module"], input=driver, capture_output=True, text=True, timeout=10)
+    if r.returncode != 0:
+        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    assert r.returncode == 0, f"node failed: {r.stderr}"
+    return json.loads(r.stdout)
+
+
+def _conn(net, af="v4"):
+    return {"net": net, "af": af, "kind": "connected", "via": "local", "target": None,
+            "nh": None, "plen": int(net.split("/")[1]), "ecmpGroup": 0, "default": False}
+
+
+def _stat(net, via, target, nh="x", ecmp=0):
+    return {"prefix": net, "net": net, "af": ("v6" if ":" in net else "v4"), "kind": "static", "via": via,
+            "target": target, "nh": nh, "plen": int(net.split("/")[1]), "ecmpGroup": ecmp,
+            "default": net in ("0.0.0.0/0", "::/0")}
+
+
+def test_trace_delivered_multi_hop(node_bin):
+    fib = {"r1": [_stat("8.8.8.0/24", "device", "r2")],
+           "r2": [_conn("8.8.8.0/24")]}
+    res = _run_trace(node_bin, fib, "r1", "8.8.8.1")
+    assert res["verdict"] == "delivered"
+    assert [h["dev"] for h in res["hops"]] == ["r1", "r2"]
+
+
+def test_trace_via_interface_target_chains(node_bin):
+    """via-interface かつ target あり（P2P peer 解決済み）は次 hop へ連鎖して到達できる。"""
+    fib = {"r1": [_stat("8.8.8.0/24", "via-interface", "r2", nh="Gi0")],
+           "r2": [_conn("8.8.8.0/24")]}
+    res = _run_trace(node_bin, fib, "r1", "8.8.8.1")
+    assert res["verdict"] == "delivered" and [h["dev"] for h in res["hops"]] == ["r1", "r2"]
+
+
+def test_trace_via_interface_no_target_unreachable(node_bin):
+    """via-interface かつ target なし（peer 不定）は next-hop 到達不可で停止。"""
+    fib = {"r1": [_stat("8.8.8.0/24", "via-interface", None, nh="Gi9")]}
+    assert _run_trace(node_bin, fib, "r1", "8.8.8.1")["verdict"] == "unreachable-nexthop"
+
+
+def test_trace_blackhole(node_bin):
+    fib = {"r1": [_stat("203.0.113.0/24", "blackhole", None)]}
+    assert _run_trace(node_bin, fib, "r1", "203.0.113.5")["verdict"] == "blackhole"
+
+
+def test_trace_unreachable_dangling(node_bin):
+    fib = {"r1": [_stat("8.8.8.0/24", "dangling", None)]}
+    assert _run_trace(node_bin, fib, "r1", "8.8.8.5")["verdict"] == "unreachable-nexthop"
+
+
+def test_trace_no_route(node_bin):
+    fib = {"r1": [_conn("10.0.0.0/30")]}
+    assert _run_trace(node_bin, fib, "r1", "8.8.8.5")["verdict"] == "no-route"
+
+
+def test_trace_loop_detected(node_bin):
+    fib = {"r1": [_stat("0.0.0.0/0", "device", "r2")],
+           "r2": [_stat("0.0.0.0/0", "device", "r1")]}
+    res = _run_trace(node_bin, fib, "r1", "9.9.9.9")
+    assert res["verdict"] == "loop"
+    assert set(res["visited"]) == {"r1", "r2"}        # 両機器を訪問してからループ検出
+
+
+def test_trace_longest_prefix_wins(node_bin):
+    """より具体的な /24 が default(/0) より優先される。"""
+    fib = {"r1": [_stat("8.8.8.0/24", "device", "r3"), _stat("0.0.0.0/0", "device", "r2")],
+           "r2": [_conn("0.0.0.0/0")],   # ダミー
+           "r3": [_conn("8.8.8.0/24")]}
+    res = _run_trace(node_bin, fib, "r1", "8.8.8.1")
+    assert res["verdict"] == "delivered" and [h["dev"] for h in res["hops"]] == ["r1", "r3"]
+
+
+def test_trace_connected_preferred_over_static_same_plen(node_bin):
+    """同 plen は connected 優先（FIB ソートで connected が先）→ 即 delivered。"""
+    fib = {"r1": [_conn("10.0.0.0/24"), _stat("10.0.0.0/24", "device", "r2")]}
+    res = _run_trace(node_bin, fib, "r1", "10.0.0.9")
+    assert res["verdict"] == "delivered" and len(res["hops"]) == 1
+
+
+def test_trace_ecmp_first_branch_and_lists_others(node_bin):
+    fib = {"r1": [_stat("8.8.8.0/24", "device", "r2", nh="10.0.0.2", ecmp=1),
+                  _stat("8.8.8.0/24", "device", "r3", nh="10.0.1.2", ecmp=1)],
+           "r2": [_conn("8.8.8.0/24")], "r3": [_conn("8.8.8.0/24")]}
+    res = _run_trace(node_bin, fib, "r1", "8.8.8.1")
+    assert res["verdict"] == "delivered"
+    assert res["hops"][0]["next"] == "r2"             # 先頭（決定的）を辿る
+    assert len(res["ecmpBranches"]) == 2              # 分岐候補は列挙
+
+
+def test_trace_v6_delivered(node_bin):
+    fib = {"r1": [_stat("2001:db8:5::/48", "device", "r2")],
+           "r2": [_conn("2001:db8:5::/64", af="v6")]}
+    res = _run_trace(node_bin, fib, "r1", "2001:db8:5::1")
+    assert res["verdict"] == "delivered"
+
+
+def test_trace_dest_is_start_connected(node_bin):
+    fib = {"r1": [_conn("10.0.0.0/24")]}
+    res = _run_trace(node_bin, fib, "r1", "10.0.0.0/24")   # prefix 入力
+    assert res["verdict"] == "delivered" and len(res["hops"]) == 1

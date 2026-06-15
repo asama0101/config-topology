@@ -145,3 +145,60 @@ def test_roundtrip_bgp_with_update_source(tmp_path):
     # update_source なし → キーが存在しないか None
     entry_without_src = next(e for e in bgp if e["neighbor_ip"] == "10.0.0.2")
     assert entry_without_src.get("update_source") is None
+
+
+# ---------------------------------------------------------------------------
+# CONFIG ビュー — raw_config.yaml 読込・参照整合
+# ---------------------------------------------------------------------------
+
+def test_raw_config_roundtrip_multiline(tmp_path):
+    """raw_config.yaml の dump→load で多行テキストがそのまま保持されること。"""
+    topo = _topo()
+    text = "hostname R1\n!\ninterface Gi0\n ip address 10.0.0.1 255.255.255.252\n!\n"
+    topo["raw_configs"] = {"r1": text}
+    dump_topology(topo, str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["raw_configs"] == {"r1": text}
+
+
+def test_raw_config_absent_gives_empty(tmp_path):
+    """raw_config.yaml が無いディレクトリ（旧成果物）でも load でき raw_configs は空 dict。"""
+    dump_topology(_topo(), str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["raw_configs"] == {}
+
+
+def test_raw_config_dangling_device_key(tmp_path):
+    """raw_configs のキーが未知 device → ValueError（ファイル名・キー付き）。"""
+    topo = _topo()
+    topo["raw_configs"] = {"rNope": "hostname X\n"}
+    dump_topology(topo, str(tmp_path))
+    with pytest.raises(ValueError) as ei:
+        load_topology(str(tmp_path))
+    msg = str(ei.value)
+    assert "raw_config.yaml" in msg and "rNope" in msg
+
+
+def test_parse_status_roundtrip(tmp_path):
+    topo = _topo()
+    topo["raw_configs"] = {"r1": "hostname R1\n interface Gi0\n"}
+    topo["parse_status"] = {"r1": ["parsed", "parsed"]}
+    dump_topology(topo, str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["parse_status"] == {"r1": ["parsed", "parsed"]}
+
+
+def test_parse_status_absent_gives_empty(tmp_path):
+    dump_topology(_topo(), str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["parse_status"] == {}
+
+
+def test_parse_status_dangling_key(tmp_path):
+    topo = _topo()
+    topo["raw_configs"] = {"r1": "x\n"}
+    topo["parse_status"] = {"rNope": ["parsed"]}
+    dump_topology(topo, str(tmp_path))
+    with pytest.raises(ValueError) as ei:
+        load_topology(str(tmp_path))
+    assert "raw_config.yaml" in str(ei.value) and "rNope" in str(ei.value)

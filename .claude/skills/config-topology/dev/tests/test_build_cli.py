@@ -24,6 +24,10 @@ def test_cli_generates_layered_yaml(tmp_path):
     for fn in ["_meta.yaml", "devices.yaml", "physical.yaml",
                "routing.bgp.yaml", "routing.ospf.yaml", "routing.static.yaml"]:
         assert (out / fn).exists()
+    # CONFIG ビュー用に生 config を保持した raw_config.yaml も生成される
+    assert (out / "raw_config.yaml").exists()
+    raw = (out / "raw_config.yaml").read_text(encoding="utf-8")
+    assert "raw_configs:" in raw and "hostname R1" in raw
     assert "Generated" in proc.stdout
     assert "[INFO]" in proc.stderr
 
