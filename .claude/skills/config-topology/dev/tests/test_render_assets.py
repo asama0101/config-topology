@@ -4233,10 +4233,11 @@ def test_outline_and_fold_removed():
 # ---------------------------------------------------------------------------
 
 def test_js_has_line_align_and_split():
-    for fn in ["function lineAlign(", "function cfgSymRows(", "function cfgEditLeftRows(",
+    for fn in ["function lineAlign(", "function cfgSymRows(",
                "function renderCfgSplit(", "function updateCfgSplitDiff(", "function cfgSources("]:
         assert fn in assets._JS, fn
     assert "function lineDiff(" not in assets._JS, "旧 lineDiff が残存（lineAlign へ移行済みのはず）"
+    assert "function cfgEditLeftRows(" not in assets._JS, "撤去済み cfgEditLeftRows が残存"
 
 
 def test_js_has_split_state_and_scratch():
@@ -4428,30 +4429,6 @@ _CFG_ALIGN_STUBS = (
 )
 
 
-def _run_render_cfg_edit(node_bin: str) -> str:
-    """renderCfgEdit("", "r1") を整列レンダラ群＋スタブで実行し HTML 断片を返す。
-    before="alpha\\nold"／after(scratch)="alpha\\nnew" で 1 行変更（=del+add）を作る。"""
-    driver = (
-        _extract_fn(assets._JS, "lineAlign") + "\n"
-        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
-        + _extract_fn(assets._JS, "cfgLineHtml") + "\n"
-        + _extract_fn(assets._JS, "cfgEditLeftRows") + "\n"
-        + _extract_fn(assets._JS, "renderCfgEdit") + "\n"
-        + _CFG_ALIGN_STUBS
-        + 'const S = { configWrap: false };\n'
-        + 'const DATA = { devices: { r1: { hostname: "R1" } } };\n'
-        + 'function cfgTextOf(key){ return key.indexOf("scratch:") === 0 ? "alpha\\nnew" : "alpha\\nold"; }\n'
-        + 'process.stdout.write(renderCfgEdit("", "r1"));\n'
-    )
-    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
-                       capture_output=True, text=True, timeout=10)
-    if r.returncode != 0:
-        r = subprocess.run([node_bin], input=driver,
-                           capture_output=True, text=True, timeout=10)
-    assert r.returncode == 0, f"node failed: {r.stderr}"
-    return r.stdout
-
-
 def test_render_cfg_edit_has_editor_and_unified(node_bin):
     """編集モード = 左 textarea(編集)＋右 unified 差分＋DL/元に戻すボタン。"""
     js = (
@@ -4481,41 +4458,24 @@ def test_render_cfg_edit_has_editor_and_unified(node_bin):
     assert 'data-cfgtoggle="edit"' in html      # 編集トグル(on)
 
 
-def _run_cfg_edit_left_rows(node_bin, before_js, after_js):
-    """cfgEditLeftRows(before, after, "") を実行し {html, adds, dels, skipped} を返す。"""
+def _run_cfg_cur_line(node_bin, value_js, sel_start):
     driver = (
-        _extract_fn(assets._JS, "lineAlign") + "\n"
-        + _extract_fn(assets._JS, "cfgDiffCounts") + "\n"
-        + _extract_fn(assets._JS, "cfgLineHtml") + "\n"
-        + _extract_fn(assets._JS, "cfgEditLeftRows") + "\n"
-        + _CFG_ALIGN_STUBS
-        + f'const r = cfgEditLeftRows({before_js}, {after_js}, "");\n'
-        + 'process.stdout.write(JSON.stringify(r));\n'
+        _extract_fn(assets._JS, "cfgCurLine") + "\n"
+        + f'const ta = {{ value: {value_js}, selectionStart: {sel_start} }};\n'
+        + 'process.stdout.write(JSON.stringify(cfgCurLine(ta)));\n'
     )
-    r = subprocess.run([node_bin, "--input-type=module"], input=driver,
-                       capture_output=True, text=True, timeout=10)
-    if r.returncode != 0:
-        r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
+    r = subprocess.run([node_bin], input=driver, capture_output=True, text=True, timeout=10)
     assert r.returncode == 0, f"node failed: {r.stderr}"
     return json.loads(r.stdout)
 
 
-def test_cfg_edit_left_rows_aligns_to_after(node_bin):
-    """編集左ペイン整列: 行数 == 編集後行数（追加→空行ギャップ・削除→行を消費せず境界マーカー）。"""
-    # before=keep/old, after=keep/new1/new2 → same + del(old) + add(new1) + add(new2)
-    r = _run_cfg_edit_left_rows(node_bin, '["keep","old"]', '["keep","new1","new2"]')
-    rows = r["html"].count('<div class="cfgline')      # cfgline 行（gap 含む・cfgdelmark は別class）
-    assert rows == 3, f"左行数 {rows} が編集後行数 3 と不一致（textarea アンカー整列の核心）"
-    assert r["adds"] == 2 and r["dels"] == 1
-    assert "del-above" in r["html"] and 'data-del="1"' in r["html"]
-    assert r["html"].count("cfgline gap") == 2, "追加2行に対する空行ギャップが2つ無い"
+def test_cfg_cur_line_first_line(node_bin):
+    assert _run_cfg_cur_line(node_bin, '"a\\nb\\nc"', 0) == 0
 
 
-def test_cfg_edit_left_rows_trailing_deletion_marker(node_bin):
-    """末尾削除（編集後に対応行が無い）は末尾 .cfgdelmark 行で表現。"""
-    r = _run_cfg_edit_left_rows(node_bin, '["a","b","c"]', '["a"]')
-    assert r["dels"] == 2 and r["adds"] == 0
-    assert "cfgdelmark" in r["html"], "末尾削除マーカー行が無い"
+def test_cfg_cur_line_second_line(node_bin):
+    # "a\n" の後（index 2）はカーソル行 index 1
+    assert _run_cfg_cur_line(node_bin, '"a\\nb\\nc"', 2) == 1
 
 
 def _run_cfg_sym_rows(node_bin, l_js, r_js):

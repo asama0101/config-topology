@@ -560,12 +560,6 @@ g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: dr
 #tableview .cfgline.diff-add { background: color-mix(in srgb, var(--accent2,#2a7) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent2,#2a7); }
 /* 行整列の空行ギャップ（片側だけにある行に対応する反対側の空きスロット） */
 #tableview .cfgline.gap { background: color-mix(in srgb, var(--ink-dim) 5%, transparent); }
-/* 削除マーカー: 直後の左行に高さ0で重ねる赤い上線＋「−N行」チップ（レイアウト非変化で整列を保つ） */
-#tableview .cfgline.del-above { box-shadow: inset 0 2px 0 var(--danger); }
-#tableview .cfgline.del-above::after { content: "−" attr(data-del) "行"; position: absolute; right: 8px; top: -1px; font-size: 9px; color: var(--danger); pointer-events: none; }
-/* 末尾削除（後続行が無い）用のマーカー行 */
-#tableview .cfgdelmark { display: flex; line-height: 1.55; color: var(--danger); font-size: 11px; box-shadow: inset 0 2px 0 var(--danger); }
-#tableview .cfgdelmark .cfgln { flex: 0 0 48px; }
 #tableview .cfgln {
   flex: 0 0 48px; text-align: right; padding: 0 12px 0 0; margin-right: 12px;
   color: var(--ink-faint); user-select: none;
@@ -2268,34 +2262,6 @@ function cfgSymRows(lLines, rLines, q) {
   }
   const { adds, dels } = cfgDiffCounts(ops);
   return { left: L.join(""), right: R.join(""), adds, dels, skipped: false };
-}
-/* 編集モードの左（編集前・読取）を右 textarea(=after) にライブ整列。
-   左はちょうど after.length 行（same→対応する before 行・add→空行ギャップ）＝textarea 各行と縦一致。
-   del（before だけの削除）は行を消費せず直後の左行に境界マーカー（.del-above[data-del=N]・高さ0）。
-   末尾削除のみ末尾に .cfgdelmark 行を許容（下に整列対象が無く安全）。 */
-function cfgEditLeftRows(before, after, q) {
-  const { ops, skipped } = lineAlign(before, after);
-  const { adds, dels } = skipped ? { adds: 0, dels: 0 } : cfgDiffCounts(ops);
-  const hit = ln => !!q && ln.toLowerCase().includes(q);
-  if (skipped) {
-    return { html: before.map((ln, i) => cfgLineHtml(i + 1, ln, hit(ln) ? " hit" : "")).join(""), adds, dels, skipped: true };
-  }
-  const rows = [];
-  let pendingDel = 0;
-  for (const o of ops) {
-    if (o.t === "del") { pendingDel++; continue; }
-    const delCls = pendingDel > 0 ? " del-above" : "";
-    const delAttr = pendingDel > 0 ? ` data-del="${pendingDel}"` : "";
-    pendingDel = 0;
-    if (o.t === "same") {
-      const ln = before[o.ai];
-      rows.push(`<div class="cfgline${hit(ln) ? " hit" : ""}${delCls}"${delAttr}><span class="cfgln">${o.ai + 1}</span><span class="cfgtx">${esc(ln) || "&nbsp;"}</span></div>`);
-    } else {   /* add: 右に追加された行に合わせ左は空行ギャップ */
-      rows.push(`<div class="cfgline gap${delCls}"${delAttr}><span class="cfgln"></span><span class="cfgtx">&nbsp;</span></div>`);
-    }
-  }
-  if (pendingDel > 0) rows.push(`<div class="cfgdelmark"><span class="cfgln"></span><span class="cfgtx">− 削除 ${pendingDel}行</span></div>`);
-  return { html: rows.join(""), adds, dels, skipped: false };
 }
 /* 統一差分プレビュー（unified diff 形式・読取専用）: before と after を lineAlign で比較し
    same=コンテキスト行(ctx)・del=削除行(del・−)・add=追加行(add・+) として1ペインに並べる。
