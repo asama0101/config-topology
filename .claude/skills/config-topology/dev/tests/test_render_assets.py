@@ -4775,6 +4775,7 @@ def test_cfg_unified_escapes_html(node_bin):
     """追加行の HTML 特殊文字が esc() で無害化される（XSS 防止）。"""
     r = _run_cfg_unified(node_bin, '["x"]', '["x","<b>&"]')
     assert "&lt;b&gt;&amp;" in r["html"]
+    assert "<b>" not in r["html"]
 
 
 # ============================================================
