@@ -835,7 +835,7 @@ const S = {
   sel:new Set(), search:"", matches:[], mi:-1,
   connectedOnly:false,
   trace:{src:null, dst:"", result:null}, /* STATIC 経路トレース（始点機器・宛先・結果。ランタイム状態） */
-  focusMode:false, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
+  focusMode:true, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
   filters:{seg:true, lo:true, stub:true, hiddenAS:new Set()},
   hiddenNodes:new Set(), nodePanel:false,
   legend:true, minimap:true, legendHot:null,
@@ -3579,6 +3579,7 @@ function update() {
 }
 $("#btn-minimap").classList.add("on");
 $("#btn-legend").classList.add("on");
+$("#btn-focus").classList.add("on");
 /* shortcuts-overlay: オーバーレイ自身（背景）をクリックで閉じる */
 $("#shortcuts-overlay").addEventListener("click", function(ev) {
   if (ev.target === this) this.classList.remove("visible");
