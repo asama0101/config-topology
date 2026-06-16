@@ -202,3 +202,52 @@ def test_parse_status_dangling_key(tmp_path):
     with pytest.raises(ValueError) as ei:
         load_topology(str(tmp_path))
     assert "raw_config.yaml" in str(ei.value) and "rNope" in str(ei.value)
+
+
+# ---------------------------------------------------------------------------
+# diagnostics — diagnostics.yaml 読込・ラウンドトリップ
+# ---------------------------------------------------------------------------
+
+def test_diagnostics_roundtrip(tmp_path):
+    """非空 diagnostics が dump→load で往復保持されること。"""
+    topo = _topo()
+    diag = [
+        {"severity": "warning", "kind": "parse_warning",
+         "message": "unknown command at line 5", "refs": ["a.cfg"]},
+        {"severity": "error", "kind": "unparsed_config",
+         "message": "file could not be parsed", "refs": ["bad.cfg"]},
+    ]
+    topo["diagnostics"] = diag
+    dump_topology(topo, str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["diagnostics"] == diag
+
+
+def test_diagnostics_absent_gives_empty_list(tmp_path):
+    """diagnostics.yaml が無いディレクトリ（旧成果物）でも load でき diagnostics は []。"""
+    dump_topology(_topo(), str(tmp_path))
+    loaded = load_topology(str(tmp_path))
+    assert loaded["diagnostics"] == []
+
+
+def test_diagnostics_file_not_created_when_empty(tmp_path):
+    """diagnostics=[] で dump しても diagnostics.yaml が作られないこと（load 後も []）。"""
+    topo = _topo()
+    topo["diagnostics"] = []
+    dump_topology(topo, str(tmp_path))
+    assert not (tmp_path / "diagnostics.yaml").exists()
+    loaded = load_topology(str(tmp_path))
+    assert loaded["diagnostics"] == []
+
+
+def test_diagnostics_not_subject_to_ref_validation(tmp_path):
+    """diagnostics の refs は device/IF ID とは無関係な任意文字列（dangling 検証されない）。"""
+    topo = _topo()
+    topo["diagnostics"] = [
+        {"severity": "warning", "kind": "parse_warning",
+         "message": "test", "refs": ["totally-arbitrary-ref", "file.cfg:42"]},
+    ]
+    dump_topology(topo, str(tmp_path))
+    # ValueError が出ないこと（dangling 検証されない）
+    loaded = load_topology(str(tmp_path))
+    assert loaded["diagnostics"][0]["refs"] == ["totally-arbitrary-ref", "file.cfg:42"]

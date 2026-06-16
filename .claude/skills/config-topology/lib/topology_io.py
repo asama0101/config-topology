@@ -42,6 +42,11 @@ def dump_topology(topo, out_dir):
         if parse_status:
             payload["parse_status"] = parse_status
         _dump_file(out_dir, "raw_config.yaml", payload)
+    # 入力診断（パーサ起動時の warnings 等）。非空のときのみ書く（raw_config.yaml と同じパターン）。
+    # 後方互換: diagnostics.yaml が無い旧成果物でも load できる（空リストにフォールバック）。
+    diagnostics = topo.get("diagnostics") or []
+    if diagnostics:
+        _dump_file(out_dir, "diagnostics.yaml", {"diagnostics": diagnostics})
 
 
 def _load_file(in_dir, name):
@@ -69,6 +74,10 @@ def load_topology(in_dir):
         raw = _load_file(in_dir, "raw_config.yaml")
     except FileNotFoundError:
         raw = None
+    try:
+        diag_raw = _load_file(in_dir, "diagnostics.yaml")
+    except FileNotFoundError:
+        diag_raw = None
     devs = devs or {}
     phys = phys or {}
     topo = {
@@ -80,6 +89,7 @@ def load_topology(in_dir):
         "routing": routing,
         "raw_configs": (raw or {}).get("raw_configs") or {},
         "parse_status": (raw or {}).get("parse_status") or {},
+        "diagnostics": (diag_raw or {}).get("diagnostics") or [],
     }
     _validate_refs(topo)
     return topo

@@ -176,3 +176,42 @@ def test_build_topology_parse_statuses_length_mismatch_raises():
     d2 = Device(hostname="R2", vendor="cisco_ios", as_=2)
     with pytest.raises(ValueError):
         build_topology([d1, d2], ["r1.cfg", "r2.cfg"], parse_statuses=[["parsed"]])
+
+
+# ---------------------------------------------------------------------------
+# diagnostics — build_topology diagnostics 引数（T0 インフラ）
+# ---------------------------------------------------------------------------
+
+def test_build_topology_diagnostics_stored_when_nonempty():
+    """diagnostics=[{...}] を渡すと topology dict に 'diagnostics' キーが入ること。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    diag = [{"severity": "warning", "kind": "parse_warning",
+              "message": "unknown command", "refs": ["r1.cfg"]}]
+    topo = build_topology([d1], ["r1.cfg"], diagnostics=diag)
+    assert "diagnostics" in topo
+    assert topo["diagnostics"] == diag
+
+
+def test_build_topology_diagnostics_key_absent_when_none():
+    """diagnostics=None（デフォルト）のとき topology dict に 'diagnostics' キーが出ないこと。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    topo = build_topology([d1], ["r1.cfg"])
+    assert "diagnostics" not in topo
+
+
+def test_build_topology_diagnostics_key_absent_when_empty_list():
+    """diagnostics=[] のとき topology dict に 'diagnostics' キーが出ないこと（omit-when-empty）。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    topo = build_topology([d1], ["r1.cfg"], diagnostics=[])
+    assert "diagnostics" not in topo
+
+
+def test_build_topology_diagnostics_multiple_entries():
+    """複数の diagnostics エントリが順序を保って格納されること。"""
+    d1 = Device(hostname="R1", vendor="cisco_ios", as_=1)
+    diag = [
+        {"severity": "warning", "kind": "parse_warning", "message": "line 5", "refs": ["r1.cfg"]},
+        {"severity": "error", "kind": "unparsed_config", "message": "bad file", "refs": ["bad.cfg"]},
+    ]
+    topo = build_topology([d1], ["r1.cfg"], diagnostics=diag)
+    assert topo["diagnostics"] == diag

@@ -587,8 +587,9 @@ def build_checks(topo, links=None):
     返却前に severity(error→warning)→kind→refs の文字列キーで安定ソート。
 
     検出ルール:
-      1. duplicate_ip (error): 同一ホスト IP が複数 IF に存在（v4/v6 双方・secondary 含む）。
-         ただし link-local（scope="link-local"）は除外（fe80:: は各リンク固有でありアドレス重複ではない）。
+      1. duplicate_ip (error): 同一ホスト IP が複数 IF に存在（v4/v6 双方・secondary 含む）かつ同一 VRF 内のみ検知。
+         VRF 認識: 異なる VRF（global 同士はまとめて VRF なし扱い）では重複と見なさない（VRF 分離が正当）。
+         link-local（scope="link-local"）は除外（fe80:: は各リンク固有でありアドレス重複ではない）。
       2. mtu_mismatch (warning): 同一物理リンク両端の MTU が双方非 None かつ不一致。
          build_links() で統合した resolved_links（端点ペア単位）を走査するため、
          dual-stack（同一端点に v4+v6 の raw リンク 2 行）でも 1 件のみ検出される。
@@ -619,28 +620,33 @@ def build_checks(topo, links=None):
     results = []
 
     # ---- ルール 1: duplicate_ip ----
-    # IP → [(device, ifname)] の逆引き（v4/v6 両方・secondary 含む）
+    # (vrf, af, ip) → [(device, ifname)] の逆引き（v4/v6 両方・secondary 含む）
+    # VRF 認識: 同一 IP でも異なる VRF（global 含む）なら正当な設定のため除外する。
+    # vrf キーなし / vrf=None は同じ global ルーティングテーブル扱い（キーは None）。
     # link-local（scope="link-local"）は除外：fe80:: は各リンクで共通のアドレスが付くため
-    ip_to_refs: dict = {}
+    vrf_ip_to_refs: dict = {}
     for itf in topo["interfaces"]:
+        vrf = itf.get("vrf")  # vrf キーなし → None（global）。vrf=None 明示も同じ。
         for a in itf["addresses"]:
             if a.get("scope") == "link-local":
                 continue  # link-local(fe80::) はアドレス重複の対象外
             ip = a.get("ip")
             if not ip:
                 continue
-            key = "%s:%s" % (a.get("af", "v4"), ip)
+            # キー: (vrf, "af:ip") — vrf が同じ（global 同士を含む）ときのみ重複を見る
+            key = (vrf, "%s:%s" % (a.get("af", "v4"), ip))
             ref = "%s::%s" % (itf["device"], itf["name"])
-            ip_to_refs.setdefault(key, [])
-            if ref not in ip_to_refs[key]:
-                ip_to_refs[key].append(ref)
+            vrf_ip_to_refs.setdefault(key, [])
+            if ref not in vrf_ip_to_refs[key]:
+                vrf_ip_to_refs[key].append(ref)
 
-    # IP 昇順でソート（決定的。af:ip の文字列順なので v4/v6 混在でも安定）
-    for key in sorted(ip_to_refs):
-        refs = ip_to_refs[key]
+    # (vrf, af:ip) で決定的にソート（vrf=None は str 変換で "None" として安定化）
+    for key in sorted(vrf_ip_to_refs, key=lambda k: (str(k[0]), k[1])):
+        refs = vrf_ip_to_refs[key]
         if len(refs) < 2:
             continue
-        _, ip = key.split(":", 1)
+        _vrf, af_ip = key
+        _, ip = af_ip.split(":", 1)
         results.append({
             "severity": "error",
             "kind": "duplicate_ip",
@@ -894,6 +900,9 @@ def _resolve_next_hop(nh, device, host_idx, subnet_idx, peer_idx, link_idx):
     over = lambda tgt: (link_idx.get((device, tgt)) if tgt else None)
     if nh in _SPECIAL_NH:
         return {"via": "blackhole", "target": None, "ifname": None, "overLink": None}
+    # discard / reject（JunOS static route 特殊アクション）→ blackhole 相当
+    if nh.lower() in ("discard", "reject"):
+        return {"via": "blackhole", "target": None, "ifname": None, "overLink": None}
     try:
         nh_addr = ipaddress.ip_address(nh)
     except ValueError:
@@ -1067,11 +1076,17 @@ def build_data(topo):
         for i, row in enumerate(dev["bgp"]):
             row["link"] = links_list[i] if i < len(links_list) else None
 
+    existing_checks = build_checks(topo, links=links)
+    # diagnostics pass-through: パーサ起動時診断を CHECKS パネルへマージ。
+    # 既存 checks の後に出現順 append（決定的）。diagnostics が空/無いときは変化なし（後方互換）。
+    diag_checks = list(topo.get("diagnostics") or [])
+    merged_checks = existing_checks + diag_checks
+
     return {
         "meta": {"generated_from": topo["meta"].get("generated_from", [])},
         "devices": devices, "links": links, "segments": segments,
         "extPeers": bgp_topo["extPeers"], "bgpEdges": bgp_topo["bgpEdges"],
-        "checks": build_checks(topo, links=links),
+        "checks": merged_checks,
         "stub_nodes": build_stub_nodes(topo),
         "fib": fib,
         "static_edges": build_static_edges(topo, fib),

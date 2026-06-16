@@ -58,3 +58,48 @@ def test_v6_scope_link_local():
 ])
 def test_norm_ospf_area(raw, expected):
     assert N.norm_ospf_area(raw) == expected
+
+
+# ---------------------------------------------------------------------------
+# #9: asdot_to_asplain 単体テスト
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw,expected", [
+    ("65001", 65001),          # ドット無し → そのまま int
+    ("0", 0),
+    ("4294967295", 4294967295),  # 最大 32bit ASN
+    ("0.0", 0),                # asdot: 0*65536+0
+    ("0.1", 1),                # asdot: 0*65536+1
+    ("1.0", 65536),            # asdot: 1*65536+0
+    ("1.1", 65537),            # asdot: 1*65536+1
+    ("2.100", 2 * 65536 + 100),
+    ("65535.65535", 65535 * 65536 + 65535),
+])
+def test_asdot_to_asplain(raw, expected):
+    assert N.asdot_to_asplain(raw) == expected
+
+
+# ---------------------------------------------------------------------------
+# E: asdot_to_asplain の範囲バリデーション
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", [
+    "65536.0",    # 65536*65536+0 = 4294967296 > 2^32-1
+    "65536.1",
+    "100000.0",
+])
+def test_asdot_to_asplain_out_of_range_raises(bad):
+    """asdot の結果が 0〜4294967295 の範囲外なら ValueError を投げること。"""
+    with pytest.raises(ValueError):
+        N.asdot_to_asplain(bad)
+
+
+def test_asdot_to_asplain_max_valid_unchanged():
+    """asdot の最大有効値 65535.65535 = 4294967295 は ValueError を投げないこと（境界値）。"""
+    assert N.asdot_to_asplain("65535.65535") == 4294967295
+
+
+def test_asdot_to_asplain_plain_out_of_range_raises():
+    """ドット無し（asplain）で 4294967296 は ValueError を投げること。"""
+    with pytest.raises(ValueError):
+        N.asdot_to_asplain("4294967296")

@@ -6,6 +6,54 @@ from ..normalize import norm_cidr_str, norm_ipv4, norm_ipv6, norm_ospf_area, v6_
 from .base import ensure_ospf, is_sensitive_line
 
 
+def _check_apply_groups(lines: list, diagnostics: list, filename) -> None:
+    """parse_junos が収集した全行から groups 多用を検査し診断を追加する（#2）。
+
+    閾値（決定的固定値）:
+      - groups 系行（set groups / set apply-groups）を groups_count とする。
+      - 実体行（interfaces / protocols / routing-options / routing-instances で始まる set 行）
+        を body_count とする。
+      - groups_count >= body_count * 0.5 かつ groups_count >= 3 → 多用と判定。
+
+    偽陽性抑制: 実体行数が 0 のとき（= 完全に groups のみの config は実用的にあり得ないため）
+    body_count=0 でも groups_count >= 3 なら警告する。
+    通常の JunOS set config（groups 不使用）では groups_count=0 → 条件不成立・警告なし。
+    """
+    groups_count = 0
+    body_count = 0
+    # body 実体プレフィックス（set の後に続く最初のトークン）
+    BODY_PREFIXES = (
+        "interfaces ", "protocols ", "routing-options ",
+        "routing-instances ", "policy-options ",
+    )
+    for raw in lines:
+        s = raw.strip()
+        if not s.startswith("set "):
+            continue
+        body = s[4:].strip()
+        if body.startswith("groups ") or body.startswith("apply-groups "):
+            groups_count += 1
+        elif any(body.startswith(p) for p in BODY_PREFIXES):
+            body_count += 1
+
+    if groups_count < 3:
+        return
+    if body_count > 0 and groups_count < body_count * 0.5:
+        return
+
+    refs = [filename] if filename is not None else []
+    diagnostics.append({
+        "severity": "warning",
+        "kind": "junos_apply_groups_unexpanded",
+        "message": (
+            "apply-groups/groups を多用した config です。"
+            "`show configuration | display inheritance | display set` で展開した出力を"
+            "渡すと取りこぼしを防げます。"
+        ),
+        "refs": refs,
+    })
+
+
 def _set_l3(iface: Interface) -> None:
     """family inet/inet6 に address があれば l3 としてマークする（§6.2）。
 
@@ -117,7 +165,7 @@ def _parse_if_body(iface: Interface, rest: str, warnings: list) -> bool:
     return False
 
 
-def parse_junos(text: str, warnings: list, line_status=None) -> Device:
+def parse_junos(text: str, warnings: list, line_status=None, diagnostics=None, filename=None) -> Device:
     """JunOS set 形式 config を解析し正規化 Device を返す（要件書 §6.2）。
 
     パース失敗行は握りつぶし warnings(list) に文字列を追記し継続する（§6.3）。
@@ -136,13 +184,16 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
     """
     dev = Device(hostname="", vendor="juniper_junos")
     ifaces: dict[str, Interface] = {}   # name → Interface（出現順保持）
-    ospf_decls: list[tuple] = []        # (area, base_if, af) — 全 IF 確定後に解決
-    bgp_neighbors: dict[str, BgpNeighbor] = {}  # nip → BgpNeighbor（update_source 後付け用）
-    pending_local_address: dict[str, str] = {}   # nip → local-address（peer-as より先に来た場合）
+    ospf_decls: list[tuple] = []        # (area, base_if, af, rest) — 全 IF 確定後に解決
+    bgp_neighbors: dict[tuple, BgpNeighbor] = {}  # (vrf, nip) → BgpNeighbor（vrf=None は global）
+    pending_local_address: dict[tuple, str] = {}   # (vrf, nip) → local-address（peer-as より先に来た場合）
     area_types: dict[tuple[str, str], str] = {}  # {(norm_area, af): area_type_str} — 末尾で適用
-    bgp_neighbor_group: dict[str, str] = {}      # nip → group name（cluster/group-peer-as 後付け適用用）
+    bgp_neighbor_group: dict[tuple, str] = {}    # (vrf, nip) → group name（cluster/group-peer-as 後付け適用用）
     cluster_groups: set[str] = set()             # cluster 宣言を持つ group 集合
     group_peer_as: dict[str, int] = {}           # group name → peer-as（group レベル peer-as 継承用）
+    group_type: dict[str, str] = {}              # group name → "ibgp"/"ebgp"（group type internal/external）
+    group_local_as: dict[str, int] = {}          # group name → local-as（group レベル local-as 継承用）
+    neighbor_local_as: dict[str, int] = {}       # nip → local-as（neighbor 個別 local-as）
 
     def get_if(name: str) -> Interface:
         """ifaces dict から取得、未登録なら新規 Interface を作成する。"""
@@ -197,18 +248,18 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
             try:
                 af = "v6" if ":" in ip else "v4"
                 nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
-                if nip in bgp_neighbors:
+                key = (None, nip)   # global は vrf=None
+                if key in bgp_neighbors:
                     # neighbor のみ行（peer-as 無し）で先に BgpNeighbor 生成済みの場合は peer_as を更新
-                    bgp_neighbors[nip].peer_as = peer
+                    bgp_neighbors[key].peer_as = peer
                 else:
                     nb = BgpNeighbor(nip, peer, af)
                     # peer-as より先に local-address が来たケースを適用
-                    if nip in pending_local_address:
-                        nb.update_source = pending_local_address.pop(nip)
+                    if key in pending_local_address:
+                        nb.update_source = pending_local_address.pop(key)
                     dev.bgp.append(nb)
-                    bgp_neighbors[nip] = nb
-                bgp_neighbor_group[nip] = grp   # group 名を記録（cluster/group-peer-as 後付け用）
-                # 同一 neighbor IP が複数 group に跨るのは未定義（実 JunOS では発生しない・後勝ち。既存 update_source/local-address と一貫）
+                    bgp_neighbors[key] = nb
+                bgp_neighbor_group[key] = grp   # group 名を記録（cluster/group-peer-as 後付け用）
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos bgp neighbor parse failed: %s (%s)" % (body, e))
             continue
@@ -222,13 +273,14 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
             try:
                 af = "v6" if ":" in ip else "v4"
                 nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
-                if nip not in bgp_neighbors:
+                key = (None, nip)   # global は vrf=None
+                if key not in bgp_neighbors:
                     nb = BgpNeighbor(nip, None, af)
-                    if nip in pending_local_address:
-                        nb.update_source = pending_local_address.pop(nip)
+                    if key in pending_local_address:
+                        nb.update_source = pending_local_address.pop(key)
                     dev.bgp.append(nb)
-                    bgp_neighbors[nip] = nb
-                bgp_neighbor_group[nip] = grp
+                    bgp_neighbors[key] = nb
+                bgp_neighbor_group[key] = grp
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos bgp neighbor (peer-as inherited from group) parse failed: %s (%s)" % (body, e))
             continue
@@ -250,6 +302,34 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
             cluster_groups.add(m.group(1))
             continue
 
+        # BGP group type: protocols bgp group <g> type (internal|external)
+        # internal → "ibgp"、external → "ebgp"。group→member 末尾一括継承。
+        m = re.match(r"^protocols bgp group (\S+) type (internal|external)$", body)
+        if m:
+            grp, tval = m.group(1), m.group(2)
+            group_type[grp] = "ibgp" if tval == "internal" else "ebgp"
+            continue
+
+        # BGP group level local-as: protocols bgp group <g> local-as <asn>
+        # group の全 neighbor に local_as を補完する（末尾一括解決）。
+        m = re.match(r"^protocols bgp group (\S+) local-as\s+(\d+)$", body)
+        if m:
+            grp, asn = m.group(1), int(m.group(2))
+            group_local_as[grp] = asn
+            continue
+
+        # BGP neighbor level local-as: protocols bgp group <g> neighbor <ip> local-as <asn>
+        # neighbor 個別指定は group 値より優先（末尾一括解決）。
+        m = re.match(r"^protocols bgp group \S+ neighbor\s+(\S+)\s+local-as\s+(\d+)$", body)
+        if m:
+            ip, asn = m.group(1), int(m.group(2))
+            try:
+                nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
+                neighbor_local_as[nip] = asn
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos bgp neighbor local-as parse failed: %s (%s)" % (body, e))
+            continue
+
         # BGP local-address: protocols bgp group <g> neighbor <ip> local-address <localip>
         # JunOS local-address は BgpNeighbor.update_source に格納する（IP 直接指定）。
         # 孤立 pending local-address の挙動:
@@ -260,11 +340,12 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
             ip, local_ip = m.group(1), m.group(2)
             try:
                 nip = norm_ipv6(ip) if ":" in ip else norm_ipv4(ip)
-                if nip in bgp_neighbors:
-                    bgp_neighbors[nip].update_source = local_ip
+                key = (None, nip)   # global は vrf=None
+                if key in bgp_neighbors:
+                    bgp_neighbors[key].update_source = local_ip
                 else:
                     # peer-as がまだ現れていない — pending に積む
-                    pending_local_address[nip] = local_ip
+                    pending_local_address[key] = local_ip
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos bgp local-address parse failed: %s (%s)" % (body, e))
             continue
@@ -274,8 +355,9 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
         if m:
             area_raw, ifname_raw, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
             base_if = _base_if(ifname_raw)
-            ospf_decls.append((area_raw, base_if, "v4"))
-            if rest:
+            ospf_decls.append((area_raw, base_if, "v4", rest))
+            # "all" の場合はパラメータ適用を末尾解決（全 IF 確定後）まで保留する
+            if rest and base_if != "all":
                 _apply_ospf_if_param(get_if(base_if), rest)
             continue
 
@@ -297,8 +379,9 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
         if m:
             area_raw, ifname_raw, rest = m.group(1), m.group(2), (m.group(3) or "").strip()
             base_if = _base_if(ifname_raw)
-            ospf_decls.append((area_raw, base_if, "v6"))
-            if rest:
+            ospf_decls.append((area_raw, base_if, "v6", rest))
+            # "all" の場合はパラメータ適用を末尾解決（全 IF 確定後）まで保留する
+            if rest and base_if != "all":
                 _apply_ospf_if_param(get_if(base_if), rest)
             continue
 
@@ -327,6 +410,30 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
                 warnings.append("junos v6 static parse failed: %s (%s)" % (body, e))
             continue
 
+        # v6 static discard/reject: routing-options rib inet6.0 static route <pfx> discard|reject
+        m = re.match(
+            r"^routing-options rib inet6\.0 static route\s+(\S+)\s+(discard|reject)(?:\s|$)", body
+        )
+        if m:
+            pfx, action = m.group(1), m.group(2)
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(pfx), action, "v6"))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos v6 static %s parse failed: %s (%s)" % (action, body, e))
+            continue
+
+        # v6 qualified-next-hop: routing-options rib inet6.0 static route <pfx> qualified-next-hop <nh> [...]
+        m = re.match(
+            r"^routing-options rib inet6\.0 static route\s+(\S+)\s+qualified-next-hop\s+(\S+)", body
+        )
+        if m:
+            pfx, nh = m.group(1), m.group(2)
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv6(nh), "v6"))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos v6 static qualified-next-hop parse failed: %s (%s)" % (body, e))
+            continue
+
         # v4 static route: routing-options static route <pfx> next-hop <nh>
         m = re.match(r"^routing-options static route\s+(\S+)\s+next-hop\s+(\S+)", body)
         if m:
@@ -335,6 +442,208 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
                 dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv4(nh), "v4"))
             except Exception as e:                   # noqa: BLE001
                 warnings.append("junos static parse failed: %s (%s)" % (body, e))
+            continue
+
+        # v4 static discard/reject: routing-options static route <pfx> discard|reject
+        m = re.match(
+            r"^routing-options static route\s+(\S+)\s+(discard|reject)(?:\s|$)", body
+        )
+        if m:
+            pfx, action = m.group(1), m.group(2)
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(pfx), action, "v4"))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos static %s parse failed: %s (%s)" % (action, body, e))
+            continue
+
+        # v4 qualified-next-hop: routing-options static route <pfx> qualified-next-hop <nh> [metric N|...]
+        m = re.match(
+            r"^routing-options static route\s+(\S+)\s+qualified-next-hop\s+(\S+)", body
+        )
+        if m:
+            pfx, nh = m.group(1), m.group(2)
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv4(nh), "v4"))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos static qualified-next-hop parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> interface <ifname>
+        # → 当該 IF の Interface.vrf を設定（IF 自体は interfaces ハンドラで登録済みであること前提）
+        m = re.match(r"^routing-instances\s+(\S+)\s+interface\s+(\S+)$", body)
+        if m:
+            vrf_name, ifname_raw = m.group(1), m.group(2)
+            base_if = _base_if(ifname_raw)
+            get_if(base_if).vrf = vrf_name
+            continue
+
+        # routing-instances <vrf> routing-options static route <pfx> next-hop <nh>
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+routing-options\s+static\s+route\s+(\S+)\s+next-hop\s+(\S+)",
+            body
+        )
+        if m:
+            vrf_name, pfx, nh = m.group(1), m.group(2), m.group(3)
+            af = "v6" if ":" in pfx else "v4"
+            try:
+                if af == "v6":
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv6(nh), "v6", vrf=vrf_name))
+                else:
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv4(nh), "v4", vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri static next-hop parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> routing-options static route <pfx> discard|reject
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+routing-options\s+static\s+route\s+(\S+)\s+(discard|reject)(?:\s|$)",
+            body
+        )
+        if m:
+            vrf_name, pfx, action = m.group(1), m.group(2), m.group(3)
+            af = "v6" if ":" in pfx else "v4"
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(pfx), action, af, vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri static %s parse failed: %s (%s)" % (action, body, e))
+            continue
+
+        # routing-instances <vrf> routing-options static route <pfx> qualified-next-hop <nh>
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+routing-options\s+static\s+route\s+(\S+)\s+qualified-next-hop\s+(\S+)",
+            body
+        )
+        if m:
+            vrf_name, pfx, nh = m.group(1), m.group(2), m.group(3)
+            af = "v6" if ":" in pfx else "v4"
+            try:
+                if af == "v6":
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv6(nh), "v6", vrf=vrf_name))
+                else:
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv4(nh), "v4", vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri static qnh parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> routing-options rib <rib_name> static route <pfx> next-hop <nh>
+        # rib 名に "inet6" が含まれる場合のみ v6、それ以外は v4 として処理する。
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+routing-options\s+rib\s+(\S+)\s+static\s+route\s+(\S+)\s+next-hop\s+(\S+)",
+            body
+        )
+        if m:
+            vrf_name, rib_name, pfx, nh = m.group(1), m.group(2), m.group(3), m.group(4)
+            af = "v6" if "inet6" in rib_name else "v4"
+            try:
+                if af == "v6":
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv6(nh), "v6", vrf=vrf_name))
+                else:
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv4(nh), "v4", vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri rib next-hop parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> routing-options rib <rib_name> static route <pfx> discard|reject
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+routing-options\s+rib\s+(\S+)\s+static\s+route\s+(\S+)\s+(discard|reject)(?:\s|$)",
+            body
+        )
+        if m:
+            vrf_name, rib_name, pfx, action = m.group(1), m.group(2), m.group(3), m.group(4)
+            af = "v6" if "inet6" in rib_name else "v4"
+            try:
+                dev.static.append(StaticRoute(norm_cidr_str(pfx), action, af, vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri rib static %s parse failed: %s (%s)" % (action, body, e))
+            continue
+
+        # routing-instances <vrf> routing-options rib <rib_name> static route <pfx> qualified-next-hop <nh>
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+routing-options\s+rib\s+(\S+)\s+static\s+route\s+(\S+)\s+qualified-next-hop\s+(\S+)",
+            body
+        )
+        if m:
+            vrf_name, rib_name, pfx, nh = m.group(1), m.group(2), m.group(3), m.group(4)
+            af = "v6" if "inet6" in rib_name else "v4"
+            try:
+                if af == "v6":
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv6(nh), "v6", vrf=vrf_name))
+                else:
+                    dev.static.append(StaticRoute(norm_cidr_str(pfx), norm_ipv4(nh), "v4", vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri rib qnh parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> protocols bgp group <g> neighbor <ip> peer-as <asn>
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+protocols bgp group (\S+) neighbor\s+(\S+)\s+peer-as\s+(\d+)",
+            body
+        )
+        if m:
+            vrf_name, grp, ip, peer = m.group(1), m.group(2), m.group(3), int(m.group(4))
+            try:
+                af = "v6" if ":" in ip else "v4"
+                nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
+                key = (vrf_name, nip)   # VRF ごとに独立したキー（global と同 IP でも別エントリ）
+                nb = BgpNeighbor(nip, peer, af, vrf=vrf_name)
+                if key in pending_local_address:
+                    nb.update_source = pending_local_address.pop(key)
+                dev.bgp.append(nb)
+                bgp_neighbors[key] = nb
+                bgp_neighbor_group[key] = grp
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri bgp neighbor parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> protocols bgp group <g> neighbor <ip>（peer-as は group 継承）
+        m = re.match(
+            r"^routing-instances\s+(\S+)\s+protocols bgp group (\S+) neighbor\s+(\S+)$",
+            body
+        )
+        if m:
+            vrf_name, grp, ip = m.group(1), m.group(2), m.group(3)
+            try:
+                af = "v6" if ":" in ip else "v4"
+                nip = norm_ipv6(ip) if af == "v6" else norm_ipv4(ip)
+                key = (vrf_name, nip)
+                if key not in bgp_neighbors:
+                    nb = BgpNeighbor(nip, None, af, vrf=vrf_name)
+                    if key in pending_local_address:
+                        nb.update_source = pending_local_address.pop(key)
+                    dev.bgp.append(nb)
+                    bgp_neighbors[key] = nb
+                bgp_neighbor_group[key] = grp
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("junos ri bgp neighbor (peer-as inherited) parse failed: %s (%s)" % (body, e))
+            continue
+
+        # routing-instances <vrf> protocols bgp group <g> peer-as <asn>（group レベル peer-as）
+        m = re.match(
+            r"^routing-instances\s+\S+\s+protocols bgp group (\S+) peer-as\s+(\d+)$",
+            body
+        )
+        if m:
+            grp, peer = m.group(1), int(m.group(2))
+            group_peer_as[grp] = peer
+            continue
+
+        # routing-instances <vrf> protocols bgp group <g> type (internal|external)（VRF BGP group type）
+        m = re.match(
+            r"^routing-instances\s+\S+\s+protocols bgp group (\S+) type (internal|external)$",
+            body
+        )
+        if m:
+            grp, tval = m.group(1), m.group(2)
+            group_type[grp] = "ibgp" if tval == "internal" else "ebgp"
+            continue
+
+        # routing-instances <vrf> protocols bgp group <g> cluster <id>（VRF BGP cluster）
+        m = re.match(
+            r"^routing-instances\s+\S+\s+protocols bgp group (\S+) cluster\s+\S+",
+            body
+        )
+        if m:
+            cluster_groups.add(m.group(1))
             continue
 
         # どのハンドラにも一致しなかった set 行 = 未対応（見落とし候補）
@@ -346,22 +655,43 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
     # cluster を持つ group の neighbor に route_reflector_client=True を設定（末尾一括適用）
     # JunOS の next_hop_self はポリシーベースのため本実装では対象外（False 固定・docstring 明記）
     # group レベル peer-as: peer_as が None のメンバー neighbor に group_peer_as を補完（個別指定が優先）
-    if cluster_groups or group_peer_as:
-        for nip, nb in bgp_neighbors.items():
-            grp = bgp_neighbor_group.get(nip)
+    if cluster_groups or group_peer_as or group_type or group_local_as or neighbor_local_as:
+        for (vrf_k, nip), nb in bgp_neighbors.items():
+            grp = bgp_neighbor_group.get((vrf_k, nip))
             if grp:
                 if cluster_groups and grp in cluster_groups:
                     nb.route_reflector_client = True
                 if group_peer_as and nb.peer_as is None and grp in group_peer_as:
                     nb.peer_as = group_peer_as[grp]
+                if group_type and grp in group_type and nb.bgp_type is None:
+                    nb.bgp_type = group_type[grp]
+                if group_local_as and grp in group_local_as and nb.local_as is None:
+                    nb.local_as = group_local_as[grp]
+            # neighbor 個別 local-as は group 値より優先（後勝ち）
+            if neighbor_local_as and nip in neighbor_local_as:
+                nb.local_as = neighbor_local_as[nip]
 
     # OSPF network を全 IF 確定後に解決（宣言前 address 対応）
-    for area, base_if, af in ospf_decls:
-        if af == "v4":
-            network = _ospf_v4_network(ifaces.get(base_if)) or base_if
+    for area, base_if, af, rest in ospf_decls:
+        if base_if == "all":
+            # "interface all": 当該 af を持つ L3 IF（addresses あり）へ出現順に展開
+            for iface in ifaces.values():
+                has_af = any(a.af == af for a in iface.addresses)
+                if not has_af:
+                    continue
+                if rest:
+                    _apply_ospf_if_param(iface, rest)
+                if af == "v4":
+                    network = _ospf_v4_network(iface) or iface.name
+                else:
+                    network = iface.name
+                dev.ospf.append(OspfNetwork(None, network, norm_ospf_area(area), af))
         else:
-            network = base_if
-        dev.ospf.append(OspfNetwork(None, network, norm_ospf_area(area), af))
+            if af == "v4":
+                network = _ospf_v4_network(ifaces.get(base_if)) or base_if
+            else:
+                network = base_if
+            dev.ospf.append(OspfNetwork(None, network, norm_ospf_area(area), af))
     # area_types: 収集した (norm_area, af)→type を同一 area+af の OspfNetwork に適用
     if area_types:
         for o in dev.ospf:
@@ -377,5 +707,9 @@ def parse_junos(text: str, warnings: list, line_status=None) -> Device:
     # OSPF 専用 router-id 不在時は routing-options router-id をフォールバック（§5.2.1）
     if dev.ospf_router_id is None:
         dev.ospf_router_id = dev.bgp_router_id
+
+    # #2 apply-groups 多用診断（diagnostics リスト指定時のみ評価・後方互換）
+    if diagnostics is not None:
+        _check_apply_groups(lines, diagnostics, filename)
 
     return dev

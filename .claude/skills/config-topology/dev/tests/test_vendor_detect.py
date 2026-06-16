@@ -63,3 +63,27 @@ def test_set_ratio_ignores_indented_ios_route_map_set():
     from lib.parsers import detect_vendor
     text = "hostname R1\ninterface GigabitEthernet0/0\nroute-map RM permit 10\n set community 65001:100\n set local-preference 200\n!\n"
     assert detect_vendor(text) == "cisco_ios"
+
+
+def test_is_sensitive_line_authentication_key():
+    """§9.2 authentication-key を含む行が機密扱い（ignored）になること。
+
+    対象行例:
+      - IOS:   ip ospf authentication-key MyP@ss (OSPF MD5 パスワード)
+      - IOS:   area 0 authentication-key secret  (OSPF エリア認証)
+      - JunOS: set protocols bgp group G authentication-key "$9$abc"
+    非対象行（誤検知がないこと）:
+      - authentication (キーワードだけ、-key なし)
+      - ip ospf authentication (認証有効化のみ・キー値なし)
+    """
+    # Arrange & Act & Assert — 機密行として検出されること
+    assert is_sensitive_line(" ip ospf authentication-key MyP@ss")
+    assert is_sensitive_line(" area 0 authentication-key secret")
+    assert is_sensitive_line('set protocols bgp group G authentication-key "$9$abc"')
+    # 大文字混在も検出すること（.lower() 正規化）
+    assert is_sensitive_line(" ip ospf Authentication-Key MyP@ss")
+
+    # 非機密行が誤検知されないこと（回帰確認）
+    assert not is_sensitive_line(" ip ospf authentication")
+    assert not is_sensitive_line(" authentication message-digest")
+    assert not is_sensitive_line(" ip address 10.0.0.1 255.255.255.252")

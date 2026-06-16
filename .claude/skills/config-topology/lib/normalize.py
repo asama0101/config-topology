@@ -62,6 +62,26 @@ def v6_scope(ip):
     return "link-local" if ipaddress.IPv6Address(ip) in _LINK_LOCAL else None
 
 
+def asdot_to_asplain(s):
+    """asdot 表記の ASN 文字列を int（asplain）へ変換する。
+
+    - "1.0"   -> 1*65536+0 = 65536
+    - "65001" -> 65001（ドット無しはそのまま int）
+
+    結果が 0〜4294967295（2^32-1）の範囲外の場合は ValueError を投げる
+    （IOS 実機も範囲外は reject するため）。
+    """
+    s = s.strip()
+    if "." in s:
+        high, low = s.split(".", 1)
+        result = int(high) * 65536 + int(low)
+    else:
+        result = int(s)
+    if not (0 <= result <= 4294967295):
+        raise ValueError("ASN out of range [0, 4294967295]: %s -> %d" % (s, result))
+    return result
+
+
 def norm_ospf_area(area):
     """OSPF area を整数文字列へ正規化（§6.3）。不正値は原文のまま返す。"""
     area = area.strip()

@@ -30,6 +30,9 @@ def build_devices_interfaces(parsed):
             # （他 None フィールドとの意図的な非対称。requirements.md §5.2 の例外）
             if itf.ospf:
                 itf_dict["ospf"] = itf.ospf
+            # vrf は値があるときのみ出力（None は省略 → golden byte 不変）
+            if itf.vrf is not None:
+                itf_dict["vrf"] = itf.vrf
             interfaces.append(itf_dict)
     devices_sorted = sorted(devices, key=lambda d: d["id"])   # 出力は id 昇順（§7.5）
     return device_ids, devices_sorted, interfaces
@@ -145,6 +148,20 @@ def _bgp_type(local_as, peer_as):
     return "ebgp"
 
 
+def _resolve_bgp_type(nb, device_as):
+    """BgpNeighbor の bgp_type を解決する（§7.3 / #7）。
+
+    優先順位:
+      1. nb.bgp_type が明示されていればそれを使う（JunOS group type internal/external）。
+      2. nb.local_as が設定されていれば nb.local_as vs nb.peer_as で判定（JunOS local-as）。
+      3. 従来通り device_as vs nb.peer_as で判定。
+    """
+    if nb.bgp_type is not None:
+        return nb.bgp_type
+    effective_local_as = nb.local_as if nb.local_as is not None else device_as
+    return _bgp_type(effective_local_as, nb.peer_as)
+
+
 def build_bgp(id_dev):
     """id_dev: [(device_id, Device)] → routing.bgp エントリ列（§7.3）。
 
@@ -160,7 +177,7 @@ def build_bgp(id_dev):
                 "device": dev_id, "local_as": dev.as_,
                 "local_ip": _resolve_local_ip(dev, nb),
                 "neighbor_ip": nb.neighbor_ip, "peer_as": nb.peer_as,
-                "type": _bgp_type(dev.as_, nb.peer_as), "af": nb.af,
+                "type": _resolve_bgp_type(nb, dev.as_), "af": nb.af,
             }
             if nb.update_source is not None:
                 entry["update_source"] = nb.update_source
@@ -174,6 +191,8 @@ def build_bgp(id_dev):
                 entry["send_community"] = nb.send_community
             if nb.peer_group is not None:
                 entry["peer_group"] = nb.peer_group
+            if nb.vrf is not None:
+                entry["vrf"] = nb.vrf
             out.append(entry)
     return out
 
@@ -190,6 +209,8 @@ def build_ospf(id_dev):
                      "network": o.network, "area": o.area, "af": o.af}
             if o.area_type is not None:
                 entry["area_type"] = o.area_type
+            if o.vrf is not None:
+                entry["vrf"] = o.vrf
             out.append(entry)
     return out
 
@@ -199,8 +220,11 @@ def build_static(id_dev):
     out = []
     for dev_id, dev in id_dev:
         for s in dev.static:
-            out.append({"device": dev_id, "prefix": s.prefix,
-                        "next_hop": s.next_hop, "af": s.af})
+            entry = {"device": dev_id, "prefix": s.prefix,
+                     "next_hop": s.next_hop, "af": s.af}
+            if s.vrf is not None:
+                entry["vrf"] = s.vrf
+            out.append(entry)
     return out
 
 
@@ -255,7 +279,7 @@ def annotate_ospf(links, segments, ospf_entries, iface_device_map):
 
 
 def build_topology(parsed, generated_from, title=DEFAULT_TITLE, raw_texts=None,
-                   parse_statuses=None):
+                   parse_statuses=None, diagnostics=None):
     """正規化 Device 群 → topology dict（§5・§7）。全リストを §7.5 の決定的順序で出力。
 
     generated_from は順序付きシーケンス（list）であること（set 渡しは決定性を壊す）。
@@ -293,7 +317,7 @@ def build_topology(parsed, generated_from, title=DEFAULT_TITLE, raw_texts=None,
     static.sort(key=lambda e: (e["device"], e["af"], e["prefix"], e["next_hop"]))
     # redistribute はパース順（config 順）を保持（決定的順序の不変条件に従う）
 
-    return {
+    topo = {
         "meta": {"schema_version": "1.0", "title": title,
                  "generated_from": list(generated_from)},
         "devices": devices, "interfaces": interfaces,
@@ -302,3 +326,6 @@ def build_topology(parsed, generated_from, title=DEFAULT_TITLE, raw_texts=None,
         "raw_configs": raw_configs,
         "parse_status": parse_status,
     }
+    if diagnostics:
+        topo["diagnostics"] = diagnostics
+    return topo

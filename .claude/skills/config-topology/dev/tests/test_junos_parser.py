@@ -484,6 +484,174 @@ def test_junos_ospf_area_type_does_not_affect_other_areas():
     assert area6[0].area_type == "nssa"
 
 
+# ---------------------------------------------------------------------------
+# #8: OSPF interface all 対応（OSPFv2 / OSPFv3）
+# ---------------------------------------------------------------------------
+
+def test_ospf_interface_all_expands_to_l3_ifs_v4():
+    """`interface all` (OSPFv2) が L3 IF（v4 アドレスを持つ）すべてに展開され、
+    各 IF の v4 サブネットで OspfNetwork が生成されること。
+    "all" 文字列を network 値に持つ偽エントリは生成されないこと。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24\n"
+        "set interfaces lo0 unit 0 family inet address 1.1.1.1/32\n"
+        "set protocols ospf area 0 interface all\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    # network="all" の偽エントリが無いこと
+    assert all(o.network != "all" for o in dev.ospf)
+    # 各 IF の v4 サブネットが生成されること
+    networks = {o.network for o in dev.ospf}
+    assert "10.0.0.0/30" in networks
+    assert "192.168.1.0/24" in networks
+    assert "1.1.1.1/32" in networks
+    # すべて area=0, af=v4
+    for o in dev.ospf:
+        assert o.area == "0"
+        assert o.af == "v4"
+
+
+def test_ospf_interface_all_expansion_order_is_iface_order():
+    """`interface all` の展開順は IF の出現順（ifaces dict の順序）に一致すること（決定性）。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24\n"
+        "set interfaces ge-0/0/2 unit 0 family inet address 172.16.0.1/24\n"
+        "set protocols ospf area 0 interface all\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    networks = [o.network for o in dev.ospf]
+    # 出現順: ge-0/0/0 → ge-0/0/1 → ge-0/0/2
+    assert networks == ["10.0.0.0/30", "192.168.1.0/24", "172.16.0.0/24"]
+
+
+def test_ospf_interface_all_skips_l2_only_ifs():
+    """`interface all` は L3 アドレスを持たない IF（ethernet-switching のみ等）を展開対象外とすること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set interfaces ge-0/0/1 unit 0 family ethernet-switching\n"
+        "set protocols ospf area 0 interface all\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    networks = [o.network for o in dev.ospf]
+    # ge-0/0/1 はアドレス無しのため展開対象外
+    assert len(dev.ospf) == 1
+    assert "10.0.0.0/30" in networks
+
+
+def test_ospf_interface_all_with_metric_param_applies_to_all():
+    """`interface all metric 50` で展開先の全 IF に ospf["cost"]=50 が適用されること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24\n"
+        "set protocols ospf area 0 interface all metric 50\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ge0 = [i for i in dev.interfaces if i.name == "ge-0/0/0"][0]
+    ge1 = [i for i in dev.interfaces if i.name == "ge-0/0/1"][0]
+    assert ge0.ospf is not None and ge0.ospf["cost"] == 50
+    assert ge1.ospf is not None and ge1.ospf["cost"] == 50
+
+
+def test_ospf_interface_all_with_passive_applies_to_all():
+    """`interface all passive` で展開先の全 IF に ospf["passive"]=True が適用されること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24\n"
+        "set protocols ospf area 0 interface all passive\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ge0 = [i for i in dev.interfaces if i.name == "ge-0/0/0"][0]
+    ge1 = [i for i in dev.interfaces if i.name == "ge-0/0/1"][0]
+    assert ge0.ospf is not None and ge0.ospf["passive"] is True
+    assert ge1.ospf is not None and ge1.ospf["passive"] is True
+
+
+def test_ospf_interface_all_does_not_override_individual_if_spec():
+    """`interface all` と個別 IF 指定が共存するとき、個別指定の挙動は変わらないこと（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 192.168.1.1/24\n"
+        "set protocols ospf area 0 interface all\n"
+        "set protocols ospf area 0 interface ge-0/0/1.0 metric 100\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    ge1 = [i for i in dev.interfaces if i.name == "ge-0/0/1"][0]
+    # 個別指定のメトリックが適用されていること
+    assert ge1.ospf is not None and ge1.ospf["cost"] == 100
+
+
+def test_ospf3_interface_all_expands_to_l3_ifs_v6():
+    """`interface all`（OSPFv3）が v6 アドレスを持つ L3 IF すべてに展開され、
+    各 IF 名で OspfNetwork が生成されること（OSPFv3 は IF 名を network として使用）。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet6 address 2001:db8::1/64\n"
+        "set interfaces ge-0/0/1 unit 0 family inet6 address 2001:db8:1::1/64\n"
+        "set protocols ospf3 area 0 interface all\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert all(o.network != "all" for o in dev.ospf)
+    v6_nets = {o.network for o in dev.ospf if o.af == "v6"}
+    assert "ge-0/0/0" in v6_nets
+    assert "ge-0/0/1" in v6_nets
+
+
+def test_ospf3_interface_all_skips_v4_only_ifs():
+    """`interface all`（OSPFv3）は v4 アドレスのみの IF（v6 無し）を展開対象外とすること。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet6 address 2001:db8::1/64\n"
+        "set interfaces ge-0/0/1 unit 0 family inet address 10.0.0.1/30\n"
+        "set protocols ospf3 area 0 interface all\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    v6_entries = [o for o in dev.ospf if o.af == "v6"]
+    # ge-0/0/1 は v4 のみなので ospf3 展開対象外
+    assert len(v6_entries) == 1
+    assert v6_entries[0].network == "ge-0/0/0"
+
+
+def test_ospf_interface_all_no_l3_ifs_produces_no_ospf():
+    """`interface all` の対象 L3 IF が 0 件のとき、OspfNetwork が 1 件も生成されないこと。"""
+    text = (
+        "set system host-name X\n"
+        "set protocols ospf area 0 interface all\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert dev.ospf == []
+
+
+def test_ospf_individual_if_still_works_with_all_present():
+    """個別 IF 指定（`interface ge-0/0/0.0`）が `interface all` と共存しても従来通り動作すること（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+        "set protocols ospf area 0 interface ge-0/0/0.0\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.ospf) == 1
+    assert dev.ospf[0].network == "10.0.0.0/30"
+    assert dev.ospf[0].af == "v4"
+
+
 def test_junos_ospf3_area_stub_no_summaries_extracted():
     """set protocols ospf3 area <a> stub no-summaries が area_type='totally-stubby' として設定されること。"""
     text = (
@@ -762,3 +930,535 @@ def test_line_status_optional_no_regression(junos_cfg_text):
     assert dev_a.to_dict() == dev_b.to_dict()
     assert len(ls) == len(junos_cfg_text.splitlines())
     assert set(ls) <= {"parsed", "ignored", "unparsed"}
+
+
+# ===========================================================================
+# discard / reject / qualified-next-hop static route（JunOS）
+# ===========================================================================
+
+@pytest.mark.unit
+def test_v4_static_discard():
+    """set routing-options static route <pfx> discard → StaticRoute(next_hop="discard", af="v4")。"""
+    text = ("set system host-name X\n"
+            "set routing-options static route 10.0.0.0/24 discard\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "10.0.0.0/24"
+    assert s.next_hop == "discard"
+    assert s.af == "v4"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v4_static_reject():
+    """set routing-options static route <pfx> reject → StaticRoute(next_hop="reject", af="v4")。"""
+    text = ("set system host-name X\n"
+            "set routing-options static route 10.1.0.0/16 reject\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "10.1.0.0/16"
+    assert s.next_hop == "reject"
+    assert s.af == "v4"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v4_static_qualified_next_hop_basic():
+    """qualified-next-hop <nh> → next_hop に IP を保持（metric/preference は無視）。"""
+    text = ("set system host-name X\n"
+            "set routing-options static route 0.0.0.0/0 qualified-next-hop 10.0.0.1 metric 5\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "0.0.0.0/0"
+    assert s.next_hop == "10.0.0.1"
+    assert s.af == "v4"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v4_static_qualified_next_hop_multiple_ecmp():
+    """同一 prefix に複数の qualified-next-hop → 複数 StaticRoute（ECMP）・決定的順序。"""
+    text = ("set system host-name X\n"
+            "set routing-options static route 0.0.0.0/0 qualified-next-hop 10.0.0.2 preference 5\n"
+            "set routing-options static route 0.0.0.0/0 qualified-next-hop 10.0.0.3\n"
+            "set routing-options static route 0.0.0.0/0 next-hop 10.0.0.1\n")
+    dev, warnings = _parse(text)
+    # next-hop + 2 qualified-next-hop = 3 エントリ
+    assert len(dev.static) == 3
+    nhs = sorted(s.next_hop for s in dev.static)
+    assert nhs == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
+    assert all(s.af == "v4" for s in dev.static)
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v4_static_qualified_next_hop_no_trailing_tokens():
+    """qualified-next-hop <nh>（trailing トークンなし）も parse できる。"""
+    text = ("set system host-name X\n"
+            "set routing-options static route 192.168.0.0/16 qualified-next-hop 172.16.0.1\n")
+    dev, _ = _parse(text)
+    assert len(dev.static) == 1
+    assert dev.static[0].next_hop == "172.16.0.1"
+
+
+@pytest.mark.unit
+def test_v6_static_discard():
+    """v6: rib inet6.0 ... discard → StaticRoute(next_hop="discard", af="v6")。"""
+    text = ("set system host-name X\n"
+            "set routing-options rib inet6.0 static route ::/0 discard\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "::/0"
+    assert s.next_hop == "discard"
+    assert s.af == "v6"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v6_static_reject():
+    """v6: rib inet6.0 ... reject → StaticRoute(next_hop="reject", af="v6")。"""
+    text = ("set system host-name X\n"
+            "set routing-options rib inet6.0 static route 2001:db8::/32 reject\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.next_hop == "reject"
+    assert s.af == "v6"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v6_static_qualified_next_hop():
+    """v6: rib inet6.0 ... qualified-next-hop <nh> [metric N] → IP を next_hop に保持。"""
+    text = ("set system host-name X\n"
+            "set routing-options rib inet6.0 static route ::/0 qualified-next-hop 2001:db8::1 metric 10\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.next_hop == "2001:db8::1"
+    assert s.af == "v6"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v4_static_nexthop_unchanged_regression():
+    """既存の next-hop 形が不変（回帰）。"""
+    text = ("set system host-name X\n"
+            "set routing-options static route 0.0.0.0/0 next-hop 10.0.0.1\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    assert dev.static[0].next_hop == "10.0.0.1"
+    assert dev.static[0].af == "v4"
+    assert warnings == []
+
+
+@pytest.mark.unit
+def test_v6_static_nexthop_unchanged_regression():
+    """既存の v6 next-hop 形が不変（回帰）。"""
+    text = ("set system host-name X\n"
+            "set routing-options rib inet6.0 static route 2001:db8:1::/48 next-hop 2001:db8::2\n")
+    dev, warnings = _parse(text)
+    assert len(dev.static) == 1
+    assert dev.static[0].next_hop == "2001:db8::2"
+    assert dev.static[0].af == "v6"
+    assert warnings == []
+
+
+# ---------------------------------------------------------------------------
+# #7: BGP group type (internal/external) と local-as のパース
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_junos_bgp_group_type_external_sets_ebgp():
+    """set protocols bgp group <g> type external → neighbor の bgp_type='ebgp' に設定されること。"""
+    # Arrange
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ext type external\n"
+        "set protocols bgp group ext neighbor 10.0.0.2 peer-as 65002\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.bgp_type == "ebgp"
+
+
+@pytest.mark.unit
+def test_junos_bgp_group_type_internal_sets_ibgp():
+    """set protocols bgp group <g> type internal → neighbor の bgp_type='ibgp' に設定されること。
+
+    peer-as が自AS と異なっていても type 明示が優先される。
+    """
+    # Arrange
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group rr-clients type internal\n"
+        "set protocols bgp group rr-clients neighbor 10.0.0.3 peer-as 65002\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.bgp_type == "ibgp"
+
+
+@pytest.mark.unit
+def test_junos_bgp_group_type_not_set_bgp_type_is_none():
+    """type 未指定の group の neighbor は bgp_type=None（判定を build に委ねる）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ext neighbor 10.0.0.2 peer-as 65002\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.bgp_type is None
+
+
+@pytest.mark.unit
+def test_junos_bgp_group_local_as_inherited_by_neighbors():
+    """set protocols bgp group <g> local-as <asn> → group メンバー neighbor に local_as が補完されること。"""
+    # Arrange
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group transit local-as 65099\n"
+        "set protocols bgp group transit neighbor 203.0.113.1 peer-as 64512\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.local_as == 65099
+
+
+@pytest.mark.unit
+def test_junos_bgp_neighbor_local_as_overrides_group():
+    """neighbor 個別の local-as が group の local-as より優先されること。"""
+    # Arrange
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group transit local-as 65099\n"
+        "set protocols bgp group transit neighbor 203.0.113.1 peer-as 64512\n"
+        "set protocols bgp group transit neighbor 203.0.113.1 local-as 65077\n"
+    )
+    # Act
+    dev, warnings = _parse(text)
+    # Assert
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.local_as == 65077
+
+
+@pytest.mark.unit
+def test_junos_bgp_group_type_inherited_multiple_neighbors():
+    """group type が複数の neighbor に継承されること。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ibgp-peers type internal\n"
+        "set protocols bgp group ibgp-peers neighbor 10.1.0.1 peer-as 65001\n"
+        "set protocols bgp group ibgp-peers neighbor 10.1.0.2 peer-as 65001\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.bgp) == 2
+    for nb in dev.bgp:
+        assert nb.bgp_type == "ibgp"
+
+
+@pytest.mark.unit
+def test_junos_bgp_group_type_peer_as_inherited_together():
+    """group の type と peer-as の両方が neighbor に正しく継承されること（group-level peer-as と type の組み合わせ）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group transit type external\n"
+        "set protocols bgp group transit peer-as 64512\n"
+        "set protocols bgp group transit neighbor 203.0.113.1\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.bgp_type == "ebgp"
+    assert nb.peer_as == 64512
+
+
+@pytest.mark.unit
+def test_junos_bgp_no_bgp_type_local_as_in_to_dict_when_none():
+    """bgp_type=None, local_as=None の BgpNeighbor の to_dict() にはそれらキーが出ないこと（omit-when-None）。"""
+    from lib.models import BgpNeighbor
+    nb = BgpNeighbor("10.0.0.1", 65002, "v4")
+    d = nb.to_dict()
+    assert "bgp_type" not in d
+    assert "local_as" not in d
+
+
+@pytest.mark.unit
+def test_junos_bgp_bgp_type_and_local_as_in_to_dict_when_set():
+    """bgp_type と local_as が設定されている場合、to_dict() にそれらが含まれること。"""
+    from lib.models import BgpNeighbor
+    nb = BgpNeighbor("10.0.0.1", 65002, "v4")
+    nb.bgp_type = "ebgp"
+    nb.local_as = 65099
+    d = nb.to_dict()
+    assert d["bgp_type"] == "ebgp"
+    assert d["local_as"] == 65099
+
+
+@pytest.mark.unit
+def test_junos_bgp_sample_config_ext_group_regression(junos_cfg_text):
+    """サンプル config (sample-junos-r2.conf) の ext group は type external → bgp_type='ebgp' になること（回帰）。"""
+    dev, warnings = _parse(junos_cfg_text)
+    nb = dev.bgp[0]
+    assert nb.bgp_type == "ebgp"
+
+
+# ---------------------------------------------------------------------------
+# A: JunOS routing-instances rib ハンドラの v4/v6 混同バグ修正テスト
+# ---------------------------------------------------------------------------
+
+def test_junos_ri_rib_v4_next_hop_parsed():
+    """VRF rib V.inet.0（v4 rib）の next-hop が v4 として正しくパースされること。
+    修正前は norm_ipv6() を呼ぶため例外 → warning でスキップ → v4 VRF 経路が消失していた。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances V routing-options rib V.inet.0 static route 10.0.0.0/24 next-hop 10.0.0.1\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == [], "v4 rib next-hop で warning が出てはならない（修正前は例外 → warning）"
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.af == "v4"
+    assert s.next_hop == "10.0.0.1"
+    assert s.prefix == "10.0.0.0/24"
+    assert s.vrf == "V"
+
+
+def test_junos_ri_rib_v6_next_hop_unchanged():
+    """VRF rib V.inet6.0（v6 rib）の next-hop は従来通り v6 として処理されること（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances V routing-options rib V.inet6.0 static route 2001:db8::/32 next-hop 2001:db8::1\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.af == "v6"
+    assert s.next_hop == "2001:db8::1"
+    assert s.vrf == "V"
+
+
+def test_junos_ri_rib_v4_discard():
+    """VRF rib V.inet.0 の discard が af='v4' の StaticRoute として追加されること。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances V routing-options rib V.inet.0 static route 0.0.0.0/0 discard\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.af == "v4"
+    assert s.next_hop == "discard"
+    assert s.vrf == "V"
+
+
+def test_junos_ri_rib_v6_discard_unchanged():
+    """VRF rib V.inet6.0 の discard は従来通り v6 として処理されること（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances V routing-options rib V.inet6.0 static route ::/0 discard\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.af == "v6"
+    assert s.next_hop == "discard"
+
+
+def test_junos_ri_rib_v4_qualified_next_hop():
+    """VRF rib V.inet.0 の qualified-next-hop が af='v4' として正しくパースされること。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances V routing-options rib V.inet.0 static route 10.1.0.0/16 qualified-next-hop 10.0.0.2\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == [], "v4 rib qualified-next-hop で warning が出てはならない"
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.af == "v4"
+    assert s.next_hop == "10.0.0.2"
+    assert s.vrf == "V"
+
+
+def test_junos_ri_rib_v6_qualified_next_hop_unchanged():
+    """VRF rib V.inet6.0 の qualified-next-hop は従来通り v6 として処理されること（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances V routing-options rib V.inet6.0 static route 2001:db8:1::/48 qualified-next-hop 2001:db8::2\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.af == "v6"
+    assert s.next_hop == "2001:db8::2"
+
+
+# ---------------------------------------------------------------------------
+# B: JunOS bgp_neighbors / bgp_neighbor_group の VRF/global 衝突修正テスト
+# ---------------------------------------------------------------------------
+
+def test_junos_bgp_global_and_vrf_same_ip_independent():
+    """global と VRF RED に同一 neighbor IP (10.0.0.2) が存在するとき、
+    それぞれの bgp_type/peer_as が独立して適用されること（後勝ち上書きが起きないこと）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        # global: group ext (type external) で peer-as 65002
+        "set protocols bgp group ext type external\n"
+        "set protocols bgp group ext neighbor 10.0.0.2 peer-as 65002\n"
+        # VRF RED: group ibgp (type internal) で peer-as 65001
+        "set routing-instances RED protocols bgp group ibgp type internal\n"
+        "set routing-instances RED protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    # 2 つの BgpNeighbor が生成されていること
+    assert len(dev.bgp) == 2
+    global_nb = [n for n in dev.bgp if n.vrf is None and n.neighbor_ip == "10.0.0.2"]
+    vrf_nb = [n for n in dev.bgp if n.vrf == "RED" and n.neighbor_ip == "10.0.0.2"]
+    assert len(global_nb) == 1, "global の 10.0.0.2 が存在しない"
+    assert len(vrf_nb) == 1, "VRF RED の 10.0.0.2 が存在しない"
+    # global は external / 65002
+    assert global_nb[0].bgp_type == "ebgp"
+    assert global_nb[0].peer_as == 65002
+    # VRF は internal / 65001
+    assert vrf_nb[0].bgp_type == "ibgp"
+    assert vrf_nb[0].peer_as == 65001
+
+
+def test_junos_bgp_global_only_regression():
+    """global のみの BGP 設定（VRF なし）で既存挙動が変わらないこと（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        "set protocols bgp group ebgp neighbor 10.0.0.2 peer-as 65002\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.neighbor_ip == "10.0.0.2"
+    assert nb.peer_as == 65002
+    assert nb.vrf is None
+
+
+def test_junos_bgp_vrf_only_neighbor():
+    """VRF のみに neighbor がある場合、vrf フィールドが正しく設定されること（回帰）。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-instances RED protocols bgp group ext neighbor 10.0.0.3 peer-as 65003\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.bgp) == 1
+    nb = dev.bgp[0]
+    assert nb.neighbor_ip == "10.0.0.3"
+    assert nb.vrf == "RED"
+
+
+def test_junos_bgp_vrf_cluster_group_independent():
+    """global と VRF 同一 IP の neighbor が異なる cluster group に属するとき、
+    各 neighbor の route_reflector_client が独立して制御されること。"""
+    text = (
+        "set system host-name X\n"
+        "set routing-options autonomous-system 65001\n"
+        # global: cluster あり → rrc=True
+        "set protocols bgp group ibgp neighbor 10.0.0.2 peer-as 65001\n"
+        "set protocols bgp group ibgp cluster 1.1.1.1\n"
+        # VRF RED: cluster なし → rrc=False
+        "set routing-instances RED protocols bgp group plain neighbor 10.0.0.2 peer-as 65001\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    global_nb = [n for n in dev.bgp if n.vrf is None]
+    vrf_nb = [n for n in dev.bgp if n.vrf == "RED"]
+    assert len(global_nb) == 1
+    assert len(vrf_nb) == 1
+    assert global_nb[0].route_reflector_client is True
+    assert vrf_nb[0].route_reflector_client is False
+
+
+# ---------------------------------------------------------------------------
+# C: junos_apply_groups_unexpanded の refs に filename が入るテスト
+# ---------------------------------------------------------------------------
+
+def test_junos_apply_groups_refs_contains_filename():
+    """parse_junos を filename 付きで呼んだとき、
+    diagnostics の junos_apply_groups_unexpanded refs に filename が含まれること。"""
+    text = (
+        "set system host-name X\n"
+        "set groups BASE interfaces ge-0/0/0 description test\n"
+        "set groups BASE interfaces ge-0/0/1 description test2\n"
+        "set groups BASE interfaces ge-0/0/2 description test3\n"
+        "set apply-groups BASE\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+    )
+    warnings = []
+    diagnostics = []
+    from lib.parsers.junos import parse_junos
+    parse_junos(text, warnings, diagnostics=diagnostics, filename="router1.conf")
+    apply_groups_diags = [d for d in diagnostics if d.get("kind") == "junos_apply_groups_unexpanded"]
+    assert len(apply_groups_diags) >= 1
+    assert "router1.conf" in apply_groups_diags[0]["refs"]
+
+
+def test_junos_apply_groups_refs_empty_when_no_filename():
+    """filename を渡さない（None）とき、refs が [] であること（後方互換）。"""
+    text = (
+        "set system host-name X\n"
+        "set groups BASE interfaces ge-0/0/0 description test\n"
+        "set groups BASE interfaces ge-0/0/1 description test2\n"
+        "set groups BASE interfaces ge-0/0/2 description test3\n"
+        "set apply-groups BASE\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+    )
+    warnings = []
+    diagnostics = []
+    from lib.parsers.junos import parse_junos
+    parse_junos(text, warnings, diagnostics=diagnostics)  # filename 省略
+    apply_groups_diags = [d for d in diagnostics if d.get("kind") == "junos_apply_groups_unexpanded"]
+    assert len(apply_groups_diags) >= 1
+    assert apply_groups_diags[0]["refs"] == []
+
+
+def test_parse_config_passes_filename_to_junos():
+    """parse_config に filename= を渡すと、diagnostics の refs に filename が入ること。"""
+    from lib.parsers import parse_config
+    text = (
+        "set system host-name X\n"
+        "set groups BASE interfaces ge-0/0/0 description test\n"
+        "set groups BASE interfaces ge-0/0/1 description test2\n"
+        "set groups BASE interfaces ge-0/0/2 description test3\n"
+        "set apply-groups BASE\n"
+        "set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.1/30\n"
+    )
+    diagnostics = []
+    parse_config(text, diagnostics=diagnostics, filename="myjunos.conf")
+    apply_groups_diags = [d for d in diagnostics if d.get("kind") == "junos_apply_groups_unexpanded"]
+    assert len(apply_groups_diags) >= 1
+    assert "myjunos.conf" in apply_groups_diags[0]["refs"]

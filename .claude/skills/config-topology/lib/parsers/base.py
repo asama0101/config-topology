@@ -1,6 +1,6 @@
 """パーサ共通ヘルパ。"""
 
-_SENSITIVE = ("password", "secret", "snmp community", "snmp-server community")
+_SENSITIVE = ("password", "secret", "snmp community", "snmp-server community", "authentication-key")
 
 
 def is_sensitive_line(line):

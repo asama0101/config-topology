@@ -4079,4 +4079,397 @@ def test_build_data_has_fib_static_keys():
     data = build_data(topo)
     assert isinstance(data["fib"], dict)
     assert isinstance(data["static_edges"], list)
+
+
+# ---------------------------------------------------------------------------
+# T0: diagnostics → CHECKS マージ（diagnostics パススルー）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_build_data_diagnostics_merged_into_checks():
+    """topo["diagnostics"] のエントリが build_data の checks に追加されること。"""
+    # Arrange
+    topo = _minimal_topo()
+    diag_entry = {"severity": "warning", "kind": "parse_warning",
+                  "message": "unknown command at line 5", "refs": ["a.cfg"]}
+    topo["diagnostics"] = [diag_entry]
+
+    # Act
+    data = build_data(topo)
+
+    # Assert: diagnostics 由来エントリが checks に含まれる
+    kinds = [c["kind"] for c in data["checks"]]
+    assert "parse_warning" in kinds
+    matched = [c for c in data["checks"] if c["kind"] == "parse_warning"]
+    assert len(matched) == 1
+    assert matched[0]["message"] == "unknown command at line 5"
+    assert matched[0]["refs"] == ["a.cfg"]
+
+
+@pytest.mark.unit
+def test_build_data_diagnostics_appended_after_existing_checks():
+    """diagnostics 由来エントリは既存 checks の後に追加されること（マージ順の決定性）。"""
+    # Arrange: duplicate_ip チェックが発火するよう同一 IP を2つの IF に設定
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+    )
+    topo["diagnostics"] = [
+        {"severity": "warning", "kind": "parse_warning",
+         "message": "from diagnostics", "refs": ["x.cfg"]},
+    ]
+
+    # Act
+    data = build_data(topo)
+    checks = data["checks"]
+
+    # Assert: duplicate_ip（既存ルール）と parse_warning（diagnostics）が両方含まれる
+    kinds = [c["kind"] for c in checks]
+    assert "duplicate_ip" in kinds
+    assert "parse_warning" in kinds
+
+    # diagnostics 由来は既存 checks の後に付く（インデックスで順序確認）
+    idx_dup = next(i for i, c in enumerate(checks) if c["kind"] == "duplicate_ip")
+    idx_diag = next(i for i, c in enumerate(checks) if c["kind"] == "parse_warning")
+    assert idx_diag > idx_dup
+
+
+@pytest.mark.unit
+def test_build_data_no_diagnostics_checks_unchanged():
+    """topo に diagnostics キーがない（旧成果物）とき、checks に変化がないこと（後方互換）。"""
+    topo = _minimal_topo()
+    # diagnostics キーなし
+    data = build_data(topo)
+    # checks は通常通り（空 topo なので空リスト）
+    assert data["checks"] == []
+
+
+@pytest.mark.unit
+def test_build_data_empty_diagnostics_checks_unchanged():
+    """topo["diagnostics"] = [] のとき、checks に変化がないこと。"""
+    topo = _minimal_topo()
+    topo["diagnostics"] = []
+    data = build_data(topo)
+    assert data["checks"] == []
+
+
+@pytest.mark.unit
+def test_build_data_diagnostics_error_severity_preserved():
+    """diagnostics の severity="error" が checks に正しく渡されること。"""
+    topo = _minimal_topo()
+    topo["diagnostics"] = [
+        {"severity": "error", "kind": "unparsed_config",
+         "message": "could not parse file", "refs": ["bad.cfg"]},
+    ]
+    data = build_data(topo)
+    matched = [c for c in data["checks"] if c["kind"] == "unparsed_config"]
+    assert len(matched) == 1
+    assert matched[0]["severity"] == "error"
+
+
+@pytest.mark.unit
+def test_golden_topo_diagnostics_passthrough_gives_empty():
+    """ゴールデン topology（diagnostics なし）で build_data を呼ぶと
+    checks に diagnostics 由来エントリが混入しないこと。"""
+    topo = load_topology(str(GOLDEN))
+    data = build_data(topo)
+    # ゴールデンに diagnostics はないので diagnostics 由来 kind は一切ない
+    # （既存 checks ルールのみが発火）
+    known_diag_kinds = {"parse_warning", "unparsed_config"}
+    for c in data["checks"]:
+        assert c["kind"] not in known_diag_kinds
     assert isinstance(data["static_stubs"], list)
+
+
+# ===========================================================================
+# discard / reject next-hop → FIB blackhole 判定
+# ===========================================================================
+
+@pytest.mark.unit
+def test_fib_static_discard_yields_blackhole():
+    """next_hop="discard" → via=blackhole（JunOS discard static route 対応）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "10.99.0.0/24",
+                             "next_hop": "discard", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "blackhole"
+    assert st["target"] is None
+
+
+@pytest.mark.unit
+def test_fib_static_reject_yields_blackhole():
+    """next_hop="reject" → via=blackhole（JunOS reject static route 対応）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "10.98.0.0/24",
+                             "next_hop": "reject", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "blackhole"
+    assert st["target"] is None
+
+
+@pytest.mark.unit
+def test_fib_static_discard_case_insensitive():
+    """next_hop="DISCARD"（大文字）でも blackhole に解決（大小文字非依存）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "10.97.0.0/24",
+                             "next_hop": "DISCARD", "af": "v4"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "blackhole"
+
+
+@pytest.mark.unit
+def test_fib_static_discard_v6_yields_blackhole():
+    """v6 next_hop="discard" → via=blackhole（inet6.0 discard 対応）。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 64}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "::/0",
+                             "next_hop": "discard", "af": "v6"}]},
+    )
+    st = [e for e in _fib(topo)["r1"] if e["kind"] == "static"][0]
+    assert st["via"] == "blackhole"
+    assert st["af"] == "v6"
+
+
+@pytest.mark.unit
+def test_fib_static_discard_in_static_stubs():
+    """discard next_hop → build_static_stubs に blackhole スタブが生成される。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "10.96.0.0/24",
+                             "next_hop": "discard", "af": "v4"}]},
+    )
+    fib = _fib(topo)
+    stubs = build_static_stubs(topo, fib)
+    bh_stubs = [s for s in stubs if s["kind"] == "blackhole"]
+    assert len(bh_stubs) >= 1
+    assert bh_stubs[0]["dev"] == "r1"
+
+
+@pytest.mark.unit
+def test_fib_static_discard_in_static_edges():
+    """discard next_hop → build_static_edges に kind="blackhole" エッジが生成される。"""
+    topo = _minimal_topo(
+        devices=[_make_dev("r1")],
+        interfaces=[_make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}])],
+        routing={"bgp": [], "ospf": [],
+                 "static": [{"device": "r1", "prefix": "10.95.0.0/24",
+                             "next_hop": "discard", "af": "v4"}]},
+    )
+    fib = _fib(topo)
+    edges = build_static_edges(topo, fib)
+    bh_edges = [e for e in edges if e["kind"] == "blackhole"]
+    assert len(bh_edges) == 1
+    assert bh_edges[0]["a"] == "r1"
+
+
+# ===========================================================================
+# #5B: duplicate_ip VRF 認識テスト
+# ===========================================================================
+
+def _make_if_vrf(device, name, addresses, vrf=None, mtu=None):
+    """vrf フィールドを持つ interface dict を生成するヘルパー。"""
+    d = _make_if(device, name, addresses, mtu=mtu)
+    if vrf is not None:
+        d["vrf"] = vrf
+    return d
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_different_vrf_not_flagged():
+    """同一 IP でも異なる VRF の interface 間では duplicate_ip を発火しないこと。
+
+    VRF 環境では同一 IP が異なる VRF に存在することは正当な設定であり、
+    重複として検知してはならない。
+    """
+    # Arrange: r1 の Gi0 は VRF "RED"、r2 の Gi0 は VRF "BLUE" — 同一 IP でも異 VRF
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if_vrf("r1", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="RED"),
+            _make_if_vrf("r2", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="BLUE"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 異なる VRF なので duplicate_ip が発火しないこと
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert dup == [], (
+        f"異なる VRF（RED/BLUE）の同一 IP が誤検知された: {dup}"
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_same_vrf_flagged():
+    """同一 VRF 内で同一 IP が複数 interface に存在する場合は duplicate_ip を発火すること。
+
+    VRF が同じ場合はルーティングテーブルを共有するため、IP 重複は設定誤りとして
+    従来通り検知しなければならない。
+    """
+    # Arrange: r1 と r2 の Gi0 が同じ VRF "RED" で同一 IP
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if_vrf("r1", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="RED"),
+            _make_if_vrf("r2", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="RED"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 同一 VRF 内の重複は検知される
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    assert "10.1.1.1" in dup[0]["message"]
+    assert "r1::Gi0" in dup[0]["refs"]
+    assert "r2::Gi0" in dup[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_global_both_flagged():
+    """両方 global（vrf フィールドなし）の同一 IP は従来通り duplicate_ip を発火すること（回帰）。
+
+    #5B 変更後も既存の global-only 挙動が壊れていないことを確認する。
+    """
+    # Arrange: vrf フィールドなし（global）の 2 IF が同一 IP
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+            _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: global 同士の重複は従来通り検知
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert dup[0]["severity"] == "error"
+    assert "10.0.0.1" in dup[0]["message"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_global_vs_vrf_flagged():
+    """global IF と VRF 付き IF が同一 IP を持つ場合は duplicate_ip を発火しないこと。
+
+    global（vrf なし）と VRF 付きは別のルーティングテーブルを持つため、
+    IP が一致しても重複ではない。
+    """
+    # Arrange: r1::Gi0 は global（vrf なし）、r2::Gi0 は VRF "RED"
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}]),
+            _make_if_vrf("r2", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="RED"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: global と VRF は別テーブルなので重複ではない
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert dup == [], (
+        f"global と VRF の同一 IP が誤検知された: {dup}"
+    )
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_vrf_none_explicit_vs_no_key():
+    """vrf=None 明示と vrf キーなしは同じ global として扱われ、同一 IP は duplicate_ip を発火すること。
+
+    topology dict では vrf フィールドは omit-when-None なので、
+    vrf キーが存在しない（無し）と vrf=None 明示は同じ global 扱いでなければならない。
+    """
+    # Arrange: r1::Gi0 は vrf キーなし、r2::Gi0 は vrf=None 明示（どちらも global 相当）
+    if1 = _make_if("r1", "Gi0", [{"af": "v4", "ip": "10.0.0.5", "prefix": 30}])
+    # vrf キーなし（_make_if のデフォルト）
+
+    if2 = _make_if("r2", "Gi0", [{"af": "v4", "ip": "10.0.0.5", "prefix": 30}])
+    if2["vrf"] = None  # 明示的に None を設定
+
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[if1, if2],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: どちらも global なので重複として検知
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert "10.0.0.5" in dup[0]["message"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_cross_device_same_vrf_flagged():
+    """3 台の機器で、2 台が同じ VRF で同一 IP を持つ場合のみ duplicate_ip が発火すること。
+
+    異なる VRF の IF は除外され、同一 VRF 内の重複のみ検知される。
+    """
+    # Arrange:
+    # r1::Gi0 VRF "RED" 10.1.1.1 → r3::Gi0 VRF "RED" 10.1.1.1 と重複（発火）
+    # r2::Gi0 VRF "BLUE" 10.1.1.1 → RED とは別 VRF（非発火）
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2"), _make_dev("r3", hostname="R3")],
+        interfaces=[
+            _make_if_vrf("r1", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="RED"),
+            _make_if_vrf("r2", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="BLUE"),
+            _make_if_vrf("r3", "Gi0", [{"af": "v4", "ip": "10.1.1.1", "prefix": 30}], vrf="RED"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: RED 内の重複（r1::Gi0 と r3::Gi0）のみ検知、r2::Gi0（BLUE）は除外
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert len(dup) == 1
+    assert "r1::Gi0" in dup[0]["refs"]
+    assert "r3::Gi0" in dup[0]["refs"]
+    assert "r2::Gi0" not in dup[0]["refs"]
+
+
+@pytest.mark.unit
+def test_build_checks_duplicate_ip_vrf_v6_different_vrf_not_flagged():
+    """v6 アドレスでも異なる VRF の場合は duplicate_ip を発火しないこと。"""
+    # Arrange: v6 アドレスが異なる VRF に存在
+    topo = _minimal_topo(
+        devices=[_make_dev("r1"), _make_dev("r2", hostname="R2")],
+        interfaces=[
+            _make_if_vrf("r1", "Lo0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 128}], vrf="VRF_A"),
+            _make_if_vrf("r2", "Lo0", [{"af": "v6", "ip": "2001:db8::1", "prefix": 128}], vrf="VRF_B"),
+        ],
+    )
+
+    # Act
+    result = build_checks(topo)
+
+    # Assert: 異なる VRF なので v6 重複も発火しない
+    dup = [c for c in result if c["kind"] == "duplicate_ip"]
+    assert dup == [], f"v6 異 VRF が誤検知された: {dup}"

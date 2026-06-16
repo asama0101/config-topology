@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # rebuild/ を import パスへ
 
 from lib.inputs import collect_inputs            # noqa: E402
-from lib.parsers import detect_vendor, parse_config  # noqa: E402
+from lib.parsers import detect_vendor, parse_config, diagnose_input  # noqa: E402
 
 
 def main(argv=None):
@@ -34,6 +34,9 @@ def main(argv=None):
         name = os.path.basename(f)
         vendor = detect_vendor(text)
         if vendor is None:
+            diag = diagnose_input(text, name)
+            if diag is not None:
+                print("[WARN] %s: %s" % (name, diag["message"]), file=sys.stderr)
             print("[WARN] %s: skipped (unknown vendor)" % name, file=sys.stderr)
             continue
         try:

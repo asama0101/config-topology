@@ -121,3 +121,55 @@ def test_parse_status_not_written_when_empty(tmp_path):
     dump_topology(topo, str(tmp_path))
     text = (tmp_path / "raw_config.yaml").read_text(encoding="utf-8")
     assert "parse_status" not in text
+
+
+# ---------------------------------------------------------------------------
+# diagnostics — diagnostics.yaml 書出
+# ---------------------------------------------------------------------------
+
+def test_diagnostics_not_written_when_absent(tmp_path):
+    """diagnostics キーが無い topology では diagnostics.yaml を書かない（後方互換・ゴールデン不変）。"""
+    dump_topology(_minimal_topo(), str(tmp_path))
+    assert not (tmp_path / "diagnostics.yaml").exists()
+
+
+def test_diagnostics_not_written_when_none(tmp_path):
+    """topo["diagnostics"] が None のとき diagnostics.yaml を書かない。"""
+    topo = _minimal_topo()
+    topo["diagnostics"] = None
+    dump_topology(topo, str(tmp_path))
+    assert not (tmp_path / "diagnostics.yaml").exists()
+
+
+def test_diagnostics_not_written_when_empty_list(tmp_path):
+    """topo["diagnostics"] が [] のとき diagnostics.yaml を書かない（omit-when-empty）。"""
+    topo = _minimal_topo()
+    topo["diagnostics"] = []
+    dump_topology(topo, str(tmp_path))
+    assert not (tmp_path / "diagnostics.yaml").exists()
+
+
+def test_diagnostics_written_when_present(tmp_path):
+    """diagnostics が非空なら diagnostics.yaml を書く。"""
+    topo = _minimal_topo()
+    topo["diagnostics"] = [
+        {"severity": "warning", "kind": "parse_warning",
+         "message": "unknown command at line 5", "refs": ["a.cfg"]},
+    ]
+    dump_topology(topo, str(tmp_path))
+    assert (tmp_path / "diagnostics.yaml").exists()
+    text = (tmp_path / "diagnostics.yaml").read_text(encoding="utf-8")
+    assert "parse_warning" in text
+    assert "unknown command at line 5" in text
+
+
+def test_diagnostics_yaml_content_structure(tmp_path):
+    """diagnostics.yaml のトップレベルキーが 'diagnostics' であること。"""
+    topo = _minimal_topo()
+    topo["diagnostics"] = [
+        {"severity": "error", "kind": "unparsed_config",
+         "message": "file could not be parsed", "refs": ["bad.cfg"]},
+    ]
+    dump_topology(topo, str(tmp_path))
+    text = (tmp_path / "diagnostics.yaml").read_text(encoding="utf-8")
+    assert text.startswith("diagnostics:\n")

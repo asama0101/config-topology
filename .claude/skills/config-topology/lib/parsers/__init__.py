@@ -40,18 +40,54 @@ def detect_vendor(text):
     return None
 
 
-def parse_config(text, warnings=None, line_status=None):
+def diagnose_input(text, filename):
+    """未知ベンダーのテキストを解析し JunOS 波括弧形式と推定される場合に diagnostic を返す。
+
+    判定条件（AND・決定的・偽陽性抑制）:
+      1. detect_vendor(text) is None（IOS/JunOS set どちらとも判定されない）
+      2. 波括弧（{ または }）を含む行が 3 行以上
+      3. set で始まる非空行の比率が 0.05 以下
+
+    返値: dict（junos_brace_format 警告）または None。
+    detect_vendor() は変更しない（シグネチャ・戻り値とも不変）。
+    """
+    if detect_vendor(text) is not None:
+        return None
+    lines = _nonempty_lines(text)
+    if not lines:
+        return None
+    brace_lines = sum(1 for ln in lines if "{" in ln or "}" in ln)
+    if brace_lines < 3:
+        return None
+    if _set_ratio(lines) > 0.05:
+        return None
+    return {
+        "severity": "warning",
+        "kind": "junos_brace_format",
+        "message": (
+            "%s は JunOS 波括弧(hierarchical)形式と推定されます。"
+            "`show configuration | display set` の出力を渡してください。"
+        ) % filename,
+        "refs": [filename],
+    }
+
+
+def parse_config(text, warnings=None, line_status=None, diagnostics=None, filename=None):
     """ベンダー判定 → 対応パーサへ dispatch。未知は None（§2.3）。
 
     line_status: 任意の出力リスト。指定時は各行の parse 状態（parsed/ignored/unparsed）を
     パーサが末尾で extend する（CONFIG parse 状態モード用）。未指定時は従来挙動。
+    diagnostics: 任意の出力リスト。指定時は JunOS の groups 多用診断を末尾に append する。
+    未指定時は従来挙動（後方互換）。
+    filename: 対象ファイルの basename（省略時 None）。JunOS の apply-groups 診断 refs に使用。
     """
     if warnings is None:
         warnings = []
     vendor = detect_vendor(text)
     if vendor == "juniper_junos":
         from .junos import parse_junos
-        return parse_junos(text, warnings, line_status=line_status)
+        return parse_junos(text, warnings, line_status=line_status, diagnostics=diagnostics,
+                           filename=filename)
     if vendor == "cisco_ios":
         from .ios import parse_ios
         return parse_ios(text, warnings, line_status=line_status)

@@ -2,8 +2,8 @@
 import re
 
 from ..models import Address, BgpNeighbor, Device, Interface, OspfNetwork, Redistribute, StaticRoute
-from ..normalize import (mask_to_prefix, norm_cidr, norm_cidr_str, norm_ipv4,
-                         norm_ipv6, norm_ospf_area, v6_scope, wildcard_to_prefix)
+from ..normalize import (asdot_to_asplain, mask_to_prefix, norm_cidr, norm_cidr_str,
+                         norm_ipv4, norm_ipv6, norm_ospf_area, v6_scope, wildcard_to_prefix)
 from .base import ensure_ospf, is_sensitive_line
 
 
@@ -43,6 +43,50 @@ def _iface_v4_network(iface: Interface):
     return None
 
 
+def _resolve_static_tokens(tokens: list, af: str) -> str:
+    """static route の残りトークン列から next-hop（IP または IF 名）を決定する（#3）。
+
+    形式: [<IF名>] [<IP>] [<AD>] [name <x>] [track <n>] [tag <n>] [permanent] …
+    優先度:
+      - IF 名 + IP が両方ある → IP を next-hop（FIB P2P 解決精度が高い）
+      - IP のみ              → IP
+      - IF 名のみ            → IF 名
+    末尾オプション（AD 数字・name/track/tag/<keyword> 等）は無視する。
+    """
+    _SKIP_KEYWORDS = {"name", "track", "tag", "permanent", "multicast", "global"}
+    found_ip = None
+    found_if = None
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok.lower() in _SKIP_KEYWORDS:
+            skip_next = True   # 直後のトークン（値）もスキップ
+            continue
+        # 数字単独 → AD（administrative distance）→ スキップ
+        if tok.isdigit():
+            continue
+        # IP として解釈を試みる
+        try:
+            if af == "v6":
+                found_ip = norm_ipv6(tok)
+            else:
+                found_ip = norm_ipv4(tok)
+            continue
+        except Exception:
+            pass
+        # IP でない → IF 名
+        if found_if is None:
+            found_if = tok
+    # IP 優先、無ければ IF 名
+    if found_ip is not None:
+        return found_ip
+    if found_if is not None:
+        return found_if
+    raise ValueError("static route に next-hop が見つかりません: %s" % tokens)
+
+
 def _parse_iface_line(iface: Interface, s: str, warnings: list) -> bool:
     """interface ブロック内の1行 s を解析し iface をミューテートする（§6.1）。失敗は warnings へ。
 
@@ -52,6 +96,16 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> bool:
     m = re.match(r"^description\s+(.*)$", s)
     if m:
         iface.description = m.group(1).strip().strip('"')
+        return True
+    # dhcp / negotiated / unnumbered: IP 未付与・警告を積む
+    if re.match(r"^ip address dhcp\b", s):
+        warnings.append("%s: dhcp のためサブネット未確定・リンク推論から除外" % iface.name)
+        return True
+    if re.match(r"^ip address negotiated\b", s):
+        warnings.append("%s: negotiated のためサブネット未確定・リンク推論から除外" % iface.name)
+        return True
+    if re.match(r"^ip unnumbered\b", s):
+        warnings.append("%s: unnumbered のためサブネット未確定・リンク推論から除外" % iface.name)
         return True
     m = re.match(r"^ip address\s+(\S+)\s+(\S+)(\s+secondary)?\s*$", s)
     if m:
@@ -63,9 +117,15 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> bool:
         except Exception as e:                       # noqa: BLE001
             warnings.append("ip address parse failed: %s (%s)" % (s, e))
         return True
-    m = re.match(r"^ipv6 address\s+(\S+)(\s+link-local)?\s*$", s, re.IGNORECASE)
+    # autoconfig（アドレス値なし）
+    if re.match(r"^ipv6 address autoconfig\s*$", s, re.IGNORECASE):
+        warnings.append("%s: autoconfig のためアドレス未確定・リンク推論から除外" % iface.name)
+        return True
+    # eui-64 / anycast / link-local 末尾キーワード付き ipv6 address
+    m = re.match(r"^ipv6 address\s+(\S+)(\s+(?:link-local|eui-64|anycast))?\s*$", s, re.IGNORECASE)
     if m:
-        cidr, ll = m.group(1), bool(m.group(2))
+        cidr, kw = m.group(1), (m.group(2) or "").strip().lower()
+        ll = (kw == "link-local")
         try:
             host, plen = cidr.split("/")
             ip = norm_ipv6(host)
@@ -95,6 +155,14 @@ def _parse_iface_line(iface: Interface, s: str, warnings: list) -> bool:
     m = re.match(r"^duplex\s+(\S+)", s)
     if m:
         iface.duplex = m.group(1)
+        return True
+    m = re.match(r"^ip vrf forwarding\s+(\S+)", s)
+    if m:
+        iface.vrf = m.group(1)
+        return True
+    m = re.match(r"^vrf forwarding\s+(\S+)", s)
+    if m:
+        iface.vrf = m.group(1)
         return True
     m = re.match(r"^encapsulation\s+dot1q\b", s, re.IGNORECASE)
     if m:
@@ -162,7 +230,7 @@ def _parse_redistribute_line(dev: Device, s: str, into: str) -> bool:
 
 
 def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
-                    warnings: list) -> bool:
+                    warnings: list, bgp_vrf: str = None) -> bool:
     """router bgp ブロック内の1行を解析（§6.1）。neighbor / bgp router-id / v6 activate /
     update-source / route-reflector-client / next-hop-self / timers / send-community /
     peer-group 宣言・メンバー割当 / redistribute。
@@ -194,9 +262,9 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
     if m:
         dev.bgp_router_id = m.group(1)
         return True
-    m = re.match(r"^neighbor\s+(\S+)\s+remote-as\s+(\d+)", s)
+    m = re.match(r"^neighbor\s+(\S+)\s+remote-as\s+(\d+(?:\.\d+)?)", s)
     if m:
-        token, peer = m.group(1), int(m.group(2))
+        token, peer = m.group(1), asdot_to_asplain(m.group(2))
         # token が IP かどうか判別して振り分け
         try:
             af = "v6" if ":" in token else "v4"
@@ -205,8 +273,12 @@ def _parse_bgp_line(dev: Device, s: str, bgp_af: str, bgp: dict,
             if nip in neighbors:
                 # すでに BgpNeighbor が存在する（peer-group メンバー行で生成済み）→ peer_as を設定
                 neighbors[nip].peer_as = peer
+                # address-family vrf 文脈であれば vrf も更新（既存 neighbor が global で生成されていた場合に対応）
+                if bgp_vrf is not None and neighbors[nip].vrf is None:
+                    neighbors[nip].vrf = bgp_vrf
             else:
                 nb = BgpNeighbor(nip, peer, af)
+                nb.vrf = bgp_vrf   # address-family vrf 文脈
                 # remote-as より先に来た属性を pending_attrs から取り出して適用
                 attrs = pending_attrs.pop(nip, {})
                 if "update_source" in attrs:
@@ -390,6 +462,7 @@ def parse_ios(text: str, warnings: list, line_status=None) -> Device:
     context = None        # None | "interface" | "bgp" | "ospf"
     ospf_pid = None
     bgp_af = "v4"
+    bgp_vrf = None      # 現在の address-family vrf 文脈（None = global）
     bgp = {
         "neighbors":    {},   # {nip: BgpNeighbor} — 登録済み neighbor
         "pending_attrs": {},  # {nip: {key: val}} — remote-as より先に来た属性を一時保持
@@ -432,6 +505,12 @@ def parse_ios(text: str, warnings: list, line_status=None) -> Device:
             status[i] = "ignored"
             continue
 
+        # vrf definition <name> / ip vrf <name>: VRF 名宣言行（モデルに寄与しない → ignored）
+        if re.match(r"^vrf definition\s+", s) or re.match(r"^ip vrf\s+\S+$", s):
+            finish_iface()
+            context = None
+            status[i] = "ignored"
+            continue
         m = re.match(r"^hostname\s+(\S+)$", s)
         if m:
             if not dev.hostname:
@@ -445,10 +524,10 @@ def parse_ios(text: str, warnings: list, line_status=None) -> Device:
             context = "interface"
             status[i] = "parsed"
             continue
-        m = re.match(r"^router bgp\s+(\d+)", s)
+        m = re.match(r"^router bgp\s+(\d+(?:\.\d+)?)", s)
         if m:
             finish_iface()
-            dev.as_ = int(m.group(1))
+            dev.as_ = asdot_to_asplain(m.group(1))
             context, bgp_af = "bgp", "v4"
             status[i] = "parsed"
             continue
@@ -466,22 +545,48 @@ def parse_ios(text: str, warnings: list, line_status=None) -> Device:
             context = None
             status[i] = "parsed"
             continue
-        m = re.match(r"^ip route\s+(\S+)\s+(\S+)\s+(\S+)", s)
+        # ip route vrf <name> <net> <mask> <rest>（vrf 付き static route）
+        m = re.match(r"^ip route vrf\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)", s)
         if m:
-            net, mask, nh = m.groups()
+            vrf_name, net, mask, rest_str = m.group(1), m.group(2), m.group(3), m.group(4).split()
             try:
                 prefix = mask_to_prefix(mask)
-                dev.static.append(StaticRoute(norm_cidr(norm_ipv4(net), prefix),
-                                              norm_ipv4(nh), "v4"))
+                net_cidr = norm_cidr(norm_ipv4(net), prefix)
+                nh = _resolve_static_tokens(rest_str, "v4")
+                dev.static.append(StaticRoute(net_cidr, nh, "v4", vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("ip route vrf parse failed: %s (%s)" % (s, e))
+            status[i] = "parsed"
+            continue
+        m = re.match(r"^ip route\s+(\S+)\s+(\S+)\s+(.*)", s)
+        if m:
+            net, mask, rest_str = m.group(1), m.group(2), m.group(3).split()
+            try:
+                prefix = mask_to_prefix(mask)
+                net_cidr = norm_cidr(norm_ipv4(net), prefix)
+                nh = _resolve_static_tokens(rest_str, "v4")
+                dev.static.append(StaticRoute(net_cidr, nh, "v4"))
             except Exception as e:                   # noqa: BLE001
                 warnings.append("ip route parse failed: %s (%s)" % (s, e))
             status[i] = "parsed"
             continue
-        m = re.match(r"^ipv6 route\s+(\S+)\s+(\S+)", s)
+        # ipv6 route vrf <name> <cidr> <rest>（vrf 付き v6 static route）
+        m = re.match(r"^ipv6 route vrf\s+(\S+)\s+(\S+)\s+(.*)", s)
         if m:
-            cidr, nh = m.groups()
+            vrf_name, cidr, rest_str = m.group(1), m.group(2), m.group(3).split()
             try:
-                dev.static.append(StaticRoute(norm_cidr_str(cidr), norm_ipv6(nh), "v6"))
+                nh = _resolve_static_tokens(rest_str, "v6")
+                dev.static.append(StaticRoute(norm_cidr_str(cidr), nh, "v6", vrf=vrf_name))
+            except Exception as e:                   # noqa: BLE001
+                warnings.append("ipv6 route vrf parse failed: %s (%s)" % (s, e))
+            status[i] = "parsed"
+            continue
+        m = re.match(r"^ipv6 route\s+(\S+)\s+(.*)", s)
+        if m:
+            cidr, rest_str = m.group(1), m.group(2).split()
+            try:
+                nh = _resolve_static_tokens(rest_str, "v6")
+                dev.static.append(StaticRoute(norm_cidr_str(cidr), nh, "v6"))
             except Exception as e:                   # noqa: BLE001
                 warnings.append("ipv6 route parse failed: %s (%s)" % (s, e))
             status[i] = "parsed"
@@ -490,8 +595,13 @@ def parse_ios(text: str, warnings: list, line_status=None) -> Device:
         if context == "interface" and cur is not None:
             m6 = re.match(r"^ipv6 ospf\s+(\d+)\s+area\s+(\S+)", s)
             m4 = re.match(r"^ip ospf\s+(\d+)\s+area\s+(\S+)", s)
+            mv3 = re.match(r"^ospfv3\s+(\d+)\s+ipv6\s+area\s+(\S+)", s)
             if m6:
                 pending_ospf3.append((cur, int(m6.group(1)), norm_ospf_area(m6.group(2))))
+                status[i] = "parsed"
+            elif mv3:
+                # ospfv3 <pid> ipv6 area <a>: legacy ipv6 ospf と同じ v6 解決パスへ合流
+                pending_ospf3.append((cur, int(mv3.group(1)), norm_ospf_area(mv3.group(2))))
                 status[i] = "parsed"
             elif m4:
                 pending_ospf.append((cur, int(m4.group(1)), norm_ospf_area(m4.group(2))))
@@ -499,11 +609,17 @@ def parse_ios(text: str, warnings: list, line_status=None) -> Device:
             elif _parse_iface_line(cur, s, warnings):
                 status[i] = "parsed"
         elif context == "bgp":
-            if (s.startswith("address-family ipv6") or s.startswith("address-family ipv4")
-                    or s == "exit-address-family"):
+            if s.startswith("address-family ipv6") or s.startswith("address-family ipv4"):
                 bgp_af = "v6" if s.startswith("address-family ipv6") else "v4"
+                # vrf 文脈を抽出: address-family ipv4|ipv6 vrf <name>
+                m_vrf = re.match(r"^address-family (?:ipv4|ipv6) vrf\s+(\S+)", s)
+                bgp_vrf = m_vrf.group(1) if m_vrf else None
                 status[i] = "parsed"
-            elif _parse_bgp_line(dev, s, bgp_af, bgp, warnings):
+            elif s == "exit-address-family":
+                bgp_af = "v4"
+                bgp_vrf = None   # global に戻す
+                status[i] = "parsed"
+            elif _parse_bgp_line(dev, s, bgp_af, bgp, warnings, bgp_vrf):
                 status[i] = "parsed"
         elif context == "ospf":
             if _parse_ospf_line(dev, s, ospf_pid, warnings, passive_ifaces, area_types):

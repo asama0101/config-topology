@@ -58,6 +58,20 @@ class BgpNeighbor:
     JunOS は今回未マッピング（JunOS group を peer_group に設定するとサンプル golden が変化するため
     C1b スコープ外・非対称は仕様）。
     """
+    bgp_type: Optional[str] = None
+    """JunOS `group <g> type internal/external` から設定。"ibgp"/"ebgp"。
+    値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
+    build._bgp_type() で peer_as 比較より優先。
+    """
+    local_as: Optional[int] = None
+    """JunOS `group <g> local-as <asn>` または `neighbor <ip> local-as <asn>` から設定。
+    値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
+    bgp_type=None の場合、build._bgp_type() で Device.as_ の代わりに使用。
+    """
+    vrf: Optional[str] = None
+    """VRF 名（IOS address-family vrf / JunOS routing-instances 配下）。
+    値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
+    """
 
     def to_dict(self):
         d = {"neighbor_ip": self.neighbor_ip, "peer_as": self.peer_as, "af": self.af}
@@ -73,6 +87,12 @@ class BgpNeighbor:
             d["send_community"] = self.send_community
         if self.peer_group is not None:
             d["peer_group"] = self.peer_group
+        if self.bgp_type is not None:
+            d["bgp_type"] = self.bgp_type
+        if self.local_as is not None:
+            d["local_as"] = self.local_as
+        if self.vrf is not None:
+            d["vrf"] = self.vrf
         return d
 
 
@@ -86,12 +106,16 @@ class OspfNetwork:
     """OSPF area タイプ: "stub" / "totally-stubby" / "nssa" / "totally-nssa"。
     設定時のみ to_dict() に出力（None は省略 → golden byte 不変）。§6.1/§6.2 参照。
     """
+    vrf: Optional[str] = None
+    """VRF 名（将来拡張。値があるときのみ to_dict() に出力 → golden byte 不変）。"""
 
     def to_dict(self):
         d = {"process": self.process, "network": self.network,
              "area": self.area, "af": self.af}
         if self.area_type is not None:
             d["area_type"] = self.area_type
+        if self.vrf is not None:
+            d["vrf"] = self.vrf
         return d
 
 
@@ -100,9 +124,14 @@ class StaticRoute:
     prefix: str
     next_hop: str
     af: str
+    vrf: Optional[str] = None
+    """VRF 名。値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。"""
 
     def to_dict(self):
-        return {"prefix": self.prefix, "next_hop": self.next_hop, "af": self.af}
+        d = {"prefix": self.prefix, "next_hop": self.next_hop, "af": self.af}
+        if self.vrf is not None:
+            d["vrf"] = self.vrf
+        return d
 
 
 @dataclass
@@ -144,6 +173,10 @@ class Interface:
     encapsulation: Optional[str] = None
     vlan: Optional[int] = None
     ospf: Optional[dict] = None
+    vrf: Optional[str] = None
+    """VRF 名（IOS ip vrf forwarding / vrf forwarding / JunOS routing-instances 配下）。
+    値があるときのみ to_dict() に出力（None は省略 → golden byte 不変）。
+    """
 
     def sorted_addresses(self):
         return sorted(self.addresses, key=lambda a: a.sort_key())
@@ -176,6 +209,8 @@ class Interface:
         # （他 None フィールドとの意図的な非対称。requirements.md §5.2 の例外）
         if self.ospf:
             d["ospf"] = self.ospf
+        if self.vrf is not None:
+            d["vrf"] = self.vrf
         return d
 
 

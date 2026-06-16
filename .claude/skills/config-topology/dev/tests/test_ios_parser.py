@@ -353,6 +353,273 @@ def test_ios_ospf_passive_interface_default_ignored():
 
 
 # ---------------------------------------------------------------------------
+# #3: IOS static route IF 形対応（ip route / ipv6 route）
+# ---------------------------------------------------------------------------
+
+def test_static_route_regression_ip_nh():
+    """既存の ip route 0.0.0.0 0.0.0.0 <IP> 形式が不変であること（回帰）。"""
+    text = "hostname X\nip route 0.0.0.0 0.0.0.0 10.0.0.2\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert (s.prefix, s.next_hop, s.af) == ("0.0.0.0/0", "10.0.0.2", "v4")
+
+
+def test_static_route_ifname_only():
+    """ip route <net> <mask> <IF名> の場合、next_hop に IF 名が入ること。"""
+    text = "hostname X\nip route 10.1.0.0 255.255.0.0 GigabitEthernet0/0\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "10.1.0.0/16"
+    assert s.next_hop == "GigabitEthernet0/0"
+    assert s.af == "v4"
+
+
+def test_static_route_ifname_plus_nh_ip_wins():
+    """IF 名 + NH IP 併記の場合、next_hop に IP が優先されること。"""
+    text = "hostname X\nip route 0.0.0.0 0.0.0.0 GigabitEthernet0/0 192.168.1.1\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.next_hop == "192.168.1.1"
+
+
+def test_static_route_ad_suffix_stripped():
+    """末尾の AD（数字）が除かれ経路として正常パースされること。"""
+    text = "hostname X\nip route 10.0.0.0 255.0.0.0 10.0.0.1 200\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert (s.prefix, s.next_hop) == ("10.0.0.0/8", "10.0.0.1")
+
+
+def test_static_route_name_suffix_stripped():
+    """末尾の `name <x>` が除かれ経路として正常パースされること。"""
+    text = "hostname X\nip route 10.2.0.0 255.255.0.0 10.2.0.1 name DEFAULT-GW\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert (s.prefix, s.next_hop) == ("10.2.0.0/16", "10.2.0.1")
+
+
+def test_static_route_track_permanent_stripped():
+    """末尾の `track <n>` / `permanent` が除かれ経路として正常パースされること。"""
+    text = ("hostname X\n"
+            "ip route 0.0.0.0 0.0.0.0 10.0.0.2 track 1\n"
+            "ip route 192.168.0.0 255.255.0.0 10.0.0.3 permanent\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 2
+    assert dev.static[0].next_hop == "10.0.0.2"
+    assert dev.static[1].next_hop == "10.0.0.3"
+
+
+def test_static_route_ifname_with_ad_and_name():
+    """IF 名 + AD + name が同時に付いた場合もパースできること。"""
+    text = "hostname X\nip route 0.0.0.0 0.0.0.0 GigabitEthernet0/1 100 name ISP\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.next_hop == "GigabitEthernet0/1"
+    assert s.prefix == "0.0.0.0/0"
+
+
+def test_ipv6_static_route_regression():
+    """既存の ipv6 route <pfx> <IPv6 NH> 形式が不変であること（回帰）。"""
+    text = "hostname X\nipv6 route 2001:db8:1::/48 2001:db8::2\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert (s.prefix, s.next_hop, s.af) == ("2001:db8:1::/48", "2001:db8::2", "v6")
+
+
+def test_ipv6_static_route_ifname_only():
+    """ipv6 route <pfx> <IF名> の場合、next_hop に IF 名が入ること。"""
+    text = "hostname X\nipv6 route ::/0 GigabitEthernet0/0\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.next_hop == "GigabitEthernet0/0"
+    assert s.af == "v6"
+
+
+def test_ipv6_static_route_ifname_plus_nh():
+    """ipv6 route <pfx> <IF名> <IPv6 NH> の場合、next_hop に IPv6 IP が優先されること。"""
+    text = "hostname X\nipv6 route ::/0 GigabitEthernet0/0 2001:db8::1\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.next_hop == "2001:db8::1"
+
+
+# ---------------------------------------------------------------------------
+# #6: IOS OSPFv3 新形式（ospfv3 <pid> ipv6 area <a>）
+# ---------------------------------------------------------------------------
+
+def test_ospfv3_new_form_v6_subnet():
+    """ospfv3 <pid> ipv6 area <a> が OspfNetwork(af='v6') を生成し network が IF v6 サブネットであること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address 2001:db8:10::1/64\n"
+            " ospfv3 2 ipv6 area 0\n!\n")
+    dev, warnings = _parse(text)
+    ospf_v6 = [o for o in dev.ospf if o.af == "v6"]
+    assert len(ospf_v6) == 1
+    o = ospf_v6[0]
+    assert o.process == 2
+    assert o.network == "2001:db8:10::/64"
+    assert o.area == "0"
+    assert o.af == "v6"
+
+
+def test_ospfv3_new_form_fallback_ifname():
+    """ospfv3 形式で v6 アドレスが無い場合、network に IF 名がフォールバックすること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ospfv3 1 ipv6 area 1\n!\n")
+    dev, warnings = _parse(text)
+    ospf_v6 = [o for o in dev.ospf if o.af == "v6"]
+    assert len(ospf_v6) == 1
+    assert ospf_v6[0].network == "GigabitEthernet0/0"
+    assert ospf_v6[0].area == "1"
+
+
+def test_ospfv3_ipv4_keyword_ignored():
+    """ospfv3 ... ipv4 area ... は v1 スコープ外として無視されること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.0\n"
+            " ospfv3 1 ipv4 area 0\n!\n")
+    dev, warnings = _parse(text)
+    ospf_v6 = [o for o in dev.ospf if o.af == "v6"]
+    assert ospf_v6 == []
+
+
+def test_ospfv3_and_legacy_coexist():
+    """ospfv3 ipv6 と legacy ipv6 ospf が同一 IF に共存できること（両方 OspfNetwork を生成）。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address 2001:db8:20::1/64\n"
+            " ipv6 ospf 1 area 0\n"
+            " ospfv3 2 ipv6 area 1\n!\n")
+    dev, warnings = _parse(text)
+    ospf_v6 = [o for o in dev.ospf if o.af == "v6"]
+    assert len(ospf_v6) == 2
+    procs = {o.process for o in ospf_v6}
+    assert procs == {1, 2}
+
+
+# ---------------------------------------------------------------------------
+# #9: IOS asdot 4-byte ASN + dhcp/unnumbered 警告
+# ---------------------------------------------------------------------------
+
+def test_bgp_asdot_router_bgp():
+    """`router bgp 1.0` が as_=65536 として解釈されること。"""
+    text = "hostname X\nrouter bgp 1.0\n!\n"
+    dev, warnings = _parse(text)
+    assert dev.as_ == 65536
+
+
+def test_bgp_asdot_remote_as():
+    """`neighbor X remote-as 1.0` が peer_as=65536 として解釈されること。"""
+    text = ("hostname X\nrouter bgp 65001\n"
+            " neighbor 10.0.0.2 remote-as 1.0\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.peer_as == 65536
+
+
+def test_bgp_asplain_unchanged():
+    """`router bgp 65001` が従来通り as_=65001 のままであること（回帰）。"""
+    text = "hostname X\nrouter bgp 65001\n!\n"
+    dev, _ = _parse(text)
+    assert dev.as_ == 65001
+
+
+def test_bgp_asdot_large():
+    """`router bgp 2.100` が 2*65536+100=131172 として解釈されること。"""
+    text = "hostname X\nrouter bgp 2.100\n!\n"
+    dev, _ = _parse(text)
+    assert dev.as_ == 2 * 65536 + 100
+
+
+def test_ip_address_dhcp_no_addr_and_warning():
+    """`ip address dhcp` でアドレスが付与されず warnings に dhcp 旨のメッセージが入ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip address dhcp\n!\n")
+    dev, warnings = _parse(text)
+    assert dev.interfaces[0].addresses == []
+    assert any("dhcp" in w.lower() for w in warnings)
+
+
+def test_ip_address_negotiated_warning():
+    """`ip address negotiated` でアドレスが付与されず警告が出ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip address negotiated\n!\n")
+    dev, warnings = _parse(text)
+    assert dev.interfaces[0].addresses == []
+    assert any("negotiated" in w.lower() or "dhcp" in w.lower() for w in warnings)
+
+
+def test_ip_unnumbered_warning():
+    """`ip unnumbered <if>` でアドレスが付与されず warnings に unnumbered 旨が入ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ip unnumbered Loopback0\n!\n")
+    dev, warnings = _parse(text)
+    assert dev.interfaces[0].addresses == []
+    assert any("unnumbered" in w.lower() for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# #10: IPv6 末尾キーワード eui-64/anycast/autoconfig
+# ---------------------------------------------------------------------------
+
+def test_ipv6_address_eui64_prefix_extracted():
+    """`ipv6 address <prefix> eui-64` で prefix のみが抽出されること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address 2001:db8::/64 eui-64\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    addrs = dev.interfaces[0].addresses
+    assert len(addrs) == 1
+    a = addrs[0]
+    assert a.af == "v6"
+    assert a.prefix == 64
+    # eui-64 はホストビット未解決のため prefix 部のみ格納（ネットワークアドレス相当）
+    assert "2001:db8" in a.ip
+
+
+def test_ipv6_address_anycast_prefix_extracted():
+    """`ipv6 address <addr>/128 anycast` で Address 生成・例外なし。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address 2001:db8::1/128 anycast\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    addrs = dev.interfaces[0].addresses
+    assert len(addrs) == 1
+    assert addrs[0].ip == "2001:db8::1"
+
+
+def test_ipv6_address_autoconfig_no_addr_and_warning():
+    """`ipv6 address autoconfig` でアドレスが付与されず警告が出ること。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address autoconfig\n!\n")
+    dev, warnings = _parse(text)
+    assert dev.interfaces[0].addresses == []
+    assert any("autoconfig" in w.lower() for w in warnings)
+
+
+def test_ipv6_address_link_local_unchanged():
+    """既存の `ipv6 address fe80::1/64 link-local` が不変であること（回帰）。"""
+    text = ("hostname X\ninterface GigabitEthernet0/0\n"
+            " ipv6 address fe80::1/64 link-local\n!\n")
+    dev, warnings = _parse(text)
+    assert warnings == []
+    a = dev.interfaces[0].addresses[0]
+    assert a.scope == "link-local"
+
+
+# ---------------------------------------------------------------------------
 # C1: BGP update-source 抽出（IOS）
 # ---------------------------------------------------------------------------
 
@@ -1997,3 +2264,102 @@ def test_line_status_comment_with_text_is_ignored():
     ls = []
     parse_ios(text, [], line_status=ls)
     assert ls == ["ignored", "parsed"]
+
+
+# ---------------------------------------------------------------------------
+# F: IOS static の Null0 / global キーワード未テスト
+# ---------------------------------------------------------------------------
+
+def test_static_route_null0_as_nexthop():
+    """`ip route 0.0.0.0 0.0.0.0 Null0` → StaticRoute(next_hop="Null0") が生成されること。"""
+    text = "hostname X\nip route 0.0.0.0 0.0.0.0 Null0\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "0.0.0.0/0"
+    assert s.next_hop == "Null0"
+    assert s.af == "v4"
+
+
+def test_static_route_global_keyword_skipped():
+    """`ip route 10.0.0.0 255.0.0.0 10.0.0.1 global` → global がスキップされ next_hop="10.0.0.1" になること。"""
+    text = "hostname X\nip route 10.0.0.0 255.0.0.0 10.0.0.1 global\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    assert len(dev.static) == 1
+    s = dev.static[0]
+    assert s.prefix == "10.0.0.0/8"
+    assert s.next_hop == "10.0.0.1"
+
+
+def test_static_route_null0_with_ad():
+    """`ip route 192.168.0.0 255.255.0.0 Null0 254` → next_hop="Null0"、AD 254 は除かれること。"""
+    text = "hostname X\nip route 192.168.0.0 255.255.0.0 Null0 254\n"
+    dev, warnings = _parse(text)
+    assert warnings == []
+    s = dev.static[0]
+    assert s.next_hop == "Null0"
+    assert s.prefix == "192.168.0.0/16"
+
+
+# ---------------------------------------------------------------------------
+# G: IOS address-family vrf 内で既存 neighbor の peer_as 更新時に vrf 未設定
+# ---------------------------------------------------------------------------
+
+def test_ios_bgp_vrf_af_sets_vrf_on_existing_neighbor():
+    """peer-group で先に生成された neighbor が address-family vrf 内で remote-as 指定されたとき、
+    vrf フィールドが正しく設定されること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.1.0.2 remote-as 65002\n"
+        " address-family ipv4 vrf RED\n"
+        "  neighbor 10.1.0.2 remote-as 65003\n"
+        " exit-address-family\n"
+        "!\n"
+    )
+    dev, warnings = _parse(text)
+    # address-family vrf RED 内で remote-as が来たとき vrf が設定される
+    # 同一 IP が global と VRF 両方に存在する構成（既存 neighbor の vrf 更新）
+    nb_list = [n for n in dev.bgp if n.neighbor_ip == "10.1.0.2"]
+    # 少なくとも 1 つ存在すること
+    assert len(nb_list) >= 1
+    # VRF RED 文脈で remote-as が来た neighbor には vrf が設定されること
+    vrf_nb = [n for n in nb_list if n.vrf == "RED"]
+    assert len(vrf_nb) >= 1, "vrf='RED' の BgpNeighbor が生成されていない"
+
+
+def test_ios_bgp_vrf_af_existing_neighbor_peer_as_updated_with_vrf():
+    """peer-group メンバーとして先に pg_member に登録された neighbor が
+    address-family vrf 内で remote-as を受けたとき、vrf と peer_as が正しく設定されること。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor PG peer-group\n"
+        " neighbor 10.2.0.2 peer-group PG\n"
+        " address-family ipv4 vrf BLUE\n"
+        "  neighbor 10.2.0.2 remote-as 65004\n"
+        " exit-address-family\n"
+        "!\n"
+    )
+    dev, warnings = _parse(text)
+    nb_list = [n for n in dev.bgp if n.neighbor_ip == "10.2.0.2"]
+    assert len(nb_list) >= 1
+    vrf_nb = [n for n in nb_list if n.vrf == "BLUE"]
+    assert len(vrf_nb) >= 1, "vrf='BLUE' の BgpNeighbor が生成されていない"
+    assert vrf_nb[0].peer_as == 65004
+
+
+def test_ios_bgp_global_neighbor_vrf_stays_none():
+    """global 文脈（address-family vrf 外）の neighbor は vrf=None のままであること（回帰）。"""
+    text = (
+        "hostname X\n"
+        "router bgp 65001\n"
+        " neighbor 10.3.0.2 remote-as 65002\n"
+        "!\n"
+    )
+    dev, warnings = _parse(text)
+    assert warnings == []
+    nb = dev.bgp[0]
+    assert nb.vrf is None

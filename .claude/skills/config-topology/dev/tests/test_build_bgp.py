@@ -381,3 +381,95 @@ def test_build_bgp_peer_group_none_omits_key():
     assert "peer_group" not in bgp[0]
     expected_keys = {"device", "local_as", "local_ip", "neighbor_ip", "peer_as", "type", "af"}
     assert set(bgp[0].keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# #7: build_bgp — bgp_type 明示フィールドによる type 判定優先
+# ---------------------------------------------------------------------------
+
+def test_build_bgp_explicit_bgp_type_ibgp_overrides_as_comparison():
+    """BgpNeighbor.bgp_type='ibgp' が設定されていると、peer_as!=local_as でも type='ibgp' になること。
+
+    group type internal + peer-as 異なる JunOS ケースをモデル化。
+    """
+    # Arrange: local_as=65001, peer_as=65002 なら通常は ebgp だが、
+    #          bgp_type='ibgp' 明示があれば ibgp になること。
+    nb = BgpNeighbor("10.0.0.2", 65002, "v4")
+    nb.bgp_type = "ibgp"
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [nb])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert bgp[0]["type"] == "ibgp"
+
+
+def test_build_bgp_explicit_bgp_type_ebgp_overrides_as_comparison():
+    """BgpNeighbor.bgp_type='ebgp' が設定されていると、peer_as==local_as でも type='ebgp' になること。"""
+    # Arrange: local_as=65001, peer_as=65001 なら通常は ibgp だが、
+    #          bgp_type='ebgp' 明示があれば ebgp になること。
+    nb = BgpNeighbor("10.0.0.2", 65001, "v4")
+    nb.bgp_type = "ebgp"
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [nb])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert bgp[0]["type"] == "ebgp"
+
+
+def test_build_bgp_explicit_local_as_used_for_type_when_bgp_type_absent():
+    """BgpNeighbor.bgp_type=None だが local_as が設定されている場合、
+    local_as vs peer_as で type を判定すること。
+
+    local_as=65099（neighbor 個別）, peer_as=65099 → ibgp と判定。
+    """
+    # Arrange
+    nb = BgpNeighbor("203.0.113.1", 65099, "v4")
+    nb.local_as = 65099   # 個別 local-as と peer-as が一致 → ibgp
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [nb])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert bgp[0]["type"] == "ibgp"
+
+
+def test_build_bgp_local_as_overrides_device_as_for_type():
+    """BgpNeighbor.local_as が設定されている場合、Device.as_ ではなく nb.local_as で type を判定すること。
+
+    Device.as_=65001, nb.local_as=65099, peer_as=65001 → Device.as_ vs peer_as なら ibgp だが、
+    nb.local_as(65099) vs peer_as(65001) → ebgp になること。
+    """
+    # Arrange
+    nb = BgpNeighbor("10.0.0.2", 65001, "v4")
+    nb.local_as = 65099   # Device.as_=65001 だが local_as=65099 → peer_as=65001 と異なる → ebgp
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [nb])
+    # Act
+    bgp = build_bgp([("r1", r1)])
+    # Assert
+    assert bgp[0]["type"] == "ebgp"
+
+
+def test_build_bgp_bgp_type_none_local_as_none_falls_back_to_device_as():
+    """bgp_type=None, local_as=None の場合、従来通り Device.as_ vs peer_as で判定すること（回帰）。"""
+    # Arrange: 既存の動作が変わらないことを保証
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65002, "v4")])
+    bgp = build_bgp([("r1", r1)])
+    assert bgp[0]["type"] == "ebgp"   # 65001 != 65002 → ebgp（従来通り）
+
+
+def test_build_bgp_bgp_type_none_local_as_none_ibgp_regression():
+    """bgp_type=None, local_as=None の場合、peer_as==Device.as_ → ibgp（回帰）。"""
+    r1 = _dev("R1", 65001,
+              [Interface(name="Gi0", addresses=[Address("v4", "10.0.0.1", 30)])],
+              [BgpNeighbor("10.0.0.2", 65001, "v4")])
+    bgp = build_bgp([("r1", r1)])
+    assert bgp[0]["type"] == "ibgp"
