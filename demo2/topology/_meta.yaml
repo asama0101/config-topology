@@ -1,7 +1,0 @@
-generated_from:
-- core-rtr-01.cfg
-- core-rtr-02.cfg
-- dist-switch-bldgA-floor2-rack07.cfg
-- edge-rtr-jun.conf
-schema_version: '1.0'
-title: Network Topology (config-derived)

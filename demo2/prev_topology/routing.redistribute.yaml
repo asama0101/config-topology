@@ -1,8 +1,0 @@
-redistribute:
-- device: core-rtr-01
-  into: bgp
-  source: connected
-- device: core-rtr-01
-  into: bgp
-  metric: 100
-  source: static
