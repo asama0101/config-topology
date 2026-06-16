@@ -17,6 +17,7 @@ topology/
   routing.static.yaml             # static: [...]
   routing.redistribute.yaml       # redistribute: [...]（非空時のみ生成）
   raw_config.yaml                 # raw_configs: {device_id: 生 running-config} ＋ parse_status: {device_id: [行ごとの parsed/ignored/unparsed]}（非空時のみ生成・CONFIG ビュー用）
+  diagnostics.yaml               # diagnostics: [{severity,kind,message,refs},...] 入力形式診断（非空時のみ生成。欠落時は空リストにフォールバック・CHECKS パネルに表示）
 ```
 - **devices と interfaces は同居**（links / routing が interface・device の ID を外部キー参照するため、基盤として 1 ファイルに集約）。
 - **空の routing.\*** は書き出さない／読込時は欠落＝空リスト扱い。
@@ -85,6 +86,7 @@ topology/
 | `switchport` | object \| null | IOS switchport 情報（§5.2.2）。JunOS では常に null。 |
 | `encapsulation` | string \| null | カプセル化種別（`"dot1q"` など）。未設定は null。 |
 | `ospf` | object | OSPF interface パラメータ（任意・条件付き省略）。サブキー `cost`(int)・`network_type`(str: "point-to-point"/"broadcast"/"p2p" 等)・`passive`(true)。**設定があるサブキーのみ格納**し、1つも無い IF では `ospf` キー自体を省略する（null・空 object は出力しない）。設定の無い既存ゴールデン YAML は byte 完全一致のまま。新フィールド追加のため `schema_version` は据え置き（既存フィールドの意味・型は不変）。 |
+| `vrf` | string \| null | **任意・omit-when-None**。VRF 名（IOS `ip vrf forwarding`/`vrf forwarding`、JunOS `routing-instances <vrf> interface`）。未設定は省略（グローバルルーティングテーブル帰属）。 |
 | `source` | string | データソース識別子。現行は常に `"parsed"`。 |
 
 ## links
@@ -130,6 +132,9 @@ topology/
 | `timers` | object \| null | **任意・設定時のみ出力**。IOS `neighbor <ip> timers <keepalive> <holdtime>` から `{keepalive: int, holdtime: int}`。未設定はキー省略（null 値は出力しない）。JunOS は非対応。 |
 | `send_community` | string \| null | **任意・設定時のみ出力**。IOS `neighbor <ip> send-community [both\|standard\|extended]`（無印は `"standard"`）。`large` 等の未対応キーワードは誤分類せずスキップ（キー省略）。JunOS は非対応。 |
 | `peer_group` | string \| null | **任意・設定時のみ出力**。IOS peer-group 名（`neighbor <ip> peer-group <name>` のメンバーが属する group。属性は group 定義から継承し個別指定が優先）。未設定はキー省略。JunOS は group を peer_group にマッピングしない（非出力）。 |
+| `bgp_type` | string \| null | **任意・omit-when-None**。JunOS `protocols bgp group <g> type internal\|external` から設定。値: `"ibgp"` / `"ebgp"`。build._bgp_type() が peer_as 比較より優先して参照する。IOS では未設定（peer_as 比較で判定）。 |
+| `local_as` | int \| null | **任意・omit-when-None**。JunOS `protocols bgp group <g> local-as` または `neighbor <ip> local-as` から設定。bgp_type=None の場合、build._bgp_type() が Device.as_ の代わりに使用。neighbor 個別指定が group 値より優先。 |
+| `vrf` | string \| null | **任意・omit-when-None**。VRF 名（IOS `address-family ipv4\|ipv6 vrf <name>` 配下の neighbor、JunOS `routing-instances <vrf> protocols bgp` 配下の neighbor）。未設定は省略（グローバル BGP）。 |
 
 ### `ospf`（object[]）
 network 宣言 1 件につき 1 エントリ。
@@ -141,14 +146,16 @@ network 宣言 1 件につき 1 エントリ。
 | `area` | string | エリア（正規化済み文字列。§6.3 参照。例: `"0"`、`"16909060"`） |
 | `af` | string | アドレスファミリ（`"v4"` = OSPFv2 / `"v6"` = OSPFv3） |
 | `area_type` | string \| null | **任意・設定時のみ出力**。OSPF エリアタイプ。正規化値: `"stub"` / `"totally-stubby"`（stub + no-summary）/ `"nssa"` / `"totally-nssa"`（nssa + no-summary）。通常エリア（backbone/regular）の場合はキー自体を省略する（null 値は出力しない。golden byte 不変を保つ）。 |
+| `vrf` | string \| null | **任意・omit-when-None**。VRF 名（将来拡張。値があるときのみ出力。現行パーサでは IOS/JunOS とも OspfNetwork.vrf を出力しない実装だが、モデル上は保持可能）。 |
 
 ### `static`（object[]）
 | フィールド | 型 | 説明 |
 |-----------|----|------|
 | `device` | string | 機器 ID（devices[].id への参照） |
 | `prefix` | string | 宛先 CIDR（例: `"0.0.0.0/0"`、`"::/0"`） |
-| `next_hop` | string | ネクストホップ IP（v4 または v6） |
+| `next_hop` | string | ネクストホップ。IP（v4/v6）のほか、IF 名（`Null0` 等）・`"discard"`/`"reject"`（JunOS blackhole 宣言）も入りうる。IF 名・blackhole 値は `_resolve_next_hop` で `blackhole` または P2P peer として処理される。 |
 | `af` | string | アドレスファミリ（`"v4"` / `"v6"`） |
+| `vrf` | string \| null | **任意・omit-when-None**。VRF 名（IOS `ip route vrf <name>` / `ipv6 route vrf <name>`、JunOS `routing-instances <name> routing-options static`）。未設定は省略（グローバルルーティングテーブル）。 |
 
 ### `redistribute`（object[]）
 ルーティングプロトコル間の再配布設定（IOS `redistribute` コマンドから抽出。§C5）。
@@ -174,6 +181,7 @@ network 宣言 1 件につき 1 エントリ。
 - **`af` フィールドなし旧 YAML**: `load_topology` は af フィールドを補完しない。利用側（render/build 等）が `entry.get("af", "v4")` で既定 v4 扱いする設計。`schema_version` は `"1.0"` に据え置き（af は addition-only の拡張フィールドであり、旧 YAML の読み書き互換性を破壊しない）。
 - **`schema_version` 据え置き方針**: フィールド追加（addition-only）は `schema_version` を上げない。スキーマ変更（既存フィールドの型変更・廃止等）のときのみバンプする。
 - **`raw_config.yaml` なし旧成果物**: `load_topology` は欠落時に `raw_configs`・`parse_status` を空 dict にフォールバックし、CONFIG タブは非表示（後方互換）。`raw_config.yaml`（`raw_configs`/`parse_status`）の追加は加算的拡張のため `schema_version` 据え置き。
+- **`diagnostics.yaml` なし旧成果物**: `load_topology` は欠落時に `diagnostics` を空リストにフォールバック（後方互換）。`diagnostics.yaml` の追加は加算的拡張のため `schema_version` 据え置き。`DATA.checks` への影響なし（空リストの追記は no-op）。
 
 ## 拡張方法
 | 追加したいもの | 方法 | スキーマ影響 |
@@ -220,7 +228,7 @@ network 宣言 1 件につき 1 エントリ。
 
 | kind | severity | 検出条件 |
 |------|----------|---------|
-| `duplicate_ip` | error | 同一ホスト IP（v4/v6・secondary 含む）が複数 IF に存在。link-local（`scope="link-local"`、fe80::/10）は除外 |
+| `duplicate_ip` | error | 同一ホスト IP（v4/v6・secondary 含む）が複数 IF に存在し、かつ**同一 VRF 内**（`interfaces[].vrf` 認識）の場合のみ検出。異なる VRF 間では重複を見なさない（VRF 分離が正当）。link-local（`scope="link-local"`、fe80::/10）は除外 |
 | `duplicate_bgp_router_id` | error | 同一 `bgp_router_id` を 2 台以上の device が持つ場合、router-id ごとに 1 件。None は無視。同一機器内での ospf/bgp 共用は機器間重複ではないため対象外。`refs` = 該当 device id 群（昇順）＋ 重複 router-id 値（ospf と同形式） |
 | `duplicate_ospf_router_id` | error | 同一 `ospf_router_id` を 2 台以上の device が持つ場合、router-id ごとに 1 件。None は無視。`refs` = 該当 device id 群（昇順）＋ 重複 router-id 値 |
 | `mtu_mismatch` | warning | 同一物理リンク両端の MTU が双方非 None かつ不一致。`build_links()` 統合済みリンク（端点ペア単位）を基準とするため、dual-stack（同一端点に v4+v6 の raw 行 2 件）でも 1 件のみ検出される |
@@ -229,8 +237,10 @@ network 宣言 1 件につき 1 エントリ。
 | `ospf_area0_disconnected` | warning | area 0（backbone）を持つ device が 1 台以上存在する混在環境で、OSPF area を持つが area 0 を持たない device を列挙。area 0 不在環境では非発火（偽陽性抑制）。結線でなく **config 保有 area で近似**。ABR（area0＋他 area）は対象外。`refs` = `[device] + 数値優先ソートした非0 area 群` |
 | `ibgp_fullmesh_incomplete` | warning | RR 不在の AS 内 iBGP で full-mesh が崩れているピア対。いずれかのセッションに `route_reflector_client=True` があれば当該 AS をスキップ（RR 構成は full-mesh 不要）。neighbor_ip を IF ホスト IP で device 解決し、解決不能 neighbor を持つ device が絡むペアはスキップ（偽陽性抑制）。`refs` = `[di, dj, str(asn)]`（di<dj 昇順） |
 | `ospf_area_mismatch` | warning | リンク/セグメントの両端が異なる OSPF area を宣言（`ospf_area` が `aggregate_areas` により `"0/1"` 等の `/` 連結値になる）。実機では area 不一致で OSPF 隣接が張れない＝設定誤り。リンク `refs` = `sorted([a_device, b_device]) + [subnet]`、セグメント `refs` = `[seg_id, subnet]` |
+| `junos_brace_format` | warning | 入力診断由来（`topo["diagnostics"]` 経由）。対象ファイルが JunOS 波括弧形式（hierarchical）と推定される。**`build_checks` のルールではなく `diagnostics` pass-through** として checks の後に出現順で追記される |
+| `junos_apply_groups_unexpanded` | warning | 入力診断由来。JunOS の apply-groups/groups を多用した config のため、展開前のテンプレートしか解析できていない可能性がある。同様に `diagnostics` pass-through |
 
-`build_data()` は `"checks": build_checks(topo, links=links)` を返り値に追加するため、
+`build_data()` は `build_checks(topo)` の結果の後に `topo["diagnostics"]` を出現順で追記して `DATA.checks` を構築するため、
 埋め込み `DATA.checks` として HTML に含まれ、ブラウザ側の `renderChecksView()` が描画する。
 
 ### DATA.stub_nodes（stub / loopback ノード）

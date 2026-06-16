@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 コードの実体はほぼ全て `.claude/skills/config-topology/`（以下 `$SKILL`）配下にある。
 ルート直下はスキルの入出力ワークスペース:
 - `workspace/` … 入力 config（`*.cfg *.conf *.txt`）
-- `topology/` … 中間表現（レイヤー別 YAML 正本）= 出力①（`raw_config.yaml` は生 config 保持時のみ・CONFIG ビュー用）
+- `topology/` … 中間表現（レイヤー別 YAML 正本）= 出力①（`raw_config.yaml` は生 config 保持時のみ・CONFIG ビュー用。`diagnostics.yaml` は入力形式診断が非空時のみ・CHECKS パネルに表示）
 - `topology.html` … 自己完結 HTML 構成図 = 出力②
 - `history/<YYYY-MM-DD_HHMM>/` … 再生成前に退避した旧成果物
 
