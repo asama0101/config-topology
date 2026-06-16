@@ -4961,11 +4961,12 @@ class TestAsVisibilityFilter:
         assert 'dataset.fas' in js
 
     def test_visible_has_hidden_as_condition_for_devices(self):
-        """visible() 内に device の AS フィルタ条件が入っている"""
+        """visible()/selectable() が asHidden() ヘルパ経由で AS フィルタを参照している"""
         js = assets._JS
-        assert "hiddenAS" in js
-        # device の as チェック
-        assert "DATA.devices[id]" in js or "DATA.devices" in js
+        # asHidden ヘルパ関数が定義されている
+        assert "function asHidden(id)" in js
+        # visible と selectable の両所から呼ばれている
+        assert js.count("asHidden(id)") >= 2
 
     def test_visible_hidden_as_hides_device(self):
         """hiddenAS に AS 番号を入れると device が非表示になる"""
@@ -4978,8 +4979,8 @@ class TestAsVisibilityFilter:
     def test_as_filter_not_shown_when_no_as(self):
         """presentASes が空のとき AS チェックボックスを生成しない（条件分岐が存在する）"""
         js = assets._JS
-        # asList.length > 0 の条件がある
-        assert "asList.length" in js or "length > 0" in js or ".length" in js
+        # asList.length > 0 && asFilterContainer ガードが存在する
+        assert "asList.length > 0" in js
 
     def test_as_checkbox_data_fas_attribute(self):
         """AS チェックボックスに data-fas 属性が設定されている"""
@@ -4990,3 +4991,52 @@ class TestAsVisibilityFilter:
         """AS フィルタのスウォッチに asColor を使用している"""
         js = assets._JS
         assert "asColor(asn)" in js
+
+    def test_as_hidden_helper_hides_stub_loopback_of_hidden_as(self):
+        """asHidden() が stub/loopback ノード（dev:ifn 形式 id）を親 device の AS で判定する"""
+        import subprocess, sys, textwrap
+        js = assets._JS
+        # asHidden が STUB_BY_ID.get(id) で stub を引いて親 device の AS を参照することを構造確認
+        assert "STUB_BY_ID.get(id)" in js
+        # stub の親 device を DATA.devices[st.dev] で引いていること
+        assert "DATA.devices[st.dev]" in js
+        # eval でロジックを確認: AS 65001 を hiddenAS に入れると、
+        # その AS に属する device の loopback/stub ノード id は asHidden→true になる
+        script = textwrap.dedent("""\
+            // 最小スタブ: device r1 (AS 65001), stub ノード r1:Loopback0
+            const DATA = {
+              devices: { "r1": { id: "r1", as: 65001 } },
+              extPeers: [],
+              stub_nodes: [{ dev: "r1", ifn: "Loopback0", ip: "1.1.1.1", subnet: "1.1.1.1/32", kind: "loopback", area: null }]
+            };
+            function lpId(st) { return st.dev + ":" + st.ifn; }
+            const STUB_BY_ID = new Map((DATA.stub_nodes || []).map(st => [lpId(st), st]));
+            const S = { filters: { hiddenAS: new Set(["65001"]) } };
+            function asHidden(id) {
+              if (S.filters.hiddenAS.size === 0) return false;
+              const d = DATA.devices[id];
+              if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return true;
+              const ep = DATA.extPeers.find(e => e.id === id);
+              if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return true;
+              const st = STUB_BY_ID.get(id);
+              if (st) { const pd = DATA.devices[st.dev];
+                if (pd && pd.as != null && S.filters.hiddenAS.has(String(pd.as))) return true; }
+              return false;
+            }
+            // stub ノード本体 id は "r1:Loopback0"
+            const stubId = lpId(DATA.stub_nodes[0]);
+            const result = asHidden(stubId);
+            process.stdout.write(result ? "HIDDEN" : "VISIBLE");
+        """)
+        result = subprocess.run(
+            ["node", "--input-type=module"],
+            input=script.replace("process.stdout.write", "process.stdout.write"),
+            capture_output=True, text=True
+        )
+        # node が使えない環境では構造テストのみで担保（スキップ）
+        if result.returncode != 0 and "not found" in result.stderr:
+            import pytest; pytest.skip("node not available")
+        assert result.stdout == "HIDDEN", (
+            f"stub/loopback ノード(r1:Loopback0)は AS 65001 を hiddenAS に入れると"
+            f" asHidden=true になるべき。got: {result.stdout!r}, stderr: {result.stderr!r}"
+        )

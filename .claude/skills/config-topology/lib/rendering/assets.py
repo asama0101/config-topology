@@ -1657,12 +1657,7 @@ function applyVisibility() {
     if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
     if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
     if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
-    if (S.filters.hiddenAS.size > 0) {
-      const d = DATA.devices[id];
-      if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return false;
-      const ep = DATA.extPeers.find(e => e.id === id);
-      if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return false;
-    }
+    if (asHidden(id)) return false;
     if (S.connectedOnly && S.sel.size) {
       if (S.sel.has(id)) return true;
       return [...S.sel].some(s => adj[s] && adj[s].has(id));
@@ -3163,6 +3158,19 @@ function stubFiltered(id) {
   if (!st) return false;
   return (st.kind === "loopback" && !S.filters.lo) || (st.kind === "stub" && !S.filters.stub);
 }
+/* id が hiddenAS に含まれる AS に属するか（visible/selectable 共用ヘルパ）。
+   通常 device・extPeer のほか、stub/loopback ノード（id = dev:ifn）は親 device の AS で判定。 */
+function asHidden(id) {
+  if (S.filters.hiddenAS.size === 0) return false;
+  const d = DATA.devices[id];
+  if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return true;
+  const ep = DATA.extPeers.find(e => e.id === id);
+  if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return true;
+  const st = STUB_BY_ID.get(id);  /* stub/loopback 本体: 親 device の AS で判定 */
+  if (st) { const pd = DATA.devices[st.dev];
+    if (pd && pd.as != null && S.filters.hiddenAS.has(String(pd.as))) return true; }
+  return false;
+}
 /* id から segment 相当オブジェクトを引く。DATA.segments に無ければ stub_nodes を
    segment 形（members 1件）に正規化して返す（hover/click/詳細パネルで segment ロジックを共用） */
 function segById(id) {
@@ -3207,12 +3215,7 @@ function selectable(id) {
   if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
   if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
   if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
-  if (S.filters.hiddenAS.size > 0) {
-    const d = DATA.devices[id];
-    if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return false;
-    const ep = DATA.extPeers.find(e => e.id === id);
-    if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return false;
-  }
+  if (asHidden(id)) return false;
   return true;
 }
 /* ライン選択（subnet 単位）。端点ノードも自動選択し、図と表を同時に再描画 */
