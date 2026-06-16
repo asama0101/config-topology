@@ -650,6 +650,7 @@ _BODY = """\
     <label class="tchk gonly"><input type="checkbox" id="f-lo" checked>loopback</label>
     <label class="tchk gonly"><input type="checkbox" id="f-stub" checked>スタブ</label>
     <label class="tchk gonly"><input type="checkbox" id="f-ext" checked>外部ピア</label>
+    <div id="as-filters" class="gonly"></div>
     <span class="tsep gonly"></span>
     <button class="tbtn gonly" id="btn-nodes" title="表示するノードを個別に指定">表示ノード</button>
     <button class="tbtn gonly" id="btn-connected" title="選択ノードの接続先のみ表示">接続先のみ</button>
@@ -812,7 +813,7 @@ const S = {
   connectedOnly:false,
   trace:{src:null, dst:"", result:null}, /* STATIC 経路トレース（始点機器・宛先・結果。ランタイム状態） */
   focusMode:false, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
-  filters:{seg:true, lo:true, stub:true, ext:true},
+  filters:{seg:true, lo:true, stub:true, ext:true, hiddenAS:new Set()},
   hiddenNodes:new Set(), nodePanel:false,
   legend:true, minimap:true, legendHot:null,
   sort:{addr:null, ifs:null},
@@ -1656,6 +1657,12 @@ function applyVisibility() {
     if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
     if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
     if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
+    if (S.filters.hiddenAS.size > 0) {
+      const d = DATA.devices[id];
+      if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return false;
+      const ep = DATA.extPeers.find(e => e.id === id);
+      if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return false;
+    }
     if (S.connectedOnly && S.sel.size) {
       if (S.sel.has(id)) return true;
       return [...S.sel].some(s => adj[s] && adj[s].has(id));
@@ -3200,6 +3207,12 @@ function selectable(id) {
   if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
   if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
   if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
+  if (S.filters.hiddenAS.size > 0) {
+    const d = DATA.devices[id];
+    if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return false;
+    const ep = DATA.extPeers.find(e => e.id === id);
+    if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return false;
+  }
   return true;
 }
 /* ライン選択（subnet 単位）。端点ノードも自動選択し、図と表を同時に再描画 */
@@ -3333,6 +3346,33 @@ $("#f-seg").onchange = e => { S.filters.seg = e.target.checked; render(); };
 $("#f-lo").onchange = e => { S.filters.lo = e.target.checked; render(); };
 $("#f-stub").onchange = e => { S.filters.stub = e.target.checked; render(); };
 $("#f-ext").onchange = e => { S.filters.ext = e.target.checked; render(); };
+
+/* AS フィルタチェックボックスの動的生成 */
+const asList = presentASes(DATA);
+const asFilterContainer = $("#as-filters");
+if (asList.length > 0 && asFilterContainer) {
+  asList.forEach(asn => {
+    const lbl = document.createElement("label");
+    lbl.className = "tchk gonly";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.dataset.fas = String(asn);
+    const sw = document.createElement("span");
+    sw.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${asColor(asn)};margin:0 3px 0 2px;vertical-align:middle`;
+    lbl.appendChild(cb);
+    lbl.appendChild(sw);
+    lbl.appendChild(document.createTextNode("AS "+asn));
+    cb.addEventListener("change", e => {
+      const a = e.target.dataset.fas;
+      if (e.target.checked) S.filters.hiddenAS.delete(a);
+      else S.filters.hiddenAS.add(a);
+      render();
+    });
+    asFilterContainer.appendChild(lbl);
+  });
+}
+
 $("#btn-connected").onclick = function() { S.connectedOnly = !S.connectedOnly; this.classList.toggle("on", S.connectedOnly); render(); };
 $("#btn-focus").onclick = function() { S.focusMode = !S.focusMode; this.classList.toggle("on", S.focusMode); render(); };
 

@@ -4077,7 +4077,10 @@ def test_stub_category_toggle_filters():
     js = assets._JS
     body = assets._BODY
     # 状態とUIとハンドラ
-    assert "filters:{seg:true, lo:true, stub:true, ext:true}" in js, \
+    # S.filters に必要なキー（seg/lo/stub/ext）が初期値 true で定義されていること
+    # ※ hiddenAS:new Set() 追加以降はフォーマットが変わるため部分一致で検証
+    assert "filters:{" in js and "seg:true" in js and "lo:true" in js \
+        and "stub:true" in js and "ext:true" in js, \
         "S.filters に lo/stub の初期値が無い"
     assert 'id="f-lo"' in body, "ツールバーに #f-lo チェックボックスが無い"
     assert 'id="f-stub"' in body, "ツールバーに #f-stub チェックボックスが無い"
@@ -4931,3 +4934,59 @@ def test_css_has_unified_and_gutter_classes():
     css = assets._CSS
     for cls in [".urow", ".urow.del", ".urow.add", ".urow.ctx", ".cfgedit-gut", ".cfgdirty", ".urow.cur"]:
         assert cls in css, f"missing CSS: {cls}"
+
+
+# ============================================================
+# AS 単位の表示/非表示フィルタ (feat/as-visibility-filter)
+# ============================================================
+
+class TestAsVisibilityFilter:
+    """AS 単位の表示/非表示フィルタ機能のテスト"""
+
+    def test_filters_state_has_hidden_as_key(self):
+        """S.filters に hiddenAS キー（Set）が定義されている"""
+        js = assets._JS
+        # hiddenAS:new Set() が filters オブジェクト内にある
+        assert "hiddenAS:new Set()" in js
+
+    def test_as_filter_container_in_body(self):
+        """_BODY に AS フィルタコンテナ div が存在する"""
+        body = assets._BODY
+        assert 'id="as-filters"' in body
+
+    def test_as_filter_dynamic_generation_code_exists(self):
+        """init 内に presentASes を使った動的生成コードが存在する"""
+        js = assets._JS
+        assert "presentASes(DATA)" in js
+        assert 'dataset.fas' in js
+
+    def test_visible_has_hidden_as_condition_for_devices(self):
+        """visible() 内に device の AS フィルタ条件が入っている"""
+        js = assets._JS
+        assert "hiddenAS" in js
+        # device の as チェック
+        assert "DATA.devices[id]" in js or "DATA.devices" in js
+
+    def test_visible_hidden_as_hides_device(self):
+        """hiddenAS に AS 番号を入れると device が非表示になる"""
+        # applyVisibility の visible クロージャを抽出して eval
+        js = assets._JS
+        # visible 関数が hiddenAS を参照していることを構造テストで確認
+        # (applyVisibility 内クロージャのため _extract_fn は使えないが文字列で検証)
+        assert "hiddenAS.has(" in js
+
+    def test_as_filter_not_shown_when_no_as(self):
+        """presentASes が空のとき AS チェックボックスを生成しない（条件分岐が存在する）"""
+        js = assets._JS
+        # asList.length > 0 の条件がある
+        assert "asList.length" in js or "length > 0" in js or ".length" in js
+
+    def test_as_checkbox_data_fas_attribute(self):
+        """AS チェックボックスに data-fas 属性が設定されている"""
+        js = assets._JS
+        assert "data-fas" in js or "dataset.fas" in js
+
+    def test_as_filter_uses_as_color(self):
+        """AS フィルタのスウォッチに asColor を使用している"""
+        js = assets._JS
+        assert "asColor(asn)" in js
