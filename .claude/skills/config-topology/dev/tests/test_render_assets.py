@@ -4077,15 +4077,22 @@ def test_stub_category_toggle_filters():
     js = assets._JS
     body = assets._BODY
     # 状態とUIとハンドラ
-    # S.filters に必要なキー（seg/lo/stub/ext）が初期値 true で定義されていること
+    # S.filters に必要なキー（seg/lo/stub）が初期値 true で定義されていること
     # ※ hiddenAS:new Set() 追加以降はフォーマットが変わるため部分一致で検証
+    # ※ ext キーは AS フィルタに一本化したため S.filters に存在しないこと（回帰ガード）
     assert "filters:{" in js and "seg:true" in js and "lo:true" in js \
-        and "stub:true" in js and "ext:true" in js, \
-        "S.filters に lo/stub の初期値が無い"
+        and "stub:true" in js, \
+        "S.filters に seg/lo/stub の初期値が無い"
+    assert "ext:true" not in js, \
+        "S.filters に廃止済み ext キーが残っている（#f-ext 撤去済み）"
     assert 'id="f-lo"' in body, "ツールバーに #f-lo チェックボックスが無い"
     assert 'id="f-stub"' in body, "ツールバーに #f-stub チェックボックスが無い"
+    assert 'id="f-ext"' not in body, \
+        "ツールバーに廃止済み #f-ext チェックボックスが残っている（AS フィルタに一本化済み）"
     assert '$("#f-lo").onchange' in js and '$("#f-stub").onchange' in js, \
         "#f-lo / #f-stub の onchange ハンドラが無い"
+    assert '$("#f-ext").onchange' not in js, \
+        "廃止済み #f-ext の onchange ハンドラが残っている"
     # stubFiltered ヘルパと visible/selectable での使用
     assert "function stubFiltered(id)" in js, "stubFiltered ヘルパが無い"
     assert 'st.kind === "loopback" && !S.filters.lo' in js and 'st.kind === "stub" && !S.filters.stub' in js, \

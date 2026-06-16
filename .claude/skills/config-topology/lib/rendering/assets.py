@@ -664,7 +664,6 @@ _BODY = """\
     <label class="tchk gonly"><input type="checkbox" id="f-seg" checked>セグメント</label>
     <label class="tchk gonly"><input type="checkbox" id="f-lo" checked>loopback</label>
     <label class="tchk gonly"><input type="checkbox" id="f-stub" checked>スタブ</label>
-    <label class="tchk gonly"><input type="checkbox" id="f-ext" checked>外部ピア</label>
     <div class="as-filter-wrap gonly">
       <button class="tbtn gonly" id="as-menu-btn" title="AS 単位の表示フィルタ">AS ▾</button>
       <div id="as-menu">
@@ -837,7 +836,7 @@ const S = {
   connectedOnly:false,
   trace:{src:null, dst:"", result:null}, /* STATIC 経路トレース（始点機器・宛先・結果。ランタイム状態） */
   focusMode:false, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
-  filters:{seg:true, lo:true, stub:true, ext:true, hiddenAS:new Set()},
+  filters:{seg:true, lo:true, stub:true, hiddenAS:new Set()},
   hiddenNodes:new Set(), nodePanel:false,
   legend:true, minimap:true, legendHot:null,
   sort:{addr:null, ifs:null},
@@ -1680,7 +1679,6 @@ function applyVisibility() {
     if (S.hiddenNodes.has(id)) return false;   /* 表示ノードパネルで個別に非表示指定されたノード */
     if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
     if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
-    if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
     if (asHidden(id)) return false;
     if (S.connectedOnly && S.sel.size) {
       if (S.sel.has(id)) return true;
@@ -3238,7 +3236,6 @@ function selectable(id) {
   if (S.hiddenNodes.has(id)) return false;
   if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
   if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
-  if (DATA.extPeers.some(e=>e.id===id) && !S.filters.ext) return false;
   if (asHidden(id)) return false;
   return true;
 }
@@ -3374,7 +3371,6 @@ $("#search").addEventListener("keydown", ev => {
 $("#f-seg").onchange = e => { S.filters.seg = e.target.checked; render(); };
 $("#f-lo").onchange = e => { S.filters.lo = e.target.checked; render(); };
 $("#f-stub").onchange = e => { S.filters.stub = e.target.checked; render(); };
-$("#f-ext").onchange = e => { S.filters.ext = e.target.checked; render(); };
 
 /* AS フィルタ ドロップダウン（ポップオーバー）初期化 */
 const asList = presentASes(DATA);
