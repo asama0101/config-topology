@@ -344,6 +344,21 @@ tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, va
 .placeholder { color: var(--ink-faint); font-size: 11px; line-height: 1.9; padding: 8px 4px; }
 .placeholder b { color: var(--ink-dim); font-weight: normal; }
 
+/* ---------- AS filter dropdown ---------- */
+.as-filter-wrap { position: relative; display: inline-flex; }
+#as-menu {
+  display:none; position: absolute; z-index: 40;
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-radius: 8px; box-shadow: var(--shadow);
+  padding: 8px 10px; min-width: 160px;
+  max-height: 280px; overflow: auto;
+  top: calc(100% + 4px); left: 0;
+}
+#as-menu.open { display: block; }
+#as-menu .as-menu-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+#as-menu .as-menu-actions button { flex: 1; font-size: 10px; padding: 2px 6px; }
+#as-menu label.tchk { display: flex; align-items: center; }
+
 /* ---------- legend & minimap ---------- */
 #legend {
   position: absolute; left: 14px; bottom: 38px; z-index: 20;
@@ -650,7 +665,16 @@ _BODY = """\
     <label class="tchk gonly"><input type="checkbox" id="f-lo" checked>loopback</label>
     <label class="tchk gonly"><input type="checkbox" id="f-stub" checked>スタブ</label>
     <label class="tchk gonly"><input type="checkbox" id="f-ext" checked>外部ピア</label>
-    <div id="as-filters" class="gonly"></div>
+    <div class="as-filter-wrap gonly">
+      <button class="tbtn gonly" id="as-menu-btn" title="AS 単位の表示フィルタ">AS ▾</button>
+      <div id="as-menu">
+        <div class="as-menu-actions">
+          <button class="tbtn" id="as-show-all">全表示</button>
+          <button class="tbtn" id="as-hide-all">全非表示</button>
+        </div>
+        <div id="as-menu-list"></div>
+      </div>
+    </div>
     <span class="tsep gonly"></span>
     <button class="tbtn gonly" id="btn-nodes" title="表示するノードを個別に指定">表示ノード</button>
     <button class="tbtn gonly" id="btn-connected" title="選択ノードの接続先のみ表示">接続先のみ</button>
@@ -3350,13 +3374,18 @@ $("#f-lo").onchange = e => { S.filters.lo = e.target.checked; render(); };
 $("#f-stub").onchange = e => { S.filters.stub = e.target.checked; render(); };
 $("#f-ext").onchange = e => { S.filters.ext = e.target.checked; render(); };
 
-/* AS フィルタチェックボックスの動的生成 */
+/* AS フィルタ ドロップダウン（ポップオーバー）初期化 */
 const asList = presentASes(DATA);
-const asFilterContainer = $("#as-filters");
-if (asList.length > 0 && asFilterContainer) {
+const asMenuBtn = $("#as-menu-btn");
+const asMenuPanel = $("#as-menu");
+const asMenuList = $("#as-menu-list");
+if (asList.length > 0 && asMenuBtn && asMenuPanel && asMenuList) {
+  /* device に存在する AS の集合（extPeer 専用 AS との判別用） */
+  const deviceAS = new Set(Object.values(DATA.devices).filter(d => d.as != null).map(d => +d.as));
+  /* チェックボックスを動的生成 */
   asList.forEach(asn => {
     const lbl = document.createElement("label");
-    lbl.className = "tchk gonly";
+    lbl.className = "tchk";
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = true;
@@ -3365,15 +3394,41 @@ if (asList.length > 0 && asFilterContainer) {
     sw.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${asColor(asn)};margin:0 3px 0 2px;vertical-align:middle`;
     lbl.appendChild(cb);
     lbl.appendChild(sw);
-    lbl.appendChild(document.createTextNode("AS "+asn));
+    const label = deviceAS.has(asn) ? "AS "+asn : "AS "+asn+" (外部)";
+    lbl.appendChild(document.createTextNode(label));
     cb.addEventListener("change", e => {
       const a = e.target.dataset.fas;
       if (e.target.checked) S.filters.hiddenAS.delete(a);
       else S.filters.hiddenAS.add(a);
       render();
     });
-    asFilterContainer.appendChild(lbl);
+    asMenuList.appendChild(lbl);
   });
+  /* ボタンクリックでパネル開閉 */
+  asMenuBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    asMenuPanel.classList.toggle("open");
+  });
+  /* 全表示: hiddenAS をクリアして全チェックボックスを checked に */
+  $("#as-show-all").addEventListener("click", () => {
+    S.filters.hiddenAS.clear();
+    asMenuList.querySelectorAll("input[data-fas]").forEach(cb => { cb.checked = true; });
+    render();
+  });
+  /* 全非表示: 全 AS を hiddenAS に追加して全チェックボックスを unchecked に */
+  $("#as-hide-all").addEventListener("click", () => {
+    asList.forEach(asn => S.filters.hiddenAS.add(String(asn)));
+    asMenuList.querySelectorAll("input[data-fas]").forEach(cb => { cb.checked = false; });
+    render();
+  });
+  /* パネル外クリックで閉じる */
+  document.addEventListener("click", e => {
+    if (asMenuPanel.classList.contains("open") && !asMenuPanel.contains(e.target) && e.target !== asMenuBtn) {
+      asMenuPanel.classList.remove("open");
+    }
+  });
+} else if (asMenuBtn) {
+  asMenuBtn.style.display = "none";
 }
 
 $("#btn-connected").onclick = function() { S.connectedOnly = !S.connectedOnly; this.classList.toggle("on", S.connectedOnly); render(); };
@@ -3499,7 +3554,7 @@ window.addEventListener("keydown", ev => {
   }
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName) || ev.target.isContentEditable) return;
   if (ev.key === "f" || ev.key === "F") zoomFit();
-  else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
+  else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); const _am = $("#as-menu"); if (_am) _am.classList.remove("open"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
   else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }
   else if (/^\\d$/.test(ev.key)) {
     const _vi = +ev.key - 1;

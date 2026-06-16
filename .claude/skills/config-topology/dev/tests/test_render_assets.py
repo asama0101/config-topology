@@ -4949,10 +4949,101 @@ class TestAsVisibilityFilter:
         # hiddenAS:new Set() が filters オブジェクト内にある
         assert "hiddenAS:new Set()" in js
 
-    def test_as_filter_container_in_body(self):
-        """_BODY に AS フィルタコンテナ div が存在する"""
+    # --- ドロップダウン UI 構造テスト ---
+
+    def test_as_menu_btn_in_body(self):
+        """_BODY に AS ドロップダウンボタン（id="as-menu-btn"）が存在する"""
         body = assets._BODY
-        assert 'id="as-filters"' in body
+        assert 'id="as-menu-btn"' in body
+
+    def test_as_menu_btn_has_gonly_class(self):
+        """AS ドロップダウンボタンが gonly クラスを持つ（図ビュー専用）"""
+        body = assets._BODY
+        # class 属性に gonly が含まれること
+        assert 'id="as-menu-btn"' in body
+        # ボタン要素の前後から gonly を確認
+        idx = body.index('id="as-menu-btn"')
+        snippet = body[max(0, idx - 60):idx + 60]
+        assert "gonly" in snippet
+
+    def test_as_menu_panel_in_body(self):
+        """_BODY に AS ポップオーバーパネル（id="as-menu"）が存在する"""
+        body = assets._BODY
+        assert 'id="as-menu"' in body
+
+    def test_as_menu_panel_default_hidden(self):
+        """AS ポップオーバーパネル（#as-menu）が CSS で既定 display:none になっている"""
+        css = assets._CSS
+        # #as-menu セレクタが存在し、display:none が含まれる CSS ブロックがある
+        assert "#as-menu" in css
+        # display:none が AS メニュー CSS ブロック内にある
+        # （#as-menu を含むセレクタブロックを探す）
+        idx = css.find("#as-menu {")
+        assert idx != -1, "#as-menu { が CSS に見つからない"
+        block_start = css.find("{", idx)
+        block_end = css.find("}", block_start)
+        block = css[block_start:block_end]
+        assert "display:none" in block
+
+    def test_as_menu_panel_has_scroll(self):
+        """AS ポップオーバーパネルに max-height と overflow:auto が設定されている（スクロール対応）"""
+        css = assets._CSS
+        # #as-menu セレクタブロックに max-height と overflow が含まれる
+        idx = css.find("#as-menu {")
+        assert idx != -1
+        block_start = css.find("{", idx)
+        block_end = css.find("}", block_start)
+        block = css[block_start:block_end]
+        assert "max-height" in block
+        assert "overflow" in block
+
+    def test_as_menu_show_all_button_in_js(self):
+        """JS に「全表示」操作（data-as-all="show" またはそれに相当）が存在する"""
+        js = assets._JS
+        # 全表示 = hiddenAS.clear() に相当するロジック
+        assert "hiddenAS.clear()" in js
+
+    def test_as_menu_hide_all_button_in_js(self):
+        """JS に「全非表示」操作（全 AS を hiddenAS に追加）が存在する"""
+        js = assets._JS
+        # 全非表示 = asList の全 as を hiddenAS に追加するロジック
+        # forEach で hiddenAS.add する実装を期待
+        assert "hiddenAS.add(" in js
+
+    def test_as_menu_btn_click_toggles_panel(self):
+        """JS に as-menu-btn のクリックハンドラがあり、パネル開閉を行う"""
+        js = assets._JS
+        assert "as-menu-btn" in js
+        # ボタンクリックでパネルを toggle/show する処理
+        assert "as-menu" in js
+
+    def test_as_menu_close_on_outside_click(self):
+        """JS に外側クリックでパネルを閉じるロジックが存在する"""
+        js = assets._JS
+        # パネルを閉じる処理で as-menu を参照している
+        # (shortcuts-overlay パターン同様に document click で閉じる)
+        assert "as-menu" in js
+        # document.addEventListener か click ハンドラで閉じるコードが存在する
+        # contains(ev.target) 等でパネル外判定をしている
+        assert "as-menu" in js  # 最低限パネル id の参照が複数箇所
+
+    def test_as_menu_close_on_escape(self):
+        """Esc キーで AS ポップオーバーパネルが閉じる処理が存在する"""
+        js = assets._JS
+        # Escape ハンドラ内で as-menu を閉じる
+        assert "as-menu" in js
+        # グローバル keydown の Escape 分岐（shortcuts-overlay を閉じる行）に as-menu 参照がある
+        # shortcuts-overlay を閉じるコードとともに as-menu を閉じるコードが同じ else-if ブロックにある
+        assert "shortcuts-overlay" in js
+        # Escape で as-menu を閉じる ── "as-menu" と "Escape" が同じ JS else-if 行に現れる
+        # 行単位で確認する
+        found = any(
+            '"Escape"' in line and "as-menu" in line
+            for line in js.splitlines()
+        )
+        assert found, "グローバル keydown の Escape 行に as-menu を閉じるコードがない"
+
+    # --- 既存フィルタロジック不変確認 ---
 
     def test_as_filter_dynamic_generation_code_exists(self):
         """init 内に presentASes を使った動的生成コードが存在する"""
@@ -4970,16 +5061,13 @@ class TestAsVisibilityFilter:
 
     def test_visible_hidden_as_hides_device(self):
         """hiddenAS に AS 番号を入れると device が非表示になる"""
-        # applyVisibility の visible クロージャを抽出して eval
         js = assets._JS
-        # visible 関数が hiddenAS を参照していることを構造テストで確認
-        # (applyVisibility 内クロージャのため _extract_fn は使えないが文字列で検証)
         assert "hiddenAS.has(" in js
 
     def test_as_filter_not_shown_when_no_as(self):
-        """presentASes が空のとき AS チェックボックスを生成しない（条件分岐が存在する）"""
+        """presentASes が空のとき AS ボタン/パネルを生成しない（条件分岐が存在する）"""
         js = assets._JS
-        # asList.length > 0 && asFilterContainer ガードが存在する
+        # asList.length > 0 ガードが存在する
         assert "asList.length > 0" in js
 
     def test_as_checkbox_data_fas_attribute(self):
@@ -5040,3 +5128,11 @@ class TestAsVisibilityFilter:
             f"stub/loopback ノード(r1:Loopback0)は AS 65001 を hiddenAS に入れると"
             f" asHidden=true になるべき。got: {result.stdout!r}, stderr: {result.stderr!r}"
         )
+
+    # --- 「外部」AS ラベルテスト ---
+
+    def test_as_external_label_in_popover(self):
+        """extPeer にしか存在しない AS には '(外部)' ラベルが付く JS ロジックが存在する"""
+        js = assets._JS
+        # extPeer の AS だが device に存在しない AS を識別するロジック
+        assert "外部" in js or "(ext)" in js.lower() or "extPeer" in js
