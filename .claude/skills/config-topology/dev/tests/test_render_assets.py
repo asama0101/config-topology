@@ -5020,12 +5020,10 @@ class TestAsVisibilityFilter:
     def test_as_menu_close_on_outside_click(self):
         """JS に外側クリックでパネルを閉じるロジックが存在する"""
         js = assets._JS
-        # パネルを閉じる処理で as-menu を参照している
-        # (shortcuts-overlay パターン同様に document click で閉じる)
-        assert "as-menu" in js
-        # document.addEventListener か click ハンドラで閉じるコードが存在する
-        # contains(ev.target) 等でパネル外判定をしている
-        assert "as-menu" in js  # 最低限パネル id の参照が複数箇所
+        # contains() でパネル外判定をしている
+        assert "contains(" in js, "contains() によるパネル外判定がない"
+        # パネルを閉じる処理: classList.remove("open") が存在する
+        assert 'classList.remove("open")' in js, 'classList.remove("open") がない'
 
     def test_as_menu_close_on_escape(self):
         """Esc キーで AS ポップオーバーパネルが閉じる処理が存在する"""
@@ -5134,5 +5132,8 @@ class TestAsVisibilityFilter:
     def test_as_external_label_in_popover(self):
         """extPeer にしか存在しない AS には '(外部)' ラベルが付く JS ロジックが存在する"""
         js = assets._JS
-        # extPeer の AS だが device に存在しない AS を識別するロジック
-        assert "外部" in js or "(ext)" in js.lower() or "extPeer" in js
+        # deviceAS: device が持つ AS 集合を構築し、それに無い AS にだけ「(外部)」ラベルを付ける
+        assert "deviceAS" in js, "deviceAS 集合の構築コードがない（device 登録 AS との判別に必要）"
+        assert "外部" in js, "「外部」ラベル付与コードがない"
+        # deviceAS.has(asn) で device に存在する AS かどうかを判定していること
+        assert "deviceAS.has(" in js, "deviceAS.has(asn) による判定がない"

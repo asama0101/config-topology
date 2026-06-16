@@ -3327,6 +3327,8 @@ function setView(v) {
   if (v === "ospf") for (const st of (DATA.stub_nodes || [])) if (!st.area) S.sel.delete(lpId(st));
   /* 表ビューは何も描画しないビューなので選択は据え置く（BGP→表→BGP の往復で消えないように） */
   if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
+  /* ビュー切替でASパネルが開いたまま残らないよう閉じる */
+  const _am = $("#as-menu"); if (_am) _am.classList.remove("open");
   update();   /* 配置(POS)は共通 → タブ切替で座標は変わらない */
 }
 
@@ -3552,6 +3554,8 @@ window.addEventListener("keydown", ev => {
     const si = $("#search"); si.focus(); si.select();
     return;
   }
+  /* Escape のみ: INPUT等にフォーカス中でも AS パネルが開いていれば閉じる（他キーの INPUT ガードは下の行で維持） */
+  if (ev.key === "Escape") { const _am2 = $("#as-menu"); if (_am2 && _am2.classList.contains("open")) { _am2.classList.remove("open"); return; } }
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName) || ev.target.isContentEditable) return;
   if (ev.key === "f" || ev.key === "F") zoomFit();
   else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); const _am = $("#as-menu"); if (_am) _am.classList.remove("open"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
