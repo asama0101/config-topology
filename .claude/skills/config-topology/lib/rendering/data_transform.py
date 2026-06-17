@@ -284,6 +284,12 @@ def build_bgp_topology(topo):
     edge dedup: 同一分類キーのエッジは初出のセッションで生成し、後続セッションは既存 id を参照。
     extPeers はソート済み（neighbor_ip の辞書順）。
     edge_order は routing.bgp のイテレーション順で決定的（入力が決定的なら出力も決定的）。
+
+    RR/RRC フィールド（加算的拡張）:
+    - routing.bgp entry の route_reflector_client=True ⟹ entry.device が RR、neighbor が RRC。
+    - RR セッションの bgpEdge にのみ rr=True / rrFrom=<device_id> を付与。
+      rrFrom = そのエッジに寄与する rr=True entry の device id を sorted した最初（決定的）。
+    - 非 RR セッションの edge には rr/rrFrom キーを付けない（既存出力不変）。
     """
     ip2dev = _ip_to_device(topo)
     edges: dict = {}
@@ -291,6 +297,8 @@ def build_bgp_topology(topo):
     ext_peers: dict = {}
     bgp_rows: list = []
     edge_afs: dict = {}
+    # RR 情報収集: eid -> set of device ids that have route_reflector_client=True
+    edge_rr_devs: dict = {}
 
     for e in topo["routing"].get("bgp", []):
         dev = e["device"]
@@ -310,6 +318,8 @@ def build_bgp_topology(topo):
                 }
                 edge_order.append(eid)
             edge_afs.setdefault(eid, set()).add(e.get("af", "v4"))
+            if e.get("route_reflector_client"):
+                edge_rr_devs.setdefault(eid, set()).add(dev)
             ext_peers.setdefault(
                 nb,
                 {"id": "ext:" + nb, "label": "AS %s" % e["peer_as"],
@@ -329,6 +339,8 @@ def build_bgp_topology(topo):
                 }
                 edge_order.append(eid)
             edge_afs.setdefault(eid, set()).add(e.get("af", "v4"))
+            if e.get("route_reflector_client"):
+                edge_rr_devs.setdefault(eid, set()).add(dev)
         else:
             # loopback: 両端デバイスは既知だが共有 subnet なし（iBGP over loopback 典型）
             pair = tuple(sorted([dev, peer_dev]))
@@ -344,12 +356,22 @@ def build_bgp_topology(topo):
                 }
                 edge_order.append(eid)
             edge_afs.setdefault(eid, set()).add(e.get("af", "v4"))
+            if e.get("route_reflector_client"):
+                edge_rr_devs.setdefault(eid, set()).add(dev)
 
         bgp_rows.append({"device": dev, "nb": nb, "link": eid})
 
     # afs を決定的なソート済みリストとして各エッジに付与（set を直列化しない）
     for eid in edge_order:
         edges[eid]["afs"] = sorted(edge_afs[eid])
+
+    # RR セッションのみ rr/rrFrom を付与（非 RR edge には付けない = 加算的拡張）。
+    # rrFrom 決定性ルール: 同一 edge に複数の route_reflector_client=True entry が寄与した場合、
+    # sorted(rr_devices)[0]（device id 昇順の最初）を rrFrom とする。
+    for eid, rr_devs in edge_rr_devs.items():
+        if eid in edges:
+            edges[eid]["rr"] = True
+            edges[eid]["rrFrom"] = sorted(rr_devs)[0]
 
     ext_list = [ext_peers[k] for k in sorted(ext_peers)]
     return {

@@ -38,6 +38,7 @@ _CSS = """\
   --stub-edge: #6fae8f; --stub-fill: #16241d;   /* stub ノード（緑系） */
   --shadow: 0 10px 30px rgba(0,0,0,.45);
   --grid-size: 26px;
+  --rr: #e0a44a;            /* Route Reflector amber ring */
 }
 html[data-theme="light"] {
   --bg: #eef0e9;
@@ -60,6 +61,7 @@ html[data-theme="light"] {
   --lp-edge: #8a5cd0; --lp-fill: #efe9f6;       /* loopback ノード（紫系） */
   --stub-edge: #3f8f6a; --stub-fill: #e8f2ec;   /* stub ノード（緑系） */
   --shadow: 0 8px 24px rgba(40,50,70,.18);
+  --rr: #b5781f;            /* Route Reflector amber ring (light) */
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
@@ -182,6 +184,9 @@ main { flex: 1; display: flex; min-height: 0; position: relative; }
 .bgp-edge.sel-edge { stroke: var(--accent); stroke-width: 3.5; }
 .bgp-edge.sel-between { stroke: var(--accent); stroke-width: 5; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent)); }
 .bgp-edge.bgp-hot { stroke: var(--search); stroke-width: 4.5; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 70%, transparent)); }
+/* RR-client セッション: 実線・iBGP 青系・やや太め＋矢じり（RR→client 方向）で iBGP peer (破線) と区別。
+   色は edge のインライン stroke 属性（BGP_COLOR.ibgp）を活かすため stroke は上書きしない。 */
+.bgp-edge.rr { stroke-dasharray: 1 0; stroke-width: 3; stroke-linecap: round; }
 
 g.node { cursor: pointer; }
 g.node rect.body {
@@ -195,6 +200,21 @@ g.node.selected rect.body { stroke: var(--accent); stroke-width: 2.4; filter: dr
 g.node.search-hit rect.body { stroke: var(--search); stroke-width: 2.2; }
 /* hover はノード選択と同じハイライト（選択マーカーの ● だけ出さない） */
 g.node.hovered rect.body { stroke: var(--accent); stroke-width: 2.4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+/* BGP ビュー: Route Reflector / RR Client のノード装飾。
+   .rrnode = 金/琥珀の太枠リング（RR）、.rrcnode = 中空（破線）リング（client）。
+   選択/hover/search-hit（var(--accent)）はこれらより後の詳細度同等規則で上書きされる順序に注意するため、
+   ここでは rect.body 直後に置き、selected/hovered/search-hit 規則（上で既出）に負けないよう同詳細度・後勝ちにする。 */
+g.node.rrnode rect.body { stroke: var(--rr, #e0a44a); stroke-width: 2.6; }
+g.node.rrcnode rect.body { stroke: var(--rr, #e0a44a); stroke-width: 1.8; stroke-dasharray: 5 3; }
+/* RR/RRC バッジ（ノード右上の小ラベル） */
+g.node .rrbadge { fill: var(--rr, #e0a44a); }
+g.node .rrbadge-t { fill: var(--bg); font-size: 8px; font-weight: bold; letter-spacing: .04em; }
+/* 選択/hover/search-hit は RR リングより前面の強調として優先（再掲・後勝ちで accent/search を確実に出す）。
+   .rrcnode は通常時 stroke-dasharray:5 3（破線）だが、選択/hover/search-hit 時は他ノードと同様に
+   実線アクセントへ統一するため stroke-dasharray:none を明示（破線が残って非一貫になるのを防ぐ）。 */
+g.node.rrnode.selected rect.body, g.node.rrcnode.selected rect.body,
+g.node.rrnode.hovered rect.body, g.node.rrcnode.hovered rect.body { stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: none; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+g.node.rrnode.search-hit rect.body, g.node.rrcnode.search-hit rect.body { stroke: var(--search); stroke-width: 2.2; stroke-dasharray: none; }
 
 g.segnode { cursor: pointer; }
 g.segnode ellipse { fill: var(--seg-fill); stroke: var(--node-edge); stroke-width: 1.2; stroke-dasharray: 3 3; }
@@ -379,6 +399,11 @@ tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, va
 #legend .sw.seg { height: 10px; border: 1.2px dashed var(--node-edge); border-radius: 50%; background: var(--seg-fill); }
 #legend .sw.lp { height: 10px; border: 1.2px dashed var(--lp-edge); border-radius: 50%; background: var(--lp-fill); }
 #legend .sw.stub2 { height: 10px; border: 1.2px dashed var(--stub-edge); border-radius: 50%; background: var(--stub-fill); }
+/* BGP RR/RRC 凡例スウォッチ: ノード装飾（金枠リング・中空破線リング）と矢印 */
+#legend .sw.rr { height: 10px; border: 2px solid var(--rr); border-radius: 2px; background: var(--node-fill); }
+#legend .sw.rrc { height: 10px; border: 1.6px dashed var(--rr); border-radius: 2px; background: var(--node-fill); }
+#legend .sw.rrarrow { border-top: 2px solid var(--rr); position: relative; }
+#legend .sw.rrarrow::after { content: "\25B8"; position: absolute; right: -4px; top: -8px; color: var(--rr); font-size: 11px; }
 #minimap {
   position: absolute; right: 14px; bottom: 38px; z-index: 20;
   width: 180px; height: 120px;
@@ -710,6 +735,9 @@ _BODY = """\
         <marker id="se-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--se-arrow,#e0a44a)"/>
         </marker>
+        <marker id="rr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--rr,#e0a44a)"/>
+        </marker>
       </defs>
       <rect class="bgrect" id="bgrect" x="0" y="0" width="100%" height="100%"/>
       <g id="world"></g>
@@ -778,6 +806,14 @@ function nodeScale(degree) {
    左16+右パディング ≈22px、14px bold で約8px/文字の概算。w 増で単調非減少、最小1。 */
 function nodeLabelMaxChars(w) {
   return Math.max(1, Math.floor((w - 22) / 8));
+}
+/* バッジ（RR/RRC）表示時の hn 行（上段）の最大文字数。ノード右上角のバッジと衝突させないため
+   バッジ占有幅 (badge.length*6+10)（device ノードの rrbadge rect と一致）＋ギャップ 6px を差し引く。
+   badge が falsy なら maxc をそのまま返す（従来の見た目を維持）。決定的・DOM 非依存の純関数。
+   sub 行（下段）はバッジの縦帯より下なので呼び出し側で maxc のまま使う。 */
+function badgeHnMaxc(w, maxc, badge) {
+  if (!badge) return maxc;
+  return Math.max(1, Math.floor((w - 22 - (badge.length * 6 + 10) - 6) / 8));
 }
 /* ラベル省略: text が maxChars 以下ならそのまま返す。超過なら (maxChars-1)文字+"…" を返す。
    maxChars=1 のとき "…"、maxChars<=0 のとき ""（空文字。ただし nodeLabelMaxChars が常に1以上を返すため実用上未到達）。
@@ -1451,7 +1487,17 @@ function render() {
       /* セッション選択時だけでなく、下敷きリンクのライン選択（hotNet・v4/v6 とも）でも曲線を太らせる */
       const overNet = e.kind === "over-link" ? (DATA.links.find(x=>x.id===e.link) || {}).subnet : null;
       if (hotBgp === e.id || (overNet && netHot(overNet))) ecls.push("bgp-hot");
-      parts.push(`<path class="${ecls.join(" ")}" data-elem="bgpedge" data-id="${e.id}" stroke="${c}" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" style="cursor:pointer"/>`);
+      /* RR-client セッション: 実線 class "rr" を付与し、パスを RR(rrFrom)→client(対向) 向きで描いて
+         矢じり #rr-arrow が client を指すようにする（type 色 c は維持）。
+         eA/eB は描画上の端点 device。rrFrom が eB 側なら始終点を入れ替える。 */
+      let pa = a, pb = b;
+      if (e.rr && e.rrFrom) {
+        ecls.push("rr");
+        if (e.rrFrom === eB) { pa = b; pb = a; }
+      }
+      const marker = (e.rr && e.rrFrom) ? ' marker-end="url(#rr-arrow)"' : "";
+      const pmx = (pa.x+pb.x)/2, pmy = (pa.y+pb.y)/2 - (e.kind==="loopback" ? 70 : 0);
+      parts.push(`<path class="${ecls.join(" ")}" data-elem="bgpedge" data-id="${e.id}"${marker} stroke="${c}" d="M ${pa.x} ${pa.y} Q ${pmx} ${pmy} ${pb.x} ${pb.y}" style="cursor:pointer"/>`);
       if (e.kind === "loopback")
         labelParts.push(`<text class="subnet-tag" data-deco="bgpedge:${e.id}" x="${mx}" y="${my+12}" text-anchor="middle">${esc(e.label)}</text>`);
       /* BGP ビュー: 端点ノードの選択時またはセッション連動時のみアドレス・ソース IF を表示 */
@@ -1517,6 +1563,14 @@ function render() {
     else if (hoverNode === id) cls.push("hovered");
     if (S.matches.includes(id)) cls.push("search-hit");
     if (traceDevs.has(id)) cls.push("trace-hop");   /* STATIC トレース経路上の機器 */
+    /* BGP ビュー: Route Reflector / RR Client の役割でリング＋バッジを付与（他ビュー不変）。
+       階層 RR で両属する場合は RR を優先表示（バッジは "RR"）。 */
+    let rrBadge = null;
+    if (S.view === "bgp") {
+      const roles = bgpRoles();
+      if (roles.rr.has(id)) { cls.push("rrnode"); rrBadge = "RR"; }
+      else if (roles.rrc.has(id)) { cls.push("rrcnode"); rrBadge = "RRC"; }
+    }
     const vbarColor = S.view === "bgp" ? asColor(d.as) : (d.vendor === "cisco_ios" ? "#5b8def" : "#43b97f");
     const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
       : S.view === "bgp" ? (d.bgp_rid ? `rid ${d.bgp_rid}` : "bgp rid なし") : d.vendor;
@@ -1526,8 +1580,10 @@ function render() {
       <title>${esc(d.hostname)}</title>
       <rect class="body" x="${p.x-w/2}" y="${p.y-h/2}" width="${w}" height="${h}" rx="9"/>
       <rect class="vbar" x="${p.x-w/2}" y="${p.y-h/2}" width="5" height="${h}" rx="2.5" fill="${vbarColor}"/>
-      <text class="hn" x="${p.x-w/2+16}" y="${p.y-3}">${esc(truncateLabel(d.hostname, maxc))}</text>
-      <text class="sub" x="${p.x-w/2+16}" y="${p.y+15}">${esc(truncateLabel(sub, maxc))}</text>
+      <text class="hn" x="${p.x-w/2+16}" y="${p.y-3}">${esc(truncateLabel(d.hostname, badgeHnMaxc(w, maxc, rrBadge)))}</text>
+      <text class="sub" x="${p.x-w/2+16}" y="${p.y+15}">${esc(truncateLabel(sub, maxc))}</text>${rrBadge ? `
+      <rect class="rrbadge" x="${p.x+w/2-(rrBadge.length*6+10)}" y="${p.y-h/2+4}" width="${rrBadge.length*6+6}" height="13" rx="3"/>
+      <text class="rrbadge-t" x="${p.x+w/2-(rrBadge.length*6+10)/2-2}" y="${p.y-h/2+13.5}" text-anchor="middle">${rrBadge}</text>` : ""}
     </g>`);
   }
 
@@ -1656,6 +1712,9 @@ function applyVisibility() {
                    : (l => l ? [l.a,l.b] : [])(DATA.links.find(x=>x.id===e.link));
         return ends.length > 0 && ends.every(asHit);
       }
+      /* rrarrow / rr / rrc 凡例: RR セッション（rr=true）のエッジを強調。
+         rr/rrc はノード強調が主目的だが、対応する RR エッジも一緒に光らせる。 */
+      if (lg === "rr" || lg === "rrc" || lg === "rrarrow") return !!e && !!e.rr;
       return !!e && e.type === lg;
     };
     if (lg === "admin-down") {
@@ -1671,6 +1730,11 @@ function applyVisibility() {
       /* AS 別一括強調: 該当 AS の device / extPeer を lgNodes に追加 (B4) */
       for (const [id,d] of Object.entries(DATA.devices)) if (String(d.as) === asN) lgNodes.add(id);
       for (const e of DATA.extPeers) if (String(e.as) === asN) lgNodes.add(e.id);
+    } else if (lg === "rr" || lg === "rrc" || lg === "rrarrow") {
+      /* RR 構成の凡例強調: rr→RR ノード、rrc→client ノード、rrarrow→両方を強調 */
+      const roles = bgpRoles();
+      if (lg !== "rrc") for (const n of roles.rr) lgNodes.add(n);
+      if (lg !== "rr") for (const n of roles.rrc) lgNodes.add(n);
     } else {
       for (const e of DATA.bgpEdges) if (e.type === lg) for (const n of bgpNodes(e.id)) lgNodes.add(n);
     }
@@ -3007,6 +3071,13 @@ function renderLegend() {
     rows += clk("ebgp",`<span class="sw" style="border-color:${BGP_COLOR.ebgp}"></span>`,"eBGP")
       + clk("ibgp",`<span class="sw dash" style="border-color:${BGP_COLOR.ibgp}"></span>`,"iBGP (loopback)")
       + `<div class="li"><span class="sw box" style="border-style:dashed"></span>外部AS (config未提供)</div>`;
+    /* RR 構成が存在する場合のみ Route Reflector 凡例を追加（データ駆動） */
+    const _roles = bgpRoles();
+    if (_roles.rr.size) {
+      rows += clk("rr",'<span class="sw rr"></span>',"Route Reflector")
+        + clk("rrc",'<span class="sw rrc"></span>',"RR Client")
+        + clk("rrarrow",'<span class="sw rrarrow"></span>',"reflects-to");
+    }
     /* AS 別一括強調: 実在 AS をデータ駆動で列挙（B4） */
     for (const a of presentASes(DATA))
       rows += clk(`as:${a}`,`<span class="sw" style="border-color:${asColor(a)}"></span>`,`AS ${a}`);
@@ -3219,6 +3290,30 @@ function netNodes(net) {
   return ids;
 }
 /* BGP セッションの端点ノード集合 */
+/* BGP RR/RRC 役割判定（メモ化・決定的）。
+   DATA.bgpEdges を 1 度だけ走査し、rr=true エッジから
+   rrFrom（RR 側 device）→ rr 集合、対向端（a/b のうち rrFrom でない方・external は ext）→ rrc 集合 を返す。
+   階層 RR では同一 device が rr と rrc の両方に属しうる（両属を許容）。 */
+let _bgpRolesCache = null;
+function bgpRoles() {
+  if (_bgpRolesCache) return _bgpRolesCache;
+  const rr = new Set(), rrc = new Set();
+  for (const e of DATA.bgpEdges) {
+    if (!e.rr || !e.rrFrom) continue;
+    rr.add(e.rrFrom);
+    /* エッジの両端（external は ext 端、over-link は下敷きリンクから a/b）を求め、
+       rrFrom でない側を client とする。over-link は a/b を持たず link 経由で解決する
+       （bgpNodes/BGP edge 描画と同一の引き方）。 */
+    let ends;
+    if (e.kind === "external") ends = [e.a, e.ext];
+    else if (e.kind === "over-link") { const l = DATA.links.find(x=>x.id===e.link); ends = l ? [l.a, l.b] : []; }
+    else ends = [e.a, e.b];
+    for (const n of ends) if (n && n !== e.rrFrom) rrc.add(n);
+  }
+  _bgpRolesCache = { rr, rrc };
+  return _bgpRolesCache;
+}
+
 function bgpNodes(id) {
   const ids = new Set();
   const e = DATA.bgpEdges.find(x=>x.id===id);

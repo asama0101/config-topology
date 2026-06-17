@@ -4473,3 +4473,358 @@ def test_build_checks_duplicate_ip_vrf_v6_different_vrf_not_flagged():
     # Assert: 異なる VRF なので v6 重複も発火しない
     dup = [c for c in result if c["kind"] == "duplicate_ip"]
     assert dup == [], f"v6 異 VRF が誤検知された: {dup}"
+
+
+# ===========================================================================
+# BGP RR/RRC 可視化 — build_bgp_topology の rr/rrFrom フィールドテスト
+# ===========================================================================
+
+def _make_bgp_topo_base(extra_ifs=None, extra_links=None, bgp_entries=None):
+    """build_bgp_topology テスト用の最小 topology dict を生成するヘルパー。
+
+    デフォルト構成:
+      r1: Gi0=10.0.0.1/30, Lo0=1.1.1.1/32
+      r2: Gi0=10.0.0.2/30, Lo0=2.2.2.2/32
+      link: r1::Gi0 <-> r2::Gi0 (10.0.0.0/30)
+    """
+    ifs = [
+        {"id": "r1::Gi0", "device": "r1", "name": "Gi0",
+         "ip": "10.0.0.1/30", "vlan": None, "description": None,
+         "shutdown": False, "admin_status": "up", "oper_status": None,
+         "mtu": None, "speed": None, "duplex": None, "l2_l3": None,
+         "switchport": None, "encapsulation": None, "source": "parsed",
+         "addresses": [{"af": "v4", "ip": "10.0.0.1", "prefix": 30}]},
+        {"id": "r1::Lo0", "device": "r1", "name": "Loopback0",
+         "ip": "1.1.1.1/32", "vlan": None, "description": None,
+         "shutdown": False, "admin_status": "up", "oper_status": None,
+         "mtu": None, "speed": None, "duplex": None, "l2_l3": None,
+         "switchport": None, "encapsulation": None, "source": "parsed",
+         "addresses": [{"af": "v4", "ip": "1.1.1.1", "prefix": 32}]},
+        {"id": "r2::Gi0", "device": "r2", "name": "Gi0",
+         "ip": "10.0.0.2/30", "vlan": None, "description": None,
+         "shutdown": False, "admin_status": "up", "oper_status": None,
+         "mtu": None, "speed": None, "duplex": None, "l2_l3": None,
+         "switchport": None, "encapsulation": None, "source": "parsed",
+         "addresses": [{"af": "v4", "ip": "10.0.0.2", "prefix": 30}]},
+        {"id": "r2::Lo0", "device": "r2", "name": "Loopback0",
+         "ip": "2.2.2.2/32", "vlan": None, "description": None,
+         "shutdown": False, "admin_status": "up", "oper_status": None,
+         "mtu": None, "speed": None, "duplex": None, "l2_l3": None,
+         "switchport": None, "encapsulation": None, "source": "parsed",
+         "addresses": [{"af": "v4", "ip": "2.2.2.2", "prefix": 32}]},
+    ]
+    if extra_ifs:
+        ifs.extend(extra_ifs)
+
+    links = [
+        {"a_device": "r1", "a_if": "Gi0", "b_device": "r2", "b_if": "Gi0",
+         "subnet": "10.0.0.0/30", "kind": "inferred-subnet"},
+    ]
+    if extra_links:
+        links.extend(extra_links)
+
+    return {
+        "meta": {"generated_from": []},
+        "devices": [
+            {"id": "r1", "hostname": "R1", "vendor": "cisco_ios", "as": 65001,
+             "ospf_router_id": None, "bgp_router_id": None, "sections": []},
+            {"id": "r2", "hostname": "R2", "vendor": "cisco_ios", "as": 65001,
+             "ospf_router_id": None, "bgp_router_id": None, "sections": []},
+        ],
+        "interfaces": ifs,
+        "links": links,
+        "segments": [],
+        "routing": {
+            "bgp": bgp_entries or [],
+            "ospf": [],
+            "static": [],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# RR over-link: IOS RR セッション → rr=True, rrFrom 付与
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_rr_over_link_ios_rr():
+    """IOS: R1 が neighbor R2(client=True) を over-link セッションで持つ場合、
+    bgpEdge に rr=True / rrFrom='r1' が付くこと。"""
+    # Arrange
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert
+    edges = result["bgpEdges"]
+    assert len(edges) == 1
+    edge = edges[0]
+    assert edge["kind"] == "over-link"
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+@pytest.mark.unit
+def test_bgp_edge_rr_over_link_bidirectional_entry():
+    """R1->R2 と R2->R1 両方のエントリが存在し、R1 側が rr=True の場合でも
+    同一 edge に rr=True / rrFrom='r1' が付くこと（dedup で1本）。"""
+    # Arrange: 双方向エントリ。R1 が RR（client フラグ持ち）、R2 は普通エントリ。
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+        {"device": "r2", "local_as": 65001, "local_ip": "10.0.0.2",
+         "neighbor_ip": "10.0.0.1", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert: dedup で1本
+    edges = result["bgpEdges"]
+    assert len(edges) == 1
+    edge = edges[0]
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+# ---------------------------------------------------------------------------
+# RR loopback（iBGP over loopback / update-source）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_rr_loopback_ibgp():
+    """iBGP over loopback で R1 が RR（route_reflector_client=True）の場合、
+    loopback kind の bgpEdge に rr=True / rrFrom='r1' が付くこと。"""
+    # Arrange: loopback 同士のセッション（共有サブネットなし -> loopback kind）
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "1.1.1.1",
+         "neighbor_ip": "2.2.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert
+    edges = result["bgpEdges"]
+    lb_edges = [e for e in edges if e["kind"] == "loopback"]
+    assert len(lb_edges) == 1
+    edge = lb_edges[0]
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+# ---------------------------------------------------------------------------
+# RR external: neighbor が未知デバイスでも既知側が RR フラグ持ちなら rr/rrFrom 付与
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_rr_external_known_side_is_rr():
+    """external kind で neighbor が未知デバイスでも、既知側(r1)が route_reflector_client=True なら
+    bgpEdge に rr=True / rrFrom='r1' が付くこと。"""
+    # Arrange: 192.0.2.1 はトポロジーに存在しない external peer
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "192.0.2.1", "peer_as": 65002, "type": "ebgp", "af": "v4",
+         "route_reflector_client": True},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert
+    edges = result["bgpEdges"]
+    ext_edges = [e for e in edges if e["kind"] == "external"]
+    assert len(ext_edges) == 1
+    edge = ext_edges[0]
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+# ---------------------------------------------------------------------------
+# 非 RR セッション -> rr/rrFrom キーが出ないこと（回帰・加算的拡張の保証）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_no_rr_fields_for_normal_ibgp():
+    """非 RR の iBGP over-link セッションの bgpEdge に rr / rrFrom キーが出ないこと。"""
+    # Arrange: route_reflector_client なし
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert: rr / rrFrom キーが存在しない
+    edges = result["bgpEdges"]
+    assert len(edges) == 1
+    edge = edges[0]
+    assert "rr" not in edge, f"非 RR edge に 'rr' キーが出た: {edge}"
+    assert "rrFrom" not in edge, f"非 RR edge に 'rrFrom' キーが出た: {edge}"
+
+
+@pytest.mark.unit
+def test_bgp_edge_no_rr_fields_for_ebgp():
+    """非 RR の eBGP over-link セッションの bgpEdge に rr / rrFrom キーが出ないこと。"""
+    # Arrange: eBGP (異 AS)
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert
+    edges = result["bgpEdges"]
+    assert len(edges) == 1
+    edge = edges[0]
+    assert "rr" not in edge
+    assert "rrFrom" not in edge
+
+
+@pytest.mark.unit
+def test_bgp_edge_no_rr_fields_for_external_non_rr():
+    """非 RR の external セッションの bgpEdge に rr / rrFrom キーが出ないこと。"""
+    # Arrange: external、RR フラグなし
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "192.0.2.1", "peer_as": 65002, "type": "ebgp", "af": "v4"},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert
+    edges = result["bgpEdges"]
+    assert len(edges) == 1
+    edge = edges[0]
+    assert "rr" not in edge
+    assert "rrFrom" not in edge
+
+
+# ---------------------------------------------------------------------------
+# 既存 bgpEdge 構造の不変性確認（回帰）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_existing_fields_unchanged_for_non_rr():
+    """非 RR セッションの bgpEdge が既存の全フィールドを保持すること（回帰）。"""
+    # Arrange
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4"},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert: 既存フィールドがすべて存在する
+    edge = result["bgpEdges"][0]
+    for key in ("id", "kind", "link", "type", "peerAs", "afs"):
+        assert key in edge, f"既存フィールド '{key}' が edge から消えた: {edge}"
+
+
+# ---------------------------------------------------------------------------
+# JunOS cluster 由来と同等の routing.bgp dict を使ったテスト
+# （構造は IOS と同じ routing.bgp entry なので同様に検証）
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_rr_junos_cluster_equivalent():
+    """JunOS cluster-id 設定由来の routing.bgp entry（route_reflector_client=True）でも
+    RR edge に rr=True / rrFrom が付くこと。"""
+    # Arrange: JunOS cluster 設定は parse 後 route_reflector_client=True として正規化される前提
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert
+    edge = result["bgpEdges"][0]
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+# ---------------------------------------------------------------------------
+# RR 端決定性: 複数 entry が同一 edge に寄与し RR フラグ保持者が複数の稀ケース
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_bgp_edge_rr_rrfrom_deterministic_multiple_rr_entries():
+    """同一 edge に両端とも route_reflector_client=True（稀ケース）の場合、
+    rrFrom が決定的（device id の sorted-first）になること。"""
+    # Arrange: r1 と r2 が互いを client と宣言（実運用では起こりにくいが決定性のテスト）
+    # over-link の場合、両端 rr=True なら sorted([r1, r2])[0] = 'r1' が選ばれる。
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r1", "local_as": 65001, "local_ip": "10.0.0.1",
+         "neighbor_ip": "10.0.0.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+        {"device": "r2", "local_as": 65001, "local_ip": "10.0.0.2",
+         "neighbor_ip": "10.0.0.1", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+    ])
+
+    # Act
+    result_a = build_bgp_topology(topo)
+    result_b = build_bgp_topology(topo)
+
+    # Assert: 決定性（同一入力 -> 同一出力）
+    import json as _json
+    assert _json.dumps(result_a, sort_keys=True) == _json.dumps(result_b, sort_keys=True)
+    # rrFrom は sorted first = 'r1'
+    edge = result_a["bgpEdges"][0]
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+@pytest.mark.unit
+def test_bgp_edge_rr_rrfrom_deterministic_loopback_both_rr():
+    """loopback kind で両端 rr=True の場合も rrFrom が決定的（sorted-first）になること。"""
+    # Arrange: r2 が先に entry を持つが、loopback pair は sorted([r1,r2]) -> r1 が a 側
+    topo = _make_bgp_topo_base(bgp_entries=[
+        {"device": "r2", "local_as": 65001, "local_ip": "2.2.2.2",
+         "neighbor_ip": "1.1.1.1", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+        {"device": "r1", "local_as": 65001, "local_ip": "1.1.1.1",
+         "neighbor_ip": "2.2.2.2", "peer_as": 65001, "type": "ibgp", "af": "v4",
+         "route_reflector_client": True},
+    ])
+
+    # Act
+    result = build_bgp_topology(topo)
+
+    # Assert: loopback pair=(r1,r2) -> sorted-first='r1'
+    lb_edges = [e for e in result["bgpEdges"] if e["kind"] == "loopback"]
+    assert len(lb_edges) == 1
+    edge = lb_edges[0]
+    assert edge.get("rr") is True
+    assert edge.get("rrFrom") == "r1"
+
+
+# ---------------------------------------------------------------------------
+# ゴールデン topo 回帰: rr/rrFrom が付かず既存 bgpEdges が不変
+# ---------------------------------------------------------------------------
+
+@pytest.mark.integration
+def test_build_bgp_topology_golden_no_rr_fields():
+    """ゴールデン topo (r1+r2) の bgpEdges には rr/rrFrom が付かず、
+    既存の edge 構造が完全に不変であること（回帰）。"""
+    import json as _json
+    topo = load_topology(str(GOLDEN))
+    result = build_bgp_topology(topo)
+    for edge in result["bgpEdges"]:
+        assert "rr" not in edge, f"golden edge に 'rr' が出た: {edge}"
+        assert "rrFrom" not in edge, f"golden edge に 'rrFrom' が出た: {edge}"
