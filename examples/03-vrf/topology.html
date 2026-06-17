@@ -1,0 +1,3663 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Network Topology</title><style>
+/* ============================================================
+   config-topology v2.0 design sample
+   aesthetic: NOC instrument console (dark) / blueprint (light)
+   ============================================================ */
+:root, html[data-theme="dark"] {
+  --bg: #10141a;
+  --bg-dot: #1c232d;
+  --panel: #171d26;
+  --panel-edge: #232c38;
+  --panel-glow: rgba(255,180,84,.04);
+  --ink: #cfd8e3;
+  --ink-dim: #7e8a99;
+  --ink-faint: #4d5866;
+  --accent: #ffb454;          /* selection amber */
+  --search: #4fd6be;          /* search teal */
+  --danger: #ff6b6b;
+  --node-fill: #1d2630;
+  --node-edge: #3d4d61;
+  --node-ink: #e8eef5;
+  --link: #54657a;
+  --link-dim: #2c3743;
+  --seg-fill: #1a2230;
+  --lp-edge: #b07fd6; --lp-fill: #241a30;       /* loopback ノード（紫系） */
+  --stub-edge: #6fae8f; --stub-fill: #16241d;   /* stub ノード（緑系） */
+  --shadow: 0 10px 30px rgba(0,0,0,.45);
+  --grid-size: 26px;
+  --rr: #e0a44a;            /* Route Reflector amber ring */
+}
+html[data-theme="light"] {
+  --bg: #eef0e9;
+  --bg-dot: #d9dccf;
+  --panel: #f7f8f2;
+  --panel-edge: #c9cdbd;
+  --panel-glow: rgba(36,64,128,.03);
+  --ink: #232c38;
+  --ink-dim: #5d6878;
+  --ink-faint: #97a0ac;
+  --accent: #d97706;
+  --search: #0e8f7a;
+  --danger: #c92a2a;
+  --node-fill: #fdfdf8;
+  --node-edge: #6b7a8d;
+  --node-ink: #1b2430;
+  --link: #7c8aa0;
+  --link-dim: #c3cad4;
+  --seg-fill: #eef1ea;
+  --lp-edge: #8a5cd0; --lp-fill: #efe9f6;       /* loopback ノード（紫系） */
+  --stub-edge: #3f8f6a; --stub-fill: #e8f2ec;   /* stub ノード（緑系） */
+  --shadow: 0 8px 24px rgba(40,50,70,.18);
+  --rr: #b5781f;            /* Route Reflector amber ring (light) */
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+button, input { font: inherit; color: inherit; }
+
+/* ---------- header / toolbar ---------- */
+header {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-edge);
+  user-select: none;
+}
+.brand {
+  padding: 10px 18px 10px 16px;
+  border-right: 1px solid var(--panel-edge);
+  display: flex; flex-direction: column; justify-content: center;
+}
+.brand b { font-size: 13px; letter-spacing: .14em; color: var(--accent); }
+.brand span { font-size: 10px; color: var(--ink-faint); letter-spacing: .08em; }
+
+nav.tabs { display: flex; align-items: stretch; }
+nav.tabs button {
+  background: none; border: none; cursor: pointer;
+  padding: 0 20px; color: var(--ink-dim);
+  letter-spacing: .12em; font-size: 12px;
+  border-right: 1px solid var(--panel-edge);
+  border-bottom: 2px solid transparent;
+  position: relative;
+}
+nav.tabs button .k {
+  position: absolute; top: 5px; right: 6px;
+  font-size: 9px; color: var(--ink-faint);
+  border: 1px solid var(--panel-edge); border-radius: 3px; padding: 0 3px;
+}
+nav.tabs button:hover { color: var(--ink); }
+nav.tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--panel-glow);
+}
+
+.toolbar { flex: 1; display: flex; align-items: center; gap: 10px; padding: 8px 14px; flex-wrap: wrap; }
+/* 検索対象フィールドのドロップダウン（host: 等を書かずに選択） */
+.sfield {
+  background: var(--bg); color: var(--ink-dim);
+  border: 1px solid var(--panel-edge); border-radius: 6px;
+  padding: 6px 4px; font-size: 12px; cursor: pointer; outline: none;
+  margin-right: -4px;
+}
+.sfield:hover, .sfield:focus { color: var(--ink); border-color: var(--ink-faint); }
+.searchbox { position: relative; }
+.searchbox input {
+  width: 240px; padding: 6px 28px 6px 30px;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--panel-edge); border-radius: 6px;
+  outline: none;
+}
+.searchbox input:focus { border-color: var(--search); box-shadow: 0 0 0 2px color-mix(in srgb, var(--search) 25%, transparent); }
+/* ヒット 0 件のときは検索欄を警告色に */
+.searchbox input.nohit, .searchbox input.nohit:focus { border-color: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 25%, transparent); }
+.searchbox input.nohit + .count { color: var(--danger); }
+.searchbox::before {
+  content: "⌕"; position: absolute; left: 9px; top: 50%; transform: translateY(-52%);
+  color: var(--ink-faint); font-size: 15px;
+}
+.searchbox .count {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; color: var(--search);
+}
+.tbtn {
+  background: var(--bg); border: 1px solid var(--panel-edge); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer; color: var(--ink-dim);
+  letter-spacing: .04em; font-size: 12px;
+}
+.tbtn:hover { color: var(--ink); border-color: var(--ink-faint); }
+.tbtn.on { color: var(--accent); border-color: var(--accent); }
+.tgroup { display: flex; gap: 0; }
+.tgroup .tbtn { border-radius: 0; border-right-width: 0; }
+.tgroup .tbtn:first-child { border-radius: 6px 0 0 6px; }
+.tgroup .tbtn:last-child { border-radius: 0 6px 6px 0; border-right-width: 1px; }
+.tsep { width: 1px; align-self: stretch; background: var(--panel-edge); margin: 4px 2px; }
+label.tchk {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  color: var(--ink-dim); font-size: 11px; letter-spacing: .05em;
+}
+label.tchk input { accent-color: var(--accent); }
+.kbd-hint { margin-left: auto; color: var(--ink-faint); font-size: 10px; letter-spacing: .05em; }
+.kbd-hint b { color: var(--ink-dim); border: 1px solid var(--panel-edge); border-radius: 3px; padding: 0 4px; font-weight: normal; }
+
+/* ---------- main layout ---------- */
+main { flex: 1; display: flex; min-height: 0; position: relative; }
+#stage { flex: 1; position: relative; min-width: 0; }
+#canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+#canvas.dragging { cursor: grabbing; }
+#canvas .bgrect { fill: url(#dotgrid); }
+
+/* ---------- SVG elements ---------- */
+.lk { stroke: var(--link); stroke-width: 2; fill: none; transition: stroke .15s, opacity .2s; }
+.lk-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+.lk.admin-down { stroke-dasharray: 7 6; opacity: .55; }
+/* ライン hover 強調（ノード hover と同色＝--accent。選択/ライン選択より前に置き、それらを優先させる） */
+.lk.lk-hover { stroke: var(--accent); stroke-width: 3; opacity: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+.lk.sel-edge { stroke: var(--accent); stroke-width: 3.5; }
+.lk.sel-between { stroke: var(--accent); stroke-width: 5; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.lk.bgp-hot { stroke: var(--search); stroke-width: 4.5; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 70%, transparent)); }
+
+.bgp-edge { stroke-width: 2.5; fill: none; stroke-dasharray: 1 0; opacity: .95; }
+.bgp-edge.ibgp { stroke-dasharray: 6 4; stroke-linecap: round; }
+/* ライン hover 強調（ノード hover と同色＝--accent。選択より前に置く） */
+.bgp-edge.lk-hover { stroke: var(--accent); stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 50%, transparent)); }
+/* ノード選択による強調は物理リンクと同一規則（eBGP/iBGP とも） */
+.bgp-edge.sel-edge { stroke: var(--accent); stroke-width: 3.5; }
+.bgp-edge.sel-between { stroke: var(--accent); stroke-width: 5; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent)); }
+.bgp-edge.bgp-hot { stroke: var(--search); stroke-width: 4.5; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 70%, transparent)); }
+/* RR-client セッション: 実線・iBGP 青系・やや太め＋矢じり（RR→client 方向）で iBGP peer (破線) と区別。
+   色は edge のインライン stroke 属性（BGP_COLOR.ibgp）を活かすため stroke は上書きしない。 */
+.bgp-edge.rr { stroke-dasharray: 1 0; stroke-width: 3; stroke-linecap: round; }
+
+g.node { cursor: pointer; }
+g.node rect.body {
+  fill: var(--node-fill); stroke: var(--node-edge); stroke-width: 1.4;
+  transition: stroke .15s, filter .2s;
+}
+g.node text.hn { fill: var(--node-ink); font-size: 14px; font-weight: bold; letter-spacing: .03em; }
+g.node text.sub { fill: var(--ink-dim); font-size: 10px; letter-spacing: .04em; }
+g.node .vbar { opacity: .9; }
+g.node.selected rect.body { stroke: var(--accent); stroke-width: 2.4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+g.node.search-hit rect.body { stroke: var(--search); stroke-width: 2.2; }
+/* hover はノード選択と同じハイライト（選択マーカーの ● だけ出さない） */
+g.node.hovered rect.body { stroke: var(--accent); stroke-width: 2.4; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+/* BGP ビュー: Route Reflector / RR Client のノード装飾。
+   .rrnode = 金/琥珀の太枠リング（RR）、.rrcnode = 中空（破線）リング（client）。
+   選択/hover/search-hit（var(--accent)）はこれらより後の詳細度同等規則で上書きされる順序に注意するため、
+   ここでは rect.body 直後に置き、selected/hovered/search-hit 規則（上で既出）に負けないよう同詳細度・後勝ちにする。 */
+g.node.rrnode rect.body { stroke: var(--rr, #e0a44a); stroke-width: 2.6; }
+g.node.rrcnode rect.body { stroke: var(--rr, #e0a44a); stroke-width: 1.8; stroke-dasharray: 5 3; }
+/* RR/RRC バッジ（ノード右上の小ラベル） */
+g.node .rrbadge { fill: var(--rr, #e0a44a); }
+g.node .rrbadge-t { fill: var(--bg); font-size: 8px; font-weight: bold; letter-spacing: .04em; }
+/* 選択/hover/search-hit は RR リングより前面の強調として優先（再掲・後勝ちで accent/search を確実に出す）。
+   .rrcnode は通常時 stroke-dasharray:5 3（破線）だが、選択/hover/search-hit 時は他ノードと同様に
+   実線アクセントへ統一するため stroke-dasharray:none を明示（破線が残って非一貫になるのを防ぐ）。 */
+g.node.rrnode.selected rect.body, g.node.rrcnode.selected rect.body,
+g.node.rrnode.hovered rect.body, g.node.rrcnode.hovered rect.body { stroke: var(--accent); stroke-width: 2.4; stroke-dasharray: none; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+g.node.rrnode.search-hit rect.body, g.node.rrcnode.search-hit rect.body { stroke: var(--search); stroke-width: 2.2; stroke-dasharray: none; }
+
+g.segnode { cursor: pointer; }
+g.segnode ellipse { fill: var(--seg-fill); stroke: var(--node-edge); stroke-width: 1.2; stroke-dasharray: 3 3; }
+g.segnode text { fill: var(--ink-dim); font-size: 10px; }
+/* loopback / stub は色で区別（selected/hovered/search-hit は同詳細度・後勝ちで stroke を上書きするためこの2行より後に置く） */
+g.segnode.lpnode ellipse { fill: var(--lp-fill); stroke: var(--lp-edge); }
+g.segnode.stubnode ellipse { fill: var(--stub-fill); stroke: var(--stub-edge); }
+g.segnode.selected ellipse, g.segnode.hovered ellipse { stroke: var(--accent); stroke-width: 2; }
+g.segnode.search-hit ellipse { stroke: var(--search); stroke-width: 2; }
+
+/* STATIC ビュー: スタティック経路の方向線（矢じり）と blackhole/dangling 終端・トレース・ハイライト */
+.se-edge { fill: none; stroke: var(--se-edge, #e0a44a); stroke-width: 2; opacity: .9; }
+.se-edge.se-default { stroke-dasharray: 7 4; }            /* default 経路は破線 */
+.se-edge.se-ecmp { stroke-width: 3; }                     /* ECMP は太線 */
+.se-edge.se-blackhole { stroke: var(--danger); }
+.se-edge.se-dangling { stroke: #d08a2a; }
+.se-edge.se-viaif { stroke: #5b8def; }                    /* IF 名 next-hop（peer 不定） */
+.se-edge.trace-edge { stroke: var(--accent); stroke-width: 4; opacity: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent)); }
+g.sstubnode { cursor: default; }
+g.sstubnode ellipse { fill: var(--panel); stroke-width: 1.4; stroke-dasharray: 4 3; }
+g.sstubnode.se-blackhole ellipse { stroke: var(--danger); }
+g.sstubnode.se-dangling ellipse { stroke: #d08a2a; }
+g.sstubnode.se-viaif ellipse { stroke: #5b8def; }
+g.sstubnode text { font-size: 10px; fill: var(--ink-dim); }
+g.node.trace-hop rect.body { stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 60%, transparent)); }
+/* STATIC トレース UI コントロール */
+#trace-src, #trace-dst { background: var(--panel); color: var(--ink); border: 1px solid var(--panel-edge);
+  border-radius: 5px; padding: 2px 6px; font-size: 11px; }
+#trace-src { max-width: 150px; }
+#trace-dst { width: 150px; }
+#trace-src:focus, #trace-dst:focus { border-color: var(--search); outline: none; }
+#trace-verdict { font-size: 11px; font-weight: 600; }
+.badge.tv-delivered, #trace-verdict.tv-delivered { color: var(--accent2,#2a7); border-color: var(--accent2,#2a7); }
+.badge.tv-blackhole, #trace-verdict.tv-blackhole { color: var(--danger); border-color: var(--danger); }
+.badge.tv-loop, #trace-verdict.tv-loop { color: #d08a2a; border-color: #d08a2a; }
+.badge.tv-no-route, #trace-verdict.tv-no-route,
+.badge.tv-unreachable-nexthop, #trace-verdict.tv-unreachable-nexthop { color: var(--ink-dim); }
+
+/* 外部ピアは機器と同じノード描画（g.node スタイルを共用）。枠だけ点線で区別（凡例と対応） */
+g.node.ext rect.body { stroke-dasharray: 6 4; }
+
+.asframe { fill: none; stroke-width: 1.6; rx: 14; opacity: .9; }
+.asframe-fill { opacity: .07; }
+.aslabel { font-size: 11px; font-weight: bold; letter-spacing: .1em; }
+
+.area-badge rect { rx: 4; opacity: .95; }
+.area-badge text { font-size: 10px; font-weight: bold; }
+.subnet-tag { font-size: 9px; fill: var(--ink-dim); pointer-events: none; }
+
+/* 提案: 選択/ホバー時にリンク端へ IF 名を表示（IFチップ廃止の代替） */
+.iflabel { font-size: 9px; fill: var(--accent); opacity: 0; transition: opacity .18s; pointer-events: none; }
+.iflabel.show { opacity: 1; }
+.iflabel.ll { fill: var(--ink-faint); }
+.iflabel-bg { fill: var(--bg); opacity: 0; rx: 3; pointer-events: none; }
+.iflabel-bg.show { opacity: .85; }
+.ll-t { color: var(--ink-faint); }
+
+.dim { opacity: .16 !important; transition: opacity .25s; }
+.hidden { display: none !important; }
+
+/* ---------- shortcuts overlay ---------- */
+#shortcuts-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,.55);
+  align-items: center; justify-content: center;
+}
+#shortcuts-overlay.visible { display: flex; }
+#shortcuts-overlay .sc-box {
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-radius: 12px; padding: 20px 28px; box-shadow: var(--shadow);
+  min-width: 300px; max-width: 420px;
+}
+#shortcuts-overlay .sc-box h3 {
+  margin: 0 0 14px; font-size: 13px; letter-spacing: .12em;
+  color: var(--ink-dim);
+}
+#shortcuts-overlay table { border-collapse: collapse; width: 100%; }
+#shortcuts-overlay td { padding: 4px 6px; font-size: 12px; color: var(--ink-dim); }
+#shortcuts-overlay td:first-child {
+  font-weight: bold; color: var(--ink);
+  border: 1px solid var(--panel-edge); border-radius: 4px;
+  padding: 2px 7px; white-space: nowrap; text-align: center;
+  background: var(--bg);
+}
+
+/* ---------- tooltip ---------- */
+#tooltip {
+  position: absolute; pointer-events: none; z-index: 30;
+  background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px;
+  padding: 8px 11px; box-shadow: var(--shadow);
+  font-size: 11px; line-height: 1.55; display: none; max-width: 280px;
+}
+#tooltip .tt-title { color: var(--accent); font-weight: bold; letter-spacing: .06em; }
+#tooltip .tt-row { color: var(--ink-dim); }
+#tooltip .tt-row b { color: var(--ink); font-weight: normal; }
+
+/* ---------- details panel ---------- */
+#details {
+  width: 330px; background: var(--panel);
+  border-left: 1px solid var(--panel-edge);
+  display: flex; flex-direction: column; min-height: 0;
+}
+#details .dhead {
+  padding: 10px 14px; border-bottom: 1px solid var(--panel-edge);
+  display: flex; align-items: center; justify-content: space-between;
+  letter-spacing: .12em; font-size: 11px; color: var(--ink-dim);
+}
+#details .dhead .selcount { color: var(--accent); }
+#dbody { overflow-y: auto; padding: 12px; flex: 1; }
+.card {
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  margin-bottom: 12px; overflow: hidden; background: var(--bg);
+}
+.card .chead {
+  padding: 9px 12px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--panel-edge); background: var(--panel-glow);
+}
+.card .chead b { font-size: 14px; }
+.badge {
+  font-size: 9px; padding: 1px 6px; border-radius: 4px; letter-spacing: .06em;
+  border: 1px solid var(--panel-edge); color: var(--ink-dim);
+}
+.badge.as { color: var(--accent); border-color: var(--accent); }
+.badge.rid { color: var(--search); border-color: color-mix(in srgb, var(--search) 60%, transparent); }
+.badge.ospf-b { color: var(--ink-faint); border-color: var(--panel-edge); font-size: 9px; }
+.csec { padding: 8px 12px; }
+.csec h4 { font-size: 10px; letter-spacing: .14em; color: var(--ink-faint); margin-bottom: 6px; font-weight: normal; }
+table.dt { width: 100%; border-collapse: collapse; font-size: 11px; }
+table.dt th { text-align: left; color: var(--ink-faint); font-weight: normal; padding: 2px 6px 4px 0; border-bottom: 1px solid var(--panel-edge); font-size: 10px; }
+table.dt td { padding: 4px 6px 4px 0; color: var(--ink); vertical-align: top; border-bottom: 1px dashed color-mix(in srgb, var(--panel-edge) 60%, transparent); }
+table.dt td.dim-t { color: var(--ink-dim); }
+.st-up { color: var(--search); } .st-down { color: var(--danger); }
+tr.bgprow, tr.ospfrow[data-net], tr.ifrow[data-net] { cursor: pointer; }
+tr.bgprow:hover td, tr.bgprow.hot td,
+tr.ospfrow[data-net]:hover td, tr.ospfrow.hot td,
+tr.ifrow[data-net]:hover td, tr.ifrow.hot td { background: color-mix(in srgb, var(--search) 12%, transparent); }
+.linkpair[data-net] { cursor: pointer; }
+.linkpair.hot { border-color: var(--search); background: color-mix(in srgb, var(--search) 10%, transparent); }
+.linkpair {
+  border: 1px dashed var(--panel-edge); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px;
+  font-size: 11px; line-height: 1.6;
+}
+.linkpair .subnet { color: var(--accent); }
+.linkpair .ifn { color: var(--ink); }
+.linkpair .ipd { color: var(--ink-dim); }
+.placeholder { color: var(--ink-faint); font-size: 11px; line-height: 1.9; padding: 8px 4px; }
+.placeholder b { color: var(--ink-dim); font-weight: normal; }
+
+/* ---------- AS filter dropdown ---------- */
+.as-filter-wrap { position: relative; display: inline-flex; }
+#as-menu {
+  display:none; position: absolute; z-index: 40;
+  background: var(--panel); border: 1px solid var(--panel-edge);
+  border-radius: 8px; box-shadow: var(--shadow);
+  padding: 8px 10px; min-width: 160px;
+  max-height: 280px; overflow: auto;
+  top: calc(100% + 4px); left: 0;
+}
+#as-menu.open { display: block; }
+#as-menu .as-menu-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+#as-menu .as-menu-actions button { flex: 1; font-size: 10px; padding: 2px 6px; }
+#as-menu label.tchk { display: flex; align-items: center; }
+
+/* ---------- legend & minimap ---------- */
+#legend {
+  position: absolute; left: 14px; bottom: 38px; z-index: 20;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  padding: 10px 14px; font-size: 10px; line-height: 2;
+  box-shadow: var(--shadow); min-width: 150px;
+}
+#legend h4 { font-size: 9px; letter-spacing: .18em; color: var(--ink-faint); font-weight: normal; margin-bottom: 2px; }
+#legend .li { display: flex; align-items: center; gap: 8px; color: var(--ink-dim); }
+#legend .li.clk { cursor: pointer; }
+#legend .li.clk:hover { color: var(--ink); }
+#legend .li.on { color: var(--accent); }
+#legend .note { color: var(--ink-faint); font-size: 9px; line-height: 1.5; margin-top: 4px; }
+#legend .sw { width: 22px; height: 0; border-top: 2px solid var(--link); }
+#legend .sw.dash { border-top-style: dashed; }
+#legend .sw.box { height: 10px; border: 1.4px solid var(--node-edge); background: var(--node-fill); border-radius: 2px; }
+#legend .sw.seg { height: 10px; border: 1.2px dashed var(--node-edge); border-radius: 50%; background: var(--seg-fill); }
+#legend .sw.lp { height: 10px; border: 1.2px dashed var(--lp-edge); border-radius: 50%; background: var(--lp-fill); }
+#legend .sw.stub2 { height: 10px; border: 1.2px dashed var(--stub-edge); border-radius: 50%; background: var(--stub-fill); }
+/* BGP RR/RRC 凡例スウォッチ: ノード装飾（金枠リング・中空破線リング）と矢印 */
+#legend .sw.rr { height: 10px; border: 2px solid var(--rr); border-radius: 2px; background: var(--node-fill); }
+#legend .sw.rrc { height: 10px; border: 1.6px dashed var(--rr); border-radius: 2px; background: var(--node-fill); }
+#legend .sw.rrarrow { border-top: 2px solid var(--rr); position: relative; }
+#legend .sw.rrarrow::after { content: "B8"; position: absolute; right: -4px; top: -8px; color: var(--rr); font-size: 11px; }
+#minimap {
+  position: absolute; right: 14px; bottom: 38px; z-index: 20;
+  width: 180px; height: 120px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+#minimap svg { width: 100%; height: 100%; display: block; }
+#minimap .mdot { fill: var(--ink-dim); }
+#minimap .mview { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+
+/* ---------- status bar (提案: 実行サマリーの常時表示) ---------- */
+#statusbar {
+  height: 26px; background: var(--panel); border-top: 1px solid var(--panel-edge);
+  display: flex; align-items: center; gap: 18px; padding: 0 14px;
+  font-size: 10px; color: var(--ink-dim); letter-spacing: .06em;
+}
+#statusbar .warn { color: var(--accent); }
+#statusbar .src { margin-left: auto; color: var(--ink-faint); }
+
+/* BGP ビューのアドレス・ソースIF ラベルは .iflabel（他ビューの IF ラベル）と同一スタイルを共用 */
+g.segnode.bgp-hot ellipse { stroke: var(--search); stroke-width: 2.4; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--search) 60%, transparent)); }
+
+/* ---------- stub / loopback ノード ---------- */
+/* stub / loopback は segment 様式（.segnode 楕円 + .lk スポーク + .area-badge）を再利用し、
+   data-elem="seg"・data-id=dev:ifn で segment と同じ hittest/選択/可視性/詳細パネル/凡例 dim に乗る。
+   色のみ kind で区別（.lpnode=loopback / .stubnode=stub。上の g.segnode.lpnode/.stubnode ルール参照）。
+   描画・ハイライト・IF/IP ラベルは _JS 側 render() の stub ノードブロック（segment ロジックと共通）。*/
+
+/* 詳細パネル: リサイズハンドルと最小化 */
+#resizer { width: 6px; flex: none; cursor: col-resize; background: transparent; border-left: 1px solid var(--panel-edge); }
+#resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+#details.min { width: 36px !important; min-width: 36px; }
+#details.min #dbody, #details.min .dhead span:not(.pbtns) { display: none; }
+.dhead .pbtns { display: flex; gap: 4px; margin-left: auto; }
+.dhead .pbtns button {
+  background: none; border: 1px solid var(--panel-edge); border-radius: 4px;
+  color: var(--ink-dim); cursor: pointer; width: 22px; height: 18px;
+  line-height: 1; font-size: 10px; padding: 0;
+}
+.dhead .pbtns button:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+/* ---------- 表ビュー（ADDRESSES / INTERFACES） ---------- */
+#tableview {
+  position: absolute; inset: 0; z-index: 22; display: none;
+  background: var(--bg); overflow-y: auto; padding: 18px 24px 48px;
+}
+#tableview .thead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; max-width: 1080px; }
+#tableview .thead h3 { font-size: 13px; letter-spacing: .16em; color: var(--ink-dim); font-weight: normal; }
+#tableview .thead .cnt { color: var(--accent); font-size: 11px; }
+#tableview .thead .tbtn { padding: 3px 9px; font-size: 11px; }
+#tableview .thead .sp { flex: 1; }
+#tableview table.dt { font-size: 12px; max-width: 1080px; }
+#tableview table.dt th { position: sticky; top: 0; background: var(--bg); padding: 6px 14px 6px 0; }
+#tableview table.dt th.sortable { cursor: pointer; user-select: none; }
+#tableview table.dt th.sortable:hover { color: var(--ink); }
+#tableview table.dt td { padding: 5px 14px 5px 0; }
+#tableview tr.trow:hover td { background: color-mix(in srgb, var(--ink-dim) 9%, transparent); }
+/* サブネットグループ見出し行（クリックで折りたたみ） */
+#tableview tr.grph td {
+  background: var(--panel); color: var(--ink); cursor: pointer; user-select: none;
+  letter-spacing: .05em; padding: 7px 14px 7px 6px;
+  border-top: 1px solid var(--panel-edge); border-bottom: 1px solid var(--panel-edge);
+}
+#tableview tr.grph:hover td { background: color-mix(in srgb, var(--panel) 78%, var(--ink-faint)); }
+#tableview tr.grph .usage { color: var(--accent); margin-left: 12px; font-size: 11px; }
+#tableview tr.grph .cards { color: var(--ink-dim); margin-left: 10px; font-size: 10px; }
+#tableview .chk-bad { color: var(--danger); }
+#tableview .no-desc { color: var(--accent); opacity: .75; }
+#tableview .tnote { color: var(--ink-faint); font-size: 10px; margin-top: 10px; line-height: 1.8; }
+/* IF 種別バッジ */
+#tableview .ifk { font-size: 9px; padding: 0 5px; border-radius: 4px; border: 1px solid var(--panel-edge); margin-left: 6px; letter-spacing: .04em; }
+#tableview .ifk-conn   { color: var(--search); border-color: color-mix(in srgb, var(--search) 55%, transparent); }
+#tableview .ifk-stub   { color: var(--ink-dim); }
+#tableview .ifk-unused { color: var(--accent); border-color: var(--accent); }
+#tableview .ifk-loop   { color: var(--ink-faint); }
+#tableview .ifk-rsv    { color: #b794f6; border-color: color-mix(in srgb, #b794f6 55%, transparent); }   /* 予約 */
+#tableview .ifk-dis    { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }  /* 使用不可 */
+/* 状態指定ボタン（クリックで − → 予約 → 不可 → − を循環） */
+#tableview button.portset {
+  background: var(--bg); border: 1px solid var(--panel-edge); border-radius: 5px;
+  padding: 1px 8px; font-size: 11px; cursor: pointer; color: var(--ink-dim); min-width: 40px;
+}
+#tableview button.portset:hover { color: var(--ink); border-color: var(--ink-faint); }
+#tableview button.portset.set-reserved { color: #b794f6; border-color: color-mix(in srgb, #b794f6 55%, transparent); }
+#tableview button.portset.set-disabled { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, transparent); }
+/* 備考メモ入力（クリックで編集・blur で永続保存） */
+#tableview input.noteinput {
+  width: 100%; min-width: 120px; background: transparent; color: var(--ink);
+  border: 1px solid transparent; border-radius: 5px; padding: 2px 6px; font-size: 11px; outline: none;
+}
+#tableview input.noteinput::placeholder { color: var(--ink-faint); }
+#tableview input.noteinput:hover { border-color: var(--panel-edge); }
+#tableview input.noteinput:focus { border-color: var(--search); background: var(--bg); }
+/* グループ見出しの複数行レイアウト */
+#tableview tr.grph .ghtop { font-size: 12px; }
+#tableview tr.grph .cards2 { color: var(--ink-dim); font-size: 11px; line-height: 1.7; margin-top: 3px; white-space: pre; font-variant-numeric: tabular-nums; }
+/* ポート状態カテゴリの色（機器サマリ・カード内訳・tnote 凡例で共通） */
+#tableview .c-used { color: var(--search); }
+#tableview .c-rsv  { color: #b794f6; }
+#tableview .c-dis  { color: var(--danger); }
+#tableview .c-free { color: var(--accent); }
+/* Connected to セル（リンクは対向行へジャンプ可能） */
+#tableview td.peer-jump { color: var(--search); cursor: pointer; }
+#tableview td.peer-jump:hover { text-decoration: underline; }
+/* 対向行ジャンプ時の一時ハイライト */
+@keyframes rowflash {
+  0% { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+  100% { background: transparent; }
+}
+#tableview tr.row-flash td { animation: rowflash 1.3s ease-out; }
+
+/* ---------- CONFIG ビュー（生 running-config 閲覧） ---------- */
+#tableview .cfgwarn {
+  max-width: 1080px; margin: 0 0 12px; padding: 7px 12px;
+  font-size: 11px; line-height: 1.6; color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 7px; background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+#tableview .cfgwrap { display: flex; gap: 14px; max-width: 1080px; align-items: flex-start; }
+#tableview .cfglist {
+  flex: 0 0 200px; max-height: 70vh; overflow-y: auto;
+  border: 1px solid var(--panel-edge); border-radius: 8px; padding: 4px;
+}
+#tableview .cfgdev {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+#tableview .cfgdev:hover { background: color-mix(in srgb, var(--ink-dim) 9%, transparent); }
+#tableview .cfgdev.active { background: color-mix(in srgb, var(--search) 18%, transparent); color: var(--ink); }
+#tableview .cfgdev-h { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tableview .cfgdev-c { color: var(--ink-faint); font-size: 10px; flex: 0 0 auto; }
+#tableview .cfgbody { flex: 1 1 auto; min-width: 0; }
+#tableview .cfgbody-h { font-size: 12px; color: var(--ink-dim); margin-bottom: 6px; letter-spacing: .04em; }
+#tableview .cfgpre {
+  max-height: 70vh; overflow: auto;
+  border: 1px solid var(--panel-edge); border-radius: 8px;
+  background: var(--bg); padding: 8px 0;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 12px;
+}
+#tableview .cfgline { display: flex; white-space: pre; line-height: 1.55; min-width: max-content; position: relative; }
+#tableview .cfgline:hover { background: color-mix(in srgb, var(--ink-dim) 7%, transparent); }
+#tableview .cfgline.hit { background: color-mix(in srgb, var(--search) 22%, transparent); }
+#tableview .cfgline.cur { background: color-mix(in srgb, var(--search) 42%, transparent); outline: 1px solid var(--search); }
+/* 行折返し: pre-wrap にして横スクロールを止め、行内で折り返す */
+#tableview .cfgpre.wrap .cfgline { white-space: pre-wrap; min-width: 0; }
+#tableview .cfgpre.wrap .cfgtx { overflow-wrap: anywhere; }
+/* CONFIG ツールバー */
+#tableview .cfgtools {
+  display: flex; align-items: center; gap: 8px; max-width: 1080px;
+  margin: 0 0 10px; font-size: 11px;
+}
+#tableview .cfgtools .sp { flex: 1; }
+#tableview .cfgtools .tbtn.on { color: var(--search); border-color: color-mix(in srgb, var(--search) 55%, transparent); }
+#tableview .cfgnav { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-dim); }
+#tableview .cfgnav .tbtn { padding: 1px 7px; }
+#tableview .cfgnav #cfgnavpos { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+/* parse 状態モード: 行の左境界色で 3 状態を区別（unparsed=警告色で目立たせる） */
+#tableview .cfgline.ps-parsed   { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent2,#2a7) 80%, transparent); }
+#tableview .cfgline.ps-ignored  { box-shadow: inset 3px 0 0 var(--ink-faint); }
+#tableview .cfgline.ps-unparsed { box-shadow: inset 3px 0 0 var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+#tableview .cfgline.ps-unparsed .cfgln { color: var(--danger); }
+#tableview .cfglegend { display: inline-flex; gap: 10px; align-items: center; color: var(--ink-dim); font-size: 10px; }
+#tableview .cfglegend .ps-parsed   { color: var(--accent2,#2a7); }
+#tableview .cfglegend .ps-ignored  { color: var(--ink-faint); }
+#tableview .cfglegend .ps-unparsed { color: var(--danger); }
+/* 2ペイン比較・編集ワークベンチ */
+#tableview .cfgdiffsum { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+#tableview .cfgsplit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1080px; }
+#tableview .cfgpane { min-width: 0; display: flex; flex-direction: column; }
+#tableview .cfgpane-h { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 11px; }
+#tableview select.cfgsrc {
+  background: var(--panel); color: var(--ink); border: 1px solid var(--panel-edge);
+  border-radius: 5px; padding: 2px 6px; font-size: 11px; max-width: 180px;
+}
+#tableview .cfgsrc-fixed { font-weight: 600; }
+#tableview .cfgedited { color: var(--accent); font-size: 10px; }
+#tableview textarea.cfgedit {
+  width: 100%; min-height: 60vh; max-height: 70vh; resize: vertical; box-sizing: border-box;
+  background: var(--bg); color: var(--ink); border: 1px solid var(--panel-edge); border-radius: 8px;
+  padding: 8px 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.55;
+  /* 行整列のため折返さず横スクロール（左ペインの 1 論理行 = textarea の 1 行に対応させる） */
+  white-space: pre; overflow-x: auto;
+}
+#tableview textarea.cfgedit:focus { border-color: var(--search); outline: none; }
+/* 文字置換（リテラル全置換）行 */
+#tableview .cfgreplace { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+#tableview .cfgreplace input { flex: 1 1 0; min-width: 0; background: var(--bg); color: var(--ink);
+  border: 1px solid var(--panel-edge); border-radius: 5px; padding: 3px 7px; font-size: 11px; }
+#tableview .cfgreplace input:focus { border-color: var(--search); outline: none; }
+#tableview .cfgreplmsg { color: var(--accent); font-size: 10px; flex: 0 0 auto; }
+/* 行差分（左=削除/赤系・右=追加/緑系）。parse 状態色とは別レイヤー */
+#tableview .cfgline.diff-del { background: color-mix(in srgb, var(--danger) 16%, transparent); box-shadow: inset 3px 0 0 var(--danger); }
+#tableview .cfgline.diff-add { background: color-mix(in srgb, var(--accent2,#2a7) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent2,#2a7); }
+/* 行整列の空行ギャップ（片側だけにある行に対応する反対側の空きスロット） */
+#tableview .cfgline.gap { background: color-mix(in srgb, var(--ink-dim) 5%, transparent); }
+#tableview .cfgln {
+  flex: 0 0 48px; text-align: right; padding: 0 12px 0 0; margin-right: 12px;
+  color: var(--ink-faint); user-select: none;
+  border-right: 1px solid var(--panel-edge);
+}
+#tableview .cfgtx { flex: 1 1 auto; padding-right: 14px; }
+/* CONFIG 編集モード: 左=行番号ガター＋textarea / 右=統一差分プレビュー */
+#tableview .cfgedit-wrap { position: relative; display: flex; flex: 1; min-height: 0; }
+#tableview .cfgedit-gut {
+  flex: 0 0 44px; overflow: hidden; text-align: right; padding-right: 6px;
+  color: var(--ink-faint); background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  user-select: none; font-size: 12px; line-height: 1.55;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  border-right: 1px solid var(--panel-edge);
+}
+#tableview .cfgedit-gut .n { height: 1.55em; line-height: 1.55em; display: block; }
+#tableview .cfgedit-gut .n.cur { color: var(--search); }
+/* 統一差分プレビュー列 */
+#tableview .cfgunified { flex: 1; overflow: auto; }
+#tableview .urow { display: flex; white-space: pre; line-height: 1.55; font-size: 12px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; }
+#tableview .urow .ug { flex: 0 0 40px; text-align: right; padding-right: 6px; color: var(--ink-faint); user-select: none; }
+#tableview .urow .us { flex: 0 0 14px; text-align: center; user-select: none; }
+#tableview .urow .utx { flex: 1; padding-right: 6px; }
+#tableview .urow.ctx .utx { color: var(--ink-dim); }
+#tableview .urow.del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+#tableview .urow.del .us { color: var(--danger); }
+#tableview .urow.add { background: color-mix(in srgb, var(--accent2,#2a7) 14%, transparent); }
+#tableview .urow.add .us { color: var(--accent2,#2a7); }
+#tableview .urow.cur { box-shadow: inset 3px 0 0 var(--search); }
+#tableview .urow.hit { outline: 1px solid color-mix(in srgb, var(--search) 50%, transparent); }
+/* dirty バッジ: 機器リストの編集済みマーカー */
+#tableview .cfgdirty { color: var(--accent); margin-left: 4px; }
+
+/* ---------- 表示ノード指定パネル ---------- */
+#nodepanel {
+  position: absolute; top: 12px; right: 14px; z-index: 25;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--panel-edge); border-radius: 10px;
+  padding: 10px 14px; font-size: 11px; line-height: 2;
+  box-shadow: var(--shadow); display: none; min-width: 170px;
+  max-height: calc(100vh - 160px); overflow-y: auto;
+}
+#nodepanel h4 { font-size: 9px; letter-spacing: .18em; color: var(--ink-faint); font-weight: normal; margin-bottom: 4px; }
+#nodepanel label { display: flex; align-items: center; gap: 7px; cursor: pointer; color: var(--ink-dim); }
+#nodepanel label:hover { color: var(--ink); }
+#nodepanel input { accent-color: var(--accent); }
+#nodepanel .ntype { color: var(--ink-faint); font-size: 9px; margin-left: auto; }
+
+
+</style></head><body>
+
+<header>
+  <div class="brand"><b>CONFIG-TOPOLOGY</b><span>v2.0 design sample</span></div>
+  <nav class="tabs" id="tabs"><button data-view="physical">PHYSICAL<span class="k">1</span></button><button data-view="static">STATIC<span class="k">2</span></button><button data-view="bgp">BGP<span class="k">3</span></button><button data-view="addr">ADDRESSES<span class="k">4</span></button><button data-view="ifs">INTERFACES<span class="k">5</span></button><button data-view="config">CONFIG<span class="k">6</span></button><button data-view="checks">CHECKS<span class="k">7</span></button></nav>
+  <div class="toolbar">
+    <select id="sfield" class="sfield" title="検索対象フィールドを選択（ALL = hostname・IP・description・AS・vendor・IF名を横断）。host: 等の記法を書かずに絞り込めます">
+      <option value="all">ALL</option>
+      <option value="host">host</option>
+      <option value="ip">ip</option>
+      <option value="desc">desc</option>
+      <option value="as">as</option>
+      <option value="vendor">vendor</option>
+      <option value="net">net</option>
+    </select>
+    <div class="searchbox">
+      <input id="search" type="text" placeholder="検索: 文字列 / host: ip: desc: as: vendor: net:"
+        title="/ または Ctrl+F = 検索欄へフォーカス&#10;左のドロップダウンで対象フィールドを選択（host: 等を書かなくてよい）&#10;自由文字列 = hostname・IP(v4/v6)・description・AS番号・vendor・IF名を横断検索&#10;host:r1 = hostname のみ&#10;ip:10.0.0. = IPアドレスのみ&#10;desc:uplink = description のみ&#10;as:65001 = AS番号のみ&#10;vendor:junos = ベンダーのみ&#10;net:10.0.0 = サブネットのみ（テキスト記法はドロップダウンより優先）&#10;Enter = 次のヒットへ移動">
+      <span class="count" id="searchcount"></span>
+    </div>
+    <div class="tgroup gonly">
+      <button class="tbtn" id="zin" title="zoom in">＋</button>
+      <button class="tbtn" id="zout" title="zoom out">－</button>
+      <button class="tbtn" id="zfit" title="fit (F)">FIT</button>
+      <button class="tbtn" id="zreset" title="reset (Esc)">1:1</button>
+    </div>
+    <span class="tsep gonly"></span>
+    <label class="tchk gonly"><input type="checkbox" id="f-seg" checked>セグメント</label>
+    <label class="tchk gonly"><input type="checkbox" id="f-lo" checked>loopback</label>
+    <label class="tchk gonly"><input type="checkbox" id="f-stub" checked>スタブ</label>
+    <div class="as-filter-wrap gonly">
+      <button class="tbtn gonly" id="as-menu-btn" title="AS 単位の表示フィルタ">AS ▾</button>
+      <div id="as-menu">
+        <div class="as-menu-actions">
+          <button class="tbtn" id="as-show-all">全表示</button>
+          <button class="tbtn" id="as-hide-all">全非表示</button>
+        </div>
+        <div id="as-menu-list"></div>
+      </div>
+    </div>
+    <span class="tsep gonly"></span>
+    <button class="tbtn gonly" id="btn-nodes" title="表示するノードを個別に指定">表示ノード</button>
+    <button class="tbtn gonly" id="btn-connected" title="選択ノードの接続先のみ表示">接続先のみ</button>
+    <button class="tbtn gonly" id="btn-focus" title="選択ノードの N-hop 隣接以外を淡色化（フォーカス）">フォーカス</button>
+    <span class="tsep gonly"></span>
+    <button class="tbtn gonly" id="btn-minimap">MAP</button>
+    <button class="tbtn gonly" id="btn-legend">凡例</button>
+    <span class="tsep gonly"></span>
+    <div class="tgroup static-only" title="スタティック経路トレース（始点機器から宛先への転送経路をシミュレート）">
+      <select id="trace-src" title="トレース始点機器"></select>
+      <input id="trace-dst" list="trace-dsts" placeholder="宛先 IP / prefix" title="宛先 IP または prefix" spellcheck="false">
+      <datalist id="trace-dsts"></datalist>
+      <button class="tbtn" id="trace-go" title="経路トレース実行">トレース</button>
+      <button class="tbtn" id="trace-clear" title="トレース結果をクリア">クリア</button>
+      <span id="trace-verdict"></span>
+    </div>
+    <span class="tsep static-only"></span>
+    <div class="tgroup gonly">
+      <button class="tbtn" id="exp-svg" title="現在の表示をSVGで保存">SVG</button>
+      <button class="tbtn" id="exp-png" title="現在の表示をPNGで保存">PNG</button>
+    </div>
+    <button class="tbtn" id="btn-theme">☾/☀</button>
+    <span class="kbd-hint"><b>クリック</b>選択/解除 <b>ライン クリック</b>端ノード選択+表連動 <b>空白2回クリック</b>全解除 <b>F</b>fit <b>/ または ^F</b>検索 <b>1-5</b>タブ</span>
+  </div>
+</header>
+
+<main>
+  <div id="stage">
+    <svg id="canvas">
+      <defs>
+        <pattern id="dotgrid" width="26" height="26" patternUnits="userSpaceOnUse">
+          <circle cx="1.2" cy="1.2" r="1.2" fill="var(--bg-dot)"/>
+        </pattern>
+        <marker id="se-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--se-arrow,#e0a44a)"/>
+        </marker>
+        <marker id="rr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--rr,#e0a44a)"/>
+        </marker>
+      </defs>
+      <rect class="bgrect" id="bgrect" x="0" y="0" width="100%" height="100%"/>
+      <g id="world"></g>
+    </svg>
+    <div id="legend"></div>
+    <div id="nodepanel"></div>
+    <div id="minimap"><svg id="minisvg" viewBox="0 0 1280 860"></svg></div>
+    <div id="tableview"></div>
+    <div id="tooltip"></div>
+  </div>
+  <div id="resizer" title="ドラッグで表の幅を変更"></div>
+  <aside id="details">
+    <div class="dhead"><span>DEVICE DETAILS</span><span class="selcount" id="selcount"></span>
+      <span class="pbtns"><button id="btn-panelmin" title="表を最小化/復元">—</button></span></div>
+    <div id="dbody"></div>
+  </aside>
+</main>
+
+<div id="statusbar">
+  <span>devices <b id="st-dev">0</b></span>
+  <span>links <b id="st-lk">0</b></span>
+  <span>segments <b id="st-seg">0</b></span>
+  <span>bgp <b id="st-bgp">0</b></span>
+</div>
+
+<div id="shortcuts-overlay">
+  <div class="sc-box">
+    <h3>KEYBOARD SHORTCUTS</h3>
+    <table>
+      <tr><td>Ctrl/⌘+F</td><td>検索欄へフォーカス</td></tr>
+      <tr><td>/</td><td>検索欄へフォーカス</td></tr>
+      <tr><td>F</td><td>ズームフィット</td></tr>
+      <tr><td>Esc</td><td>選択解除 / このヘルプを閉じる</td></tr>
+      <tr><td>1–N</td><td>タブ切替</td></tr>
+      <tr><td>G</td><td>接続先のみ表示切替</td></tr>
+      <tr><td>H</td><td>フォーカスモード切替</td></tr>
+      <tr><td>M</td><td>ミニマップ切替</td></tr>
+      <tr><td>L</td><td>凡例切替</td></tr>
+      <tr><td>?</td><td>このヘルプ</td></tr>
+    </table>
+  </div>
+</div>
+
+
+<script>const DATA={"bgpEdges":[{"afs":["v4"],"id":"be:ol:lnk:r1::GigabitEthernet0/0|r2::ge-0/0/0","kind":"over-link","link":"lnk:r1::GigabitEthernet0/0|r2::ge-0/0/0","peerAs":65002,"type":"ebgp"},{"a":"r1","afs":["v4"],"aip":"10.5.5.1","bip":"10.5.5.2","ext":"ext:10.5.5.2","id":"be:ext:r1:10.5.5.2","kind":"external","peerAs":65010,"srcIf":"GigabitEthernet0/1","type":"ebgp"},{"a":"r2","afs":["v4"],"aip":"10.6.6.2","bip":"10.6.6.1","ext":"ext:10.6.6.1","id":"be:ext:r2:10.6.6.1","kind":"external","peerAs":65020,"srcIf":"ge-0/0/1","type":"ebgp"}],"checks":[],"devices":{"r1":{"as":65020,"bgp":[{"af":"v4","link":"be:ol:lnk:r1::GigabitEthernet0/0|r2::ge-0/0/0","lip":"10.0.12.1","nb":"10.0.12.2","nhs":null,"pas":65002,"rr":null,"src":null,"type":"ebgp"},{"af":"v4","link":"be:ext:r1:10.5.5.2","lip":"10.5.5.1","nb":"10.5.5.2","nhs":null,"pas":65010,"rr":null,"src":null,"type":"ebgp"}],"bgp_rid":null,"degree":1,"hostname":"R1","ifs":[{"addrs":[{"af":"v4","ip":"10.0.12.1","prefix":24}],"d":"to-R2-global","ip":"10.0.12.1/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.5.5.1","prefix":24}],"d":"CUST-RED-link","ip":"10.5.5.1/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/1","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.5.5.1","prefix":24}],"d":"GLOBAL-overlap-link","ip":"10.5.5.1/24","ip6":null,"mtu":null,"n":"GigabitEthernet0/2","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"1.1.1.1","prefix":32}],"d":null,"ip":"1.1.1.1/32","ip6":null,"mtu":null,"n":"Loopback0","ospf":null,"sp":null,"st":"up"}],"ospf":[],"ospf_rid":null,"redistribute":[],"static":[{"nh":"10.5.5.2","p":"192.168.50.0/24"}],"vendor":"cisco_ios"},"r2":{"as":65002,"bgp":[{"af":"v4","link":"be:ol:lnk:r1::GigabitEthernet0/0|r2::ge-0/0/0","lip":"10.0.12.2","nb":"10.0.12.1","nhs":null,"pas":65020,"rr":null,"src":null,"type":"ebgp"},{"af":"v4","link":"be:ext:r2:10.6.6.1","lip":"10.6.6.2","nb":"10.6.6.1","nhs":null,"pas":65020,"rr":null,"src":null,"type":"ebgp"}],"bgp_rid":null,"degree":1,"hostname":"R2","ifs":[{"addrs":[{"af":"v4","ip":"10.0.12.2","prefix":24}],"d":"to-R1-global","ip":"10.0.12.2/24","ip6":null,"mtu":null,"n":"ge-0/0/0","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"10.6.6.2","prefix":24}],"d":"CUST-BLUE-link","ip":"10.6.6.2/24","ip6":null,"mtu":null,"n":"ge-0/0/1","ospf":null,"sp":null,"st":"up"},{"addrs":[{"af":"v4","ip":"2.2.2.2","prefix":32}],"d":null,"ip":"2.2.2.2/32","ip6":null,"mtu":null,"n":"lo0","ospf":null,"sp":null,"st":"up"}],"ospf":[],"ospf_rid":null,"redistribute":[],"static":[{"nh":"10.6.6.1","p":"192.168.60.0/24"}],"vendor":"juniper_junos"}},"extPeers":[{"as":65010,"from":"r1","id":"ext:10.5.5.2","label":"AS 65010","link":"be:ext:r1:10.5.5.2","sub":"10.5.5.2"},{"as":65020,"from":"r2","id":"ext:10.6.6.1","label":"AS 65020","link":"be:ext:r2:10.6.6.1","sub":"10.6.6.1"}],"fib":{"r1":[{"af":"v4","default":false,"ecmpGroup":0,"ifname":"Loopback0","kind":"connected","net":"1.1.1.1/32","nh":null,"overLink":null,"plen":32,"prefix":"1.1.1.1/32","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":"GigabitEthernet0/0","kind":"connected","net":"10.0.12.0/24","nh":null,"overLink":null,"plen":24,"prefix":"10.0.12.0/24","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":"GigabitEthernet0/1","kind":"connected","net":"10.5.5.0/24","nh":null,"overLink":null,"plen":24,"prefix":"10.5.5.0/24","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":"GigabitEthernet0/2","kind":"connected","net":"10.5.5.0/24","nh":null,"overLink":null,"plen":24,"prefix":"10.5.5.0/24","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":null,"kind":"static","net":"192.168.50.0/24","nh":"10.5.5.2","overLink":null,"plen":24,"prefix":"192.168.50.0/24","target":null,"via":"dangling"}],"r2":[{"af":"v4","default":false,"ecmpGroup":0,"ifname":"lo0","kind":"connected","net":"2.2.2.2/32","nh":null,"overLink":null,"plen":32,"prefix":"2.2.2.2/32","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":"ge-0/0/0","kind":"connected","net":"10.0.12.0/24","nh":null,"overLink":null,"plen":24,"prefix":"10.0.12.0/24","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":"ge-0/0/1","kind":"connected","net":"10.6.6.0/24","nh":null,"overLink":null,"plen":24,"prefix":"10.6.6.0/24","target":null,"via":"local"},{"af":"v4","default":false,"ecmpGroup":0,"ifname":null,"kind":"static","net":"192.168.60.0/24","nh":"10.6.6.1","overLink":null,"plen":24,"prefix":"192.168.60.0/24","target":null,"via":"dangling"}]},"links":[{"a":"r1","ai":"GigabitEthernet0/0","aip":"10.0.12.1","b":"r2","bi":"ge-0/0/0","bip":"10.0.12.2","id":"lnk:r1::GigabitEthernet0/0|r2::ge-0/0/0","subnet":"10.0.12.0/24"}],"meta":{"generated_from":["R1.cfg","R2.conf"]},"parse_status":{"r1":["ignored","ignored","ignored","parsed","ignored","ignored","ignored","parsed","parsed","parsed","parsed","ignored","parsed","parsed","parsed","parsed","parsed","ignored","parsed","parsed","parsed","parsed","ignored","parsed","parsed","ignored","parsed","parsed","parsed","parsed","parsed","ignored","parsed","ignored","ignored"],"r2":["ignored","parsed","parsed","parsed","parsed","parsed","parsed","parsed","parsed","parsed","parsed","parsed","parsed"]},"raw_configs":{"r1":"!\n! Cisco IOS / IOS-XE running-config (VRF demo: R1)\n!\nhostname R1\n!\nip vrf RED\n!\ninterface GigabitEthernet0/0\n description to-R2-global\n ip address 10.0.12.1 255.255.255.0\n no shutdown\n!\ninterface GigabitEthernet0/1\n description CUST-RED-link\n ip vrf forwarding RED\n ip address 10.5.5.1 255.255.255.0\n no shutdown\n!\ninterface GigabitEthernet0/2\n description GLOBAL-overlap-link\n ip address 10.5.5.1 255.255.255.0\n no shutdown\n!\ninterface Loopback0\n ip address 1.1.1.1 255.255.255.255\n!\nrouter bgp 65020\n neighbor 10.0.12.2 remote-as 65002\n address-family ipv4 vrf RED\n  neighbor 10.5.5.2 remote-as 65010\n exit-address-family\n!\nip route vrf RED 192.168.50.0 255.255.255.0 10.5.5.2\n!\nend\n","r2":"## Juniper JunOS configuration in `set` format (VRF demo: R2)\nset system host-name R2\nset interfaces ge-0/0/0 description to-R1-global\nset interfaces ge-0/0/0 unit 0 family inet address 10.0.12.2/24\nset interfaces ge-0/0/1 description CUST-BLUE-link\nset interfaces ge-0/0/1 unit 0 family inet address 10.6.6.2/24\nset interfaces lo0 unit 0 family inet address 2.2.2.2/32\nset routing-options autonomous-system 65002\nset protocols bgp group ext type external\nset protocols bgp group ext neighbor 10.0.12.1 peer-as 65020\nset routing-instances BLUE interface ge-0/0/1.0\nset routing-instances BLUE routing-options static route 192.168.60.0/24 next-hop 10.6.6.1\nset routing-instances BLUE protocols bgp group v neighbor 10.6.6.1 peer-as 65020\n"},"raw_configs_prev":{},"segments":[],"static_edges":[{"a":"r1","af":"v4","b":null,"default":false,"ecmp":false,"id":"se:0","kind":"dangling","link":null,"nh":"10.5.5.2","prefix":"192.168.50.0/24","stub":"r1:se-dang:10.5.5.2"},{"a":"r2","af":"v4","b":null,"default":false,"ecmp":false,"id":"se:1","kind":"dangling","link":null,"nh":"10.6.6.1","prefix":"192.168.60.0/24","stub":"r2:se-dang:10.6.6.1"}],"static_stubs":[{"dev":"r1","id":"r1:se-dang:10.5.5.2","kind":"dangling","label":"10.5.5.2","nh":"10.5.5.2","prefix":"192.168.50.0/24"},{"dev":"r2","id":"r2:se-dang:10.6.6.1","kind":"dangling","label":"10.6.6.1","nh":"10.6.6.1","prefix":"192.168.60.0/24"}],"stub_nodes":[{"area":null,"dev":"r1","ifn":"GigabitEthernet0/1","ip":"10.5.5.1","kind":"stub","subnet":"10.5.5.0/24"},{"area":null,"dev":"r1","ifn":"GigabitEthernet0/2","ip":"10.5.5.1","kind":"stub","subnet":"10.5.5.0/24"},{"area":null,"dev":"r1","ifn":"Loopback0","ip":"1.1.1.1","kind":"loopback","subnet":"1.1.1.1/32"},{"area":null,"dev":"r2","ifn":"ge-0/0/1","ip":"10.6.6.2","kind":"stub","subnet":"10.6.6.0/24"},{"area":null,"dev":"r2","ifn":"lo0","ip":"2.2.2.2","kind":"loopback","subnet":"2.2.2.2/32"}]};</script><script>const POS={"ext:10.5.5.2":{"x":335.2,"y":-597.6},"ext:10.6.6.1":{"x":-597.6,"y":335.2},"r1":{"x":35.3,"y":-297.8},"r2":{"x":-297.8,"y":35.3}};</script><script>const VIEWS=["physical","static","bgp","addr","ifs","config","checks"];</script><script>const DIFF=null;</script><script>
+"use strict";
+const _SVG_NS = "http" + "://www.w3.org/2000/svg";  /* assembled to avoid literal URL */
+
+const NODE_W = 148, NODE_H = 56;
+/* degree 連動ノードサイズ: 接続数の多い機器ほどノードをやや大きく描く（拡大のみ・上限あり）。
+   座標はレイアウト点ベースのまま（layout.py は変更しない）。サイズは視覚的目安。
+   仕様: extra = min(max(0, degree-1), CAP)
+         w = NODE_W + extra * STEP_W, h = NODE_H + extra * STEP_H
+         degree ≤ 1 は extra=0 で基準サイズ（縮小しない）。CAP=6 → degree=CAP+1=7 で頭打ち → 最大 196×68。*/
+function nodeScale(degree) {
+  const CAP = 6, STEP_W = 8, STEP_H = 2;
+  const d = Math.max(0, (degree || 0) - 1);  /* degree ≤ 1 は 0 扱い（基準サイズ） */
+  const extra = Math.min(d, CAP);
+  return { w: NODE_W + extra * STEP_W, h: NODE_H + extra * STEP_H };
+}
+/* ノード幅 w(px) から hostname ラベルの概算最大文字数を返す整数（純関数・決定的）。
+   左16+右パディング ≈22px、14px bold で約8px/文字の概算。w 増で単調非減少、最小1。 */
+function nodeLabelMaxChars(w) {
+  return Math.max(1, Math.floor((w - 22) / 8));
+}
+/* バッジ（RR/RRC）表示時の hn 行（上段）の最大文字数。ノード右上角のバッジと衝突させないため
+   バッジ占有幅 (badge.length*6+10)（device ノードの rrbadge rect と一致）＋ギャップ 6px を差し引く。
+   badge が falsy なら maxc をそのまま返す（従来の見た目を維持）。決定的・DOM 非依存の純関数。
+   sub 行（下段）はバッジの縦帯より下なので呼び出し側で maxc のまま使う。 */
+function badgeHnMaxc(w, maxc, badge) {
+  if (!badge) return maxc;
+  return Math.max(1, Math.floor((w - 22 - (badge.length * 6 + 10) - 6) / 8));
+}
+/* ラベル省略: text が maxChars 以下ならそのまま返す。超過なら (maxChars-1)文字+"…" を返す。
+   maxChars=1 のとき "…"、maxChars<=0 のとき ""（空文字。ただし nodeLabelMaxChars が常に1以上を返すため実用上未到達）。
+   null/空文字は空文字を返す。DOM 非依存・決定的純関数。
+   対象は config 由来のホスト名（ASCII 識別子想定）。slice は UTF-16 単位。*/
+function truncateLabel(text, maxChars) {
+  const t = text == null ? "" : String(text);
+  if (maxChars <= 1) return t.length === 0 ? "" : (maxChars <= 0 ? "" : "…");
+  if (t.length <= maxChars) return t;
+  return t.slice(0, maxChars - 1) + "…";
+}
+const AS_PALETTE = ["#5b8def","#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f"];
+const AREA_PALETTE = ["#43b97f","#e08a3c","#9d6fd6","#3eb5c7","#d05f5f","#5b8def"];
+const asColor = a => AS_PALETTE[a % AS_PALETTE.length];
+/* BGP セッション色はピア AS でなく種別で固定（eBGP/iBGP で統一。AS の識別は AS 枠の色が担う） */
+const BGP_COLOR = { ebgp:"#e8775a", ibgp:"#7aa2f7" };
+const areaColor = a => { const head = String(a).split("/")[0]; const n = /^\d+$/.test(head) ? +head : [...head].reduce((s,c)=>s+c.charCodeAt(0),0); return AREA_PALETTE[n % AREA_PALETTE.length]; };
+/* area-badge 表示文字列・塗り色を返す共通ヘルパー。
+   "/" 連結（不一致）なら "area X≠Y" ＋ 警告色、単一 area なら "area X" ＋ areaColor。
+   w（幅）の計算は呼び出し側で行う（txt.length*6.4+12）。 */
+function areaBadge(area){ const m=String(area).includes("/"); return { txt: m ? "area "+String(area).split("/").join("≠") : "area "+area, fill: m ? "var(--danger)" : areaColor(area) }; }
+
+/* --- データ駆動凡例用 純関数 (B4) --- */
+/* presentAreas(data): data.links (非 admin_down かつ area あり) と data.segments (area あり) から
+   area 値を収集する。複合 area (例 "0/1") は "/" で分割して個別値として扱う。
+   重複排除後、数値昇順でソートした配列を返す。DOM/グローバルに触れない純関数。
+   凡例用は描画される links/segments の area から集計。 */
+function presentAreas(data) {
+  const seen = new Set();
+  const collect = a => {
+    if (a == null) return;
+    for (const part of String(a).split("/")) {
+      const n = /^\d+$/.test(part.trim()) ? +part.trim() : null;
+      if (n !== null) seen.add(n);
+    }
+  };
+  for (const l of data.links) if (!l.admin_down && l.area != null) collect(l.area);
+  for (const s of data.segments) if (s.area != null) collect(s.area);
+  return [...seen].sort((a, b) => a - b);
+}
+/* presentASes(data): Object.values(data.devices) の as (非 null) と
+   data.extPeers の as (非 null) を収集。重複排除後、数値昇順でソートした配列を返す。 */
+function presentASes(data) {
+  const seen = new Set();
+  for (const d of Object.values(data.devices)) if (d.as != null) seen.add(+d.as);
+  for (const e of data.extPeers) if (e.as != null) seen.add(+e.as);
+  return [...seen].sort((a, b) => a - b);
+}
+
+/* ================= state ================= */
+let hoverLink = null, hoverNode = null, hoverBgp = null, hotBgp = null, hotNet = null;
+let cfgHitIdx = -1;   /* CONFIG 検索一致行ナビの現在位置（renderConfigView で -1 リセット） */
+const S = {
+  view:"physical", k:1, tx:0, ty:0,
+  sel:new Set(), search:"", matches:[], mi:-1,
+  connectedOnly:false,
+  trace:{src:null, dst:"", result:null}, /* STATIC 経路トレース（始点機器・宛先・結果。ランタイム状態） */
+  focusMode:true, focusHops:1, /* N-hop フォーカス。現状 UI 未提供・1 固定（将来拡張用） */
+  filters:{seg:true, lo:true, stub:true, hiddenAS:new Set()},
+  hiddenNodes:new Set(), nodePanel:false,
+  legend:true, minimap:true, legendHot:null,
+  sort:{addr:null, ifs:null},
+  collapsedNets:new Set(), sfield:"all", ifKindFilter:"all",
+  configDev:null,   /* CONFIG ビューで選択中の device id（null=先頭機器） */
+  configWrap:false, /* CONFIG: 行折返し（true=pre-wrap） */
+  configGrep:false, /* CONFIG: 検索一致行のみ抜粋表示 */
+  configParse:false,        /* CONFIG: parse 状態モード（parsed/ignored/unparsed 色分け） */
+  configUnparsedOnly:false, /* CONFIG: parse 状態モードで未対応行のみ抜粋 */
+  configSplit:false,        /* CONFIG: 2ペイン横並び比較モード（自由比較・source 切替あり） */
+  configEdit:false,         /* CONFIG: ノード駆動編集モード（左=選択機器の原本/右=編集コピー・固定） */
+  configSrcL:null, configSrcR:null, /* CONFIG: 左右ペインの source key（dev:/prev:/scratch:） */
+  configScratch:{},         /* CONFIG: 編集スクラッチ {"scratch:<id>": text}（localStorage 永続） */
+};
+const isTableView = () => S.view === "addr" || S.view === "ifs" || S.view === "checks" || S.view === "diff" || S.view === "config";
+const $ = s => document.querySelector(s);
+const world = $("#world"), tooltip = $("#tooltip");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* search corpus per node（all=全文 / フィールド演算子用に host,ip,desc,as,vendor も持つ） */
+const corpus = {}, fcorpus = {};
+for (const [id,d] of Object.entries(DATA.devices)) {
+  corpus[id] = [d.hostname, d.vendor, "AS"+d.as, d.as, d.ospf_rid, d.bgp_rid,
+    ...d.ifs.flatMap(i => [i.n, i.ip, i.ip6, i.d,
+      ...(i.addrs||[]).flatMap(a=>[a.ip])])].filter(Boolean).join(" ").toLowerCase();
+  fcorpus[id] = {
+    host: d.hostname.toLowerCase(),
+    ip: d.ifs.flatMap(i=>[i.ip,i.ip6,...(i.addrs||[]).map(a=>a.ip)]).filter(Boolean).join(" ").toLowerCase(),
+    desc: d.ifs.map(i=>i.d).filter(Boolean).join(" ").toLowerCase(),
+    as: String(d.as), vendor: d.vendor.toLowerCase(),
+  };
+}
+for (const s of DATA.segments) {
+  corpus[s.id] = (s.subnet + " segment " + s.members.map(m=>m.ip).join(" ")).toLowerCase();
+  fcorpus[s.id] = { host:"", ip:(s.subnet+" "+s.members.map(m=>m.ip).join(" ")).toLowerCase(), desc:"", as:"", vendor:"" };
+}
+for (const e of DATA.extPeers) {
+  corpus[e.id] = (e.label + " " + e.sub + " external").toLowerCase();
+  fcorpus[e.id] = { host:e.label.toLowerCase(), ip:e.sub.toLowerCase(), desc:"", as:String(e.as), vendor:"" };
+}
+
+/* IP（ホスト部）→ 所属 subnet の逆引き（IF 行⇄ライン連動用） */
+const IP2NET = {};
+for (const l of DATA.links) {
+  IP2NET[l.aip] = l.subnet; IP2NET[l.bip] = l.subnet;
+  if (l.aip6) IP2NET[l.aip6] = l.dual;
+  if (l.bip6) IP2NET[l.bip6] = l.dual;
+}
+for (const s of DATA.segments) for (const m of s.members) IP2NET[m.ip] = s.subnet;
+
+/* dual-stack リンクの v4 ⇄ v6 subnet 対応表。ライン選択は両者を同一ラインとして扱う */
+const NET_PAIR = {};
+for (const l of DATA.links) if (l.dual) { NET_PAIR[l.subnet] = l.dual; NET_PAIR[l.dual] = l.subnet; }
+/* その subnet が現在のライン選択（hotNet）と同一ラインか（v4/v6 の対も一致とみなす） */
+const netHot = net => !!hotNet && (hotNet === net || NET_PAIR[net] === hotNet);
+
+/* 検索のフィールド演算子（グラフ・表 共通） */
+const OP_RE = /^(host|ip|desc|as|vendor|net):(.*)$/;
+
+const u32ToIp = u => [(u>>>24)&255, (u>>>16)&255, (u>>>8)&255, u&255].join(".");
+const ipToU32 = h => { const o = h.split(".").map(Number); return ((o[0]<<24)|(o[1]<<16)|(o[2]<<8)|o[3])>>>0; };
+/* interface の全 v6 アドレスを返す。GUA を先、link-local を後に concat（sort 非依存で決定的）。
+   各要素は {cidr: string, ll: bool}。addrs が無い場合は空配列。 */
+function ifV6List(i) {
+  const gua = [], ll = [];
+  for (const a of (i.addrs||[])) {
+    if (a.af !== "v6") continue;
+    const cidr = a.prefix != null ? `${a.ip}/${a.prefix}` : a.ip;
+    if (!cidr) continue;
+    (a.scope === "link-local" ? ll : gua).push(cidr);
+  }
+  return [...gua.map(c=>({cidr:c, ll:false})), ...ll.map(c=>({cidr:c, ll:true}))];
+}
+
+/* v4 アドレスの所属ネットワーク: 結線推論（IP2NET）優先、無ければ自身の prefix から導出
+   （対外スタブ /30 等も管理対象に載せる。/32 は host route なので導出せず推論外グループへ） */
+function netOfV4(a) {
+  const host = a.split("/")[0], p = +a.split("/")[1];
+  if (IP2NET[host]) return IP2NET[host];
+  if (!(p >= 0 && p < 32)) return null;
+  const mask = p === 0 ? 0 : (~0 << (32 - p)) >>> 0;
+  return `${u32ToIp((ipToU32(host) & mask) >>> 0)}/${p}`;
+}
+
+/* ===== STATIC フォワーディング・トレース（DOM 非依存・純関数）=====
+   FIB（DATA.fib）に対する longest-prefix match と hop 連鎖。将来 dynamic も同 FIB 形で再利用。 */
+/* v6 アドレス→BigInt（"::" 圧縮対応・ゾーン除去。埋め込み v4 表記は非対応＝正規化済み RFC5952 前提）。 */
+function ip6ToBig(s) {
+  s = String(s).split("%")[0];
+  let head, tail;
+  if (s.indexOf("::") >= 0) {
+    const parts = s.split("::");
+    head = parts[0] ? parts[0].split(":") : [];
+    tail = parts[1] ? parts[1].split(":") : [];
+  } else { head = s.split(":"); tail = []; }
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0) return null;
+  const groups = head.concat(Array(missing).fill("0"), tail);
+  let v = 0n;
+  for (const g of groups) v = (v << 16n) | BigInt(parseInt(g || "0", 16) || 0);
+  return v;
+}
+/* ip が cidr に属するか（v4/v6 両対応・self-contained）。cidr は "net/plen"。 */
+function ipInCidr(ip, cidr) {
+  const slash = cidr.lastIndexOf("/");
+  const netAddr = slash >= 0 ? cidr.slice(0, slash) : cidr;
+  const isV6 = ip.indexOf(":") >= 0 || netAddr.indexOf(":") >= 0;
+  const max = isV6 ? 128 : 32;
+  let plen = slash >= 0 ? +cidr.slice(slash + 1) : max;
+  if (!(plen >= 0)) plen = 0;                 /* NaN/負は 0（不正入力ガード） */
+  if (plen > max) plen = max;                 /* 範囲外（例 /999）はホスト長に丸め負シフトを防ぐ */
+  if (isV6) {
+    const a = ip6ToBig(ip), n = ip6ToBig(netAddr);
+    if (a == null || n == null) return false;
+    if (plen <= 0) return true;
+    const sh = BigInt(128 - plen);
+    return (a >> sh) === (n >> sh);
+  }
+  const toU = h => { const o = h.split("."); return (((+o[0]) << 24) | ((+o[1]) << 16) | ((+o[2]) << 8) | (+o[3])) >>> 0; };
+  const a = toU(ip), n = toU(netAddr);
+  if (plen <= 0) return true;
+  const mask = (~0 << (32 - plen)) >>> 0;
+  return ((a & mask) >>> 0) === ((n & mask) >>> 0);
+}
+function afOf(ip) { return String(ip).indexOf(":") >= 0 ? "v6" : "v4"; }
+/* dev の FIB で dst（IP or prefix の代表ネットワークアドレス）に longest-prefix match するエントリを返す。
+   FIB は plen 降順→同 plen は connected が static より先（kind 昇順）でソート済みのため、最初の包含一致が LPM。 */
+function evalNode(fib, dev, dstStr, af) {
+  const dstIp = String(dstStr).split("/")[0];
+  const entries = (fib[dev] || []);
+  for (const e of entries) {
+    if (e.af !== af) continue;
+    if (ipInCidr(dstIp, e.net)) return e;
+  }
+  return null;
+}
+/* startDev から dst への転送経路を FIB トレース。verdict: delivered/blackhole/unreachable-nexthop/no-route/loop。 */
+function traceForward(fib, startDev, dstStr) {
+  const af = afOf(String(dstStr).split("/")[0]);
+  const hops = [], visited = new Set();
+  let dev = startDev, verdict = "no-route", ecmpBranches = [];
+  const cap = Object.keys(fib).length + 1;
+  for (let i = 0; i < cap; i++) {
+    if (visited.has(dev)) { verdict = "loop"; break; }
+    visited.add(dev);
+    const m = evalNode(fib, dev, dstStr, af);
+    if (!m) { hops.push({ dev, matched: null, next: null }); verdict = "no-route"; break; }
+    if (m.ecmpGroup) ecmpBranches = (fib[dev] || []).filter(
+      e => e.kind === "static" && e.af === af && e.ecmpGroup === m.ecmpGroup)
+      .map(e => ({ prefix: e.prefix, nh: e.nh, target: e.target }));
+    if (m.kind === "connected") { hops.push({ dev, matched: m, next: null }); verdict = "delivered"; break; }
+    if (m.via === "blackhole") { hops.push({ dev, matched: m, next: null }); verdict = "blackhole"; break; }
+    if (m.via === "dangling" || !m.target) { hops.push({ dev, matched: m, next: null }); verdict = "unreachable-nexthop"; break; }
+    hops.push({ dev, matched: m, next: m.target });
+    dev = m.target;
+  }
+  return { hops, verdict, visited: [...visited], ecmpBranches };
+}
+const TRACE_VERDICT = { delivered: "到達", blackhole: "破棄 (blackhole)",
+  "unreachable-nexthop": "next-hop 到達不可", "no-route": "経路なし", loop: "ループ" };
+/* verdict を class suffix に使う前の許可リスト検証（class 属性インジェクション防御・既知5値のみ） */
+function safeVerdict(v) { return TRACE_VERDICT[v] ? v : "no-route"; }
+/* トレース UI（始点機器ドロップダウン・宛先 datalist）を一度だけ充填 */
+function initTraceControls() {
+  const src = document.getElementById("trace-src");
+  if (src && !src.options.length) {
+    const devs = Object.entries(DATA.devices).map(([id, d]) => ({ id, name: d.hostname || id }))
+      .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    src.innerHTML = '<option value="">始点機器…</option>' +
+      devs.map(o => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join("");
+  }
+  const dl = document.getElementById("trace-dsts");
+  if (dl && !dl.children.length) {
+    const nets = new Set();
+    for (const ents of Object.values(DATA.fib || {})) for (const e of ents) if (e.net) nets.add(e.net);
+    dl.innerHTML = [...nets].sort().map(n => `<option value="${esc(n)}"></option>`).join("");
+  }
+}
+/* S.trace と DOM コントロール・verdict バッジを同期 */
+function syncTraceControls() {
+  initTraceControls();
+  const src = document.getElementById("trace-src"), dst = document.getElementById("trace-dst"),
+        vb = document.getElementById("trace-verdict");
+  if (src && S.trace.src != null) src.value = S.trace.src;
+  if (dst) dst.value = S.trace.dst || "";
+  if (vb) { const r = S.trace.result;
+    vb.textContent = r ? (TRACE_VERDICT[r.verdict] || r.verdict) : "";
+    vb.className = r ? "tv-" + safeVerdict(r.verdict) : ""; }
+}
+/* トレース実行: 始点（未指定かつ単一選択ノードがあればそれ）＋宛先で traceForward */
+function runTrace() {
+  let src = (document.getElementById("trace-src") || {}).value || "";
+  if (!src && S.sel.size === 1) { const only = [...S.sel][0]; if (DATA.devices[only]) src = only; }
+  const dst = ((document.getElementById("trace-dst") || {}).value || "").trim();
+  S.trace.src = src; S.trace.dst = dst;
+  S.trace.result = (src && dst && DATA.fib && DATA.fib[src]) ? traceForward(DATA.fib, src, dst) : null;
+  update();
+}
+function clearTrace() {
+  S.trace.result = null; S.trace.dst = "";
+  const d = document.getElementById("trace-dst"); if (d) d.value = "";
+  update();
+}
+/* 詳細パネル用: トレース結果の hop 列＋verdict（全テキスト esc） */
+function renderTraceResult(r) {
+  const host = id => (DATA.devices[id] && DATA.devices[id].hostname) || id;
+  const rows = r.hops.map((h, i) => {
+    const m = h.matched;
+    let via = "—";
+    if (m) {
+      via = m.kind === "connected"
+        ? "connected (" + esc(m.ifname || "") + ")"
+        : esc(m.prefix) + " → " + (m.nh ? esc(m.nh) : "") + (m.target ? " [" + esc(host(m.target)) + "]" : "");
+    }
+    return `<tr><td>${i + 1}</td><td>${esc(host(h.dev))}</td><td class="dim-t">${via}</td></tr>`;
+  }).join("");
+  const ecmp = (r.ecmpBranches && r.ecmpBranches.length > 1)
+    ? `<div class="tnote" style="padding:6px 0">ECMP 候補: ${r.ecmpBranches.map(b => esc(b.nh || "") + (b.target ? "(" + esc(host(b.target)) + ")" : "")).join(" / ")}（トレースは先頭を選択）</div>` : "";
+  return `<div class="card"><div class="chead"><b>経路トレース</b> <span class="badge tv-${safeVerdict(r.verdict)}">${esc(TRACE_VERDICT[r.verdict] || r.verdict)}</span></div>` +
+    `<div class="csec"><table class="dt"><tr><th>#</th><th>機器</th><th>マッチ / next-hop</th></tr>${rows}</table>${ecmp}</div></div>`;
+}
+
+/* fcorpus.net = そのノードが接続する subnet 群（net: 演算子用。表ビューと同じ netOfV4 導出で件数を一致させる） */
+for (const [id,d] of Object.entries(DATA.devices)) {
+  const nets = new Set();
+  for (const i of d.ifs) {
+    if (i.ip) { const n = netOfV4(i.ip); if (n) { nets.add(n); if (NET_PAIR[n]) nets.add(NET_PAIR[n]); } }
+    if (i.ip6) { const n = IP2NET[i.ip6.split("/")[0]]; if (n) { nets.add(n); if (NET_PAIR[n]) nets.add(NET_PAIR[n]); } }
+  }
+  fcorpus[id].net = [...nets].join(" ").toLowerCase();
+}
+for (const s of DATA.segments) fcorpus[s.id].net = s.subnet.toLowerCase();
+for (const e of DATA.extPeers) fcorpus[e.id].net = "";
+
+/* adjacency: nodeId -> Set(nodeId)。現在のビューで描画されるエッジのみ数える
+   （「接続先のみ」フィルタで接続線の見えないノードが浮かないように） */
+function adjacency() {
+  const adj = {};
+  const add = (a,b) => { (adj[a] ||= new Set()).add(b); (adj[b] ||= new Set()).add(a); };
+  for (const l of DATA.links) {
+    if (S.view === "bgp" && !DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id)) continue;
+    if (S.view === "ospf" && !(l.area && !l.admin_down)) continue;
+    add(l.a, l.b);
+  }
+  for (const s of DATA.segments) {
+    if (S.view === "bgp") continue;
+    if (S.view === "ospf" && !s.area) continue;
+    for (const m of s.members) add(s.id, m.dev);
+  }
+  if (S.view === "bgp") {
+    for (const e of DATA.bgpEdges) {
+      if (e.kind === "loopback") add(e.a, e.b);
+      if (e.kind === "external") add(e.a, e.ext);
+    }
+  }
+  if (S.view === "static") {
+    for (const e of (DATA.static_edges || [])) if (e.b) add(e.a, e.b);
+  }
+  return adj;
+}
+
+/* ================= URL ハッシュ状態保存/復元（B3） ================= */
+
+/* encodeState(view, selIds): ビューと選択ノード id 配列からハッシュ文字列を生成する純関数。
+   selIds は昇順ソートして決定的に。各 id は encodeURIComponent でエンコード（: / を含む id 対応）。
+   選択なし（selIds 空）なら n= は付けない。DOM・グローバル変数に一切触れない純関数。 */
+function encodeState(view, selIds) {
+  let s = "";
+  if (view) s += "v=" + encodeURIComponent(view);
+  if (selIds && selIds.length > 0) {
+    const sorted = selIds.slice().sort();
+    const n = sorted.map(id => encodeURIComponent(id)).join(",");
+    s += (s ? "&" : "") + "n=" + n;
+  }
+  return s;
+}
+
+/* decodeState(hashStr): ハッシュ文字列（先頭 # 付き可）をパースして {view, sel} を返す純関数。
+   不正・空・未知形式に対して安全（例外を投げず {view:null, sel:[]} 相当を返す）。
+   DOM・グローバル変数に一切触れない純関数。 */
+function decodeState(hashStr) {
+  try {
+    const s = String(hashStr || "").replace(/^#/, "");
+    if (!s) return { view: null, sel: [] };
+    const params = Object.create(null);   /* __proto__/constructor 等のキー注入をプロトタイプレベルで排除 */
+    for (const part of s.split("&")) {
+      const eq = part.indexOf("=");
+      if (eq === -1) continue;
+      const k = part.slice(0, eq);
+      const v = part.slice(eq + 1);
+      params[k] = v;
+    }
+    const view = params.v ? decodeURIComponent(params.v) || null : null;
+    let sel = [];
+    if (params.n) {
+      sel = params.n.split(",").filter(Boolean).slice(0, 500).map(id => { try { return decodeURIComponent(id); } catch(_) { return null; } }).filter(Boolean);
+    }
+    return { view, sel };
+  } catch (_) {
+    return { view: null, sel: [] };
+  }
+}
+
+/* applyStateFromHash(): location.hash を decodeState し、有効な view/sel を適用する。
+   view が VIEWS に含まれる場合のみ setView 相当で適用。
+   sel の各 id が実在ノード（DATA.devices/segments/extPeers）の場合のみ S.sel に復元（不正 id は無視）。
+   DATA を使う検証はこの関数内で行う（純関数 decodeState とは分離）。 */
+function applyStateFromHash() {
+  const { view, sel } = decodeState(location.hash);
+  if (view && VIEWS.includes(view)) {
+    S.view = view;
+    document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  }
+  if (sel && sel.length > 0) {
+    const validIds = new Set([
+      ...Object.keys(DATA.devices),
+      ...DATA.segments.map(s => s.id),
+      ...DATA.extPeers.map(e => e.id),
+      ...(DATA.stub_nodes || []).map(lpId),
+    ]);
+    S.sel.clear();
+    for (const id of sel) { if (validIds.has(id)) S.sel.add(id); }
+  }
+  /* view 固有クリーンアップ: setView と同じロジックで、復元した sel から
+     現在のビューに不適合な id を除去（手細工 URL による不整合を解消）。
+     順序: view 設定 → 有効 sel 復元 → クリーンアップ */
+  const v = S.view;
+  if (v === "bgp") for (const s of DATA.segments) S.sel.delete(s.id);
+  if (v === "ospf") for (const s of DATA.segments) if (!s.area) S.sel.delete(s.id);
+  if (v === "bgp") for (const st of (DATA.stub_nodes || [])) S.sel.delete(lpId(st));
+  if (v === "ospf") for (const st of (DATA.stub_nodes || [])) if (!st.area) S.sel.delete(lpId(st));
+  if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
+}
+
+/* syncHashToState(): 現在の S.view と S.sel を encodeState し、history.replaceState でハッシュ更新。
+   replaceState を使い履歴汚染・リロードを避ける。現在のハッシュと同一なら書かない（無駄な更新防止）。 */
+function syncHashToState() {
+  const encoded = encodeState(S.view, [...S.sel]);
+  const next = "#" + encoded;
+  if (location.hash === next) return;
+  history.replaceState(null, "", next);
+}
+
+/* edgeNormalOffset: エッジ (ax,ay)-(bx,by) の法線方向（90°回転）に dist だけオフセットした {dx, dy} を返す純関数。
+   法線は方向ベクトル (ex,ey) を左90°回転した (-ey, ex) を単位化し dist を掛けたもの。
+   L===0（a==b 退化）のときは {dx:0, dy:0} を返す（例外なし）。
+   小数第1位に丸めて決定的な出力にする。DOM/グローバル状態に一切依存しない純関数。 */
+/* LABEL_NORMAL_OFFSET: subnet ラベルをエッジ法線方向へずらす既定距離（SVG 座標単位 px）。
+   小さすぎると線と重なり、大きすぎると隣ノードに被る。10 は NODE_H=56 の約1/5 を目安。 */
+const LABEL_NORMAL_OFFSET = 10;
+function edgeNormalOffset(ax, ay, bx, by, dist) {
+  const ex = bx - ax, ey = by - ay;
+  const L = Math.sqrt(ex * ex + ey * ey);
+  if (L === 0) return { dx: 0, dy: 0 };
+  /* 法線ベクトル: (ex,ey) を左90°回転 → (-ey, ex)、長さLで割って単位化、distを掛ける */
+  const nx = -ey / L * dist, ny = ex / L * dist;
+  return { dx: Math.round(nx * 10) / 10, dy: Math.round(ny * 10) / 10 };
+}
+
+/* nHopNeighbors: BFS で seeds から hops ホップ以内に到達する全 id の Set を返す純関数。
+   adj は {id: Set<id> | Array<id>} 形式（adjacency() の戻り値を直接渡せる）。
+   seeds 自身は必ず結果に含まれる。adj に存在しない seed も結果に含まれる。
+   DOM / グローバル状態に一切依存しない純関数（テストで node 実行できる）。 */
+function nHopNeighbors(adj, seeds, hops) {
+  const visited = new Set(seeds);
+  let frontier = [...seeds];
+  for (let h = 0; h < hops; h++) {
+    const next = [];
+    for (const id of frontier) {
+      const nbrs = adj[id];
+      if (!nbrs) continue;
+      for (const nb of nbrs) {
+        if (!visited.has(nb)) { visited.add(nb); next.push(nb); }
+      }
+    }
+    frontier = next;
+    if (frontier.length === 0) break;
+  }
+  return visited;
+}
+
+/* 積み上げラベル: IF名 / IPv4 / IPv6 を1行ずつ改行して縦に描画（caller 側で null 行を除去して渡す）
+   lines の要素は string または {t: string, faint: bool}。後者は link-local 等の淡色表示に使用。 */
+function stackLabel(parts, cx, topY, lines, opts) {
+  const show = opts.show ? "show" : "";
+  const deco = opts.deco ? ` data-deco="${opts.deco}"` : "";
+  lines.forEach((item, i) => {
+    const txt = typeof item === "string" ? item : item.t;
+    const faint = typeof item === "object" && item.faint;
+    const w = String(txt).length*5.6+8, y0 = topY + i*13;
+    parts.push(`<rect class="iflabel-bg ${show}"${deco} x="${cx-w/2}" y="${y0}" width="${w}" height="12"/>` +
+               `<text class="iflabel ${show}${faint?" ll":""}"${deco} x="${cx}" y="${y0+9.5}" text-anchor="middle">${esc(txt)}</text>`);
+  });
+}
+
+/* ================= render ================= */
+function render() {
+  /* 表ビュー: SVG の代わりに #tableview を表示し、グラフ専用コントロールを隠す */
+  const tview = isTableView();
+  document.querySelectorAll(".gonly").forEach(el => el.classList.toggle("hidden", tview));
+  /* STATIC 専用コントロール（経路トレース）は STATIC 図ビューのときだけ表示 */
+  document.querySelectorAll(".static-only").forEach(el => el.classList.toggle("hidden", S.view !== "static"));
+  if (S.view === "static") syncTraceControls();
+  $("#tableview").style.display = tview ? "block" : "none";
+  if (tview) {
+    $("#legend").style.display = "none";
+    $("#minimap").style.display = "none";
+    $("#nodepanel").style.display = "none";
+    renderTableView();
+    return;
+  }
+  $("#nodepanel").style.display = S.nodePanel ? "block" : "none";
+  graphSearchFeedback();   /* 表ビューから戻ったとき件数/警告をノード基準へ戻す */
+  const showBgp  = S.view === "bgp";
+  const showOspf = S.view === "ospf";
+  const showStatic = S.view === "static";
+  /* STATIC: トレース結果のハイライト集合（経路上の device と device→next エッジ） */
+  const traceResult = (showStatic && S.trace && S.trace.result) ? S.trace.result : null;
+  const traceDevs = new Set(traceResult ? traceResult.hops.map(h => h.dev) : []);
+  const traceEdgeSet = new Set();
+  if (traceResult) for (const h of traceResult.hops) if (h.next) traceEdgeSet.add(h.dev + ">" + h.next);
+  const parts = [];
+  const labelParts = [];  /* ライン/エッジのラベル（ノードより前面に描画するため device ノード後に統合）*/
+
+  /* --- AS frames (BGP view) --- */
+  if (S.view === "bgp") {
+    const byAs = {};
+    /* 非表示ノードは AS 枠の計算からも除外（枠だけ宙に残らないように） */
+    for (const [id,d] of Object.entries(DATA.devices)) if (selectable(id)) (byAs[d.as] ||= []).push(id);
+    for (const e of DATA.extPeers) if (selectable(e.id)) (byAs[e.as] ||= []).push(e.id);
+    for (const [as, ids] of Object.entries(byAs)) {
+      const xs = ids.map(i=>POS[i].x), ys = ids.map(i=>POS[i].y);
+      const pad = 56;
+      const x = Math.min(...xs)-NODE_W/2-pad, y = Math.min(...ys)-NODE_H/2-pad-8;
+      const w = Math.max(...xs)-Math.min(...xs)+NODE_W+pad*2, h = Math.max(...ys)-Math.min(...ys)+NODE_H+pad*2;
+      const c = asColor(+as);
+      parts.push(`<g class="asgrp">
+        <rect class="asframe-fill" x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${c}"/>
+        <rect class="asframe" x="${x}" y="${y}" width="${w}" height="${h}" rx="14" stroke="${c}"/>
+        <text class="aslabel" x="${x+12}" y="${y+18}" fill="${c}">AS ${as}</text></g>`);
+    }
+  }
+
+  /* --- physical links --- */
+  /* hover はノード選択と同じハイライト（プレビュー）。図のハイライト判定は hl を使う。
+     ただし複数選択モードの判定は確定選択のみ＝hover で表示が増えることはあっても減らない */
+  const hl = new Set(S.sel); if (hoverNode) hl.add(hoverNode);
+  const multiSel = S.sel.size >= 2;
+  for (const l of DATA.links) {
+    /* ビュー関連性: BGP/OSPF ビューでは当該プロトコルに関係しないリンクを描画しない */
+    if (S.view === "bgp" && !DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id)) continue;
+    if (S.view === "ospf" && !(l.area && !l.admin_down)) continue;
+    const a = POS[l.a], b = POS[l.b];
+    const cls = ["lk"];
+    if (l.admin_down) cls.push("admin-down");
+    if (hoverLink === l.id) cls.push("lk-hover");   /* ライン hover 強調 */
+    const selA = hl.has(l.a), selB = hl.has(l.b);
+    /* 複数選択時は「選択ノード間のリンク」のみハイライト */
+    if (selA && selB) cls.push("sel-between");
+    else if ((selA || selB) && !multiSel) cls.push("sel-edge");
+    /* BGP セッション連動: over-link セッションが hot ならリンクも強調（render 内で付与し再描画で消えないように） */
+    if (hotBgp) {
+      const he = DATA.bgpEdges.find(x => x.id === hotBgp && x.kind === "over-link" && x.link === l.id);
+      if (he) cls.push("bgp-hot");
+    }
+    /* 図⇄表ハイライト連動（全ビュー共通・subnet 単位の「ライン選択」。v4/v6 の対も一致） */
+    if (netHot(l.subnet)) cls.push("bgp-hot");
+    const stroke = (showOspf && l.area && !l.admin_down) ? `stroke="${areaColor(l.area)}"` : "";
+    /* dual-stack でも線種は変えない（v6 はラベル・ツールチップ・表に v4 と同じ形式で併記） */
+    parts.push(`<line class="${cls.join(" ")}" data-elem="link" data-id="${l.id}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" ${stroke}/>`);
+    parts.push(`<line class="lk-hit" data-elem="link" data-id="${l.id}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
+    /* IF/IP ラベルの表示条件: ノード「選択」（確定選択のみ。hover では出さない＝hover はライン強調のみ）
+       またはライン自体の選択（netHot）/ ライン hover。BGP ビューでは BGP ラベルと重複するため出さない */
+    const sA = S.sel.has(l.a), sB = S.sel.has(l.b);
+    const showIf = S.view !== "bgp" &&
+      ((multiSel ? (sA && sB) : (sA || sB)) || hoverLink === l.id || netHot(l.subnet));
+    /* リンク端ラベル: IF名 / IPv4 / IPv6 を改行で縦積み（ラインに被らないよう上方向へ伸ばす）
+       端点 IF の link-local アドレスも淡色行として付加 */
+    for (const [p,q,ifn,ip,ip6,dev,ifname] of [[a,b,l.ai,l.aip,l.aip6,l.a,l.ai],[b,a,l.bi,l.bip,l.bip6,l.b,l.bi]]) {
+      const t = 0.26;
+      const lx = p.x + (q.x-p.x)*t, ly = p.y + (q.y-p.y)*t - 8;
+      const itf = (DATA.devices[dev]?.ifs||[]).find(x=>x.n===ifname);
+      const lls = itf ? ifV6List(itf).filter(x=>x.ll).map(x=>({t: x.cidr, faint:true})) : [];
+      const lines = [ifn, ip, ip6].filter(Boolean).concat(lls);
+      stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: showIf, deco:`link:${l.id}`});
+    }
+    /* リンクのネットワーク情報（subnet。v6 も同形式で併記）を選択/ホバー時に表示（OSPFバッジ表示時は重複を避け省略）
+       エッジの法線方向オフセット（edgeNormalOffset）を使い、エッジの角度によらず線の外側にラベルを配置する */
+    if (showIf && !(showOspf && l.area && !l.admin_down)) {
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      const off = edgeNormalOffset(a.x, a.y, b.x, b.y, LABEL_NORMAL_OFFSET);
+      stackLabel(labelParts, mx + off.dx, my + off.dy, [l.subnet, l.dual].filter(Boolean), {show: true, deco:`link:${l.id}`});
+    }
+    /* OSPF area badge */
+    if (showOspf && l.area && !l.admin_down) {
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2;
+      const {txt, fill: c} = areaBadge(l.area);
+      const w = txt.length*6.4+12;
+      parts.push(`<g class="area-badge" data-deco="link:${l.id}"><rect x="${mx-w/2}" y="${my-21}" width="${w}" height="15" fill="${c}"/>` +
+        `<text x="${mx}" y="${my-10}" text-anchor="middle" fill="#fff">${esc(txt)}</text>` +
+        `<text class="subnet-tag" x="${mx}" y="${my+14}" text-anchor="middle">${esc(l.subnet)}</text>` +
+        (l.dual?`<text class="subnet-tag" x="${mx}" y="${my+26}" text-anchor="middle">${esc(l.dual)}</text>`:"") + `</g>`);
+    }
+  }
+
+  /* --- segments --- */
+  for (const s of DATA.segments) {
+    /* ビュー関連性: BGP/OSPF ビューでは当該プロトコルに関係しないセグメントを描画しない */
+    if (S.view === "bgp") continue;   /* このサンプルに BGP セッションが乗るセグメントは無い */
+    if (S.view === "ospf" && !s.area) continue;
+    const p = POS[s.id];
+    const segSel = hl.has(s.id);
+    const segHot = netHot(s.subnet);
+    /* 複数選択ノードが同一セグメントのメンバーなら、その経路（spoke）とセグメントもハイライト */
+    const selMembers = s.members.filter(m => hl.has(m.dev));
+    const segBetween = multiSel && selMembers.length >= 2;
+    /* ラベル表示は確定選択（S.sel）のみで判定（hover はライン強調のみ） */
+    const sSegSel = S.sel.has(s.id);
+    const sSegBetween = multiSel && s.members.filter(m => S.sel.has(m.dev)).length >= 2;
+    for (const m of s.members) {
+      const q = POS[m.dev];
+      const between = (segSel || segBetween) && hl.has(m.dev);
+      const edge = !multiSel && (segSel || hl.has(m.dev));
+      const stroke = (showOspf && s.area) ? `stroke="${areaColor(s.area)}"` : "";
+      parts.push(`<line class="lk ${between?"sel-between":edge?"sel-edge":""} ${segHot?"bgp-hot":""} ${hoverLink===s.id?"lk-hover":""}" data-elem="seglink" data-id="${s.id}" data-mem="${m.dev}" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}" ${stroke}/>`);
+      parts.push(`<line class="lk-hit" data-elem="seglink" data-id="${s.id}" data-mem="${m.dev}" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"/>`);
+      /* セグメントメンバーの IF 名を選択/ホバー時に表示 */
+      const showIf = (multiSel ? ((sSegSel || sSegBetween) && S.sel.has(m.dev))
+                               : (sSegSel || S.sel.has(m.dev)))
+                     || hoverLink === s.id || segHot;
+      if (showIf) {
+        const t = 0.62;
+        const lx = p.x + (q.x-p.x)*t, ly = p.y + (q.y-p.y)*t - 8;
+        const lines = [m.ifn, m.ip].filter(Boolean);
+        stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${s.id}:${m.dev}`});
+      }
+    }
+    const segCls = ["segnode"];
+    if (S.sel.has(s.id) || segBetween) segCls.push("selected");
+    else if (hoverNode === s.id) segCls.push("hovered");
+    if (segHot) segCls.push("bgp-hot");
+    if (S.matches.includes(s.id)) segCls.push("search-hit");
+    parts.push(`<g class="${segCls.join(" ")}" data-elem="seg" data-id="${s.id}">
+      <ellipse cx="${p.x}" cy="${p.y}" rx="62" ry="26"/>
+      <text x="${p.x}" y="${p.y+3}" text-anchor="middle">${esc(s.subnet)}</text></g>`);
+    if (showOspf && s.area) {
+      const {txt, fill: c} = areaBadge(s.area);
+      const w = txt.length*6.4+12;
+      parts.push(`<g class="area-badge" data-deco="seg:${s.id}"><rect x="${p.x-w/2}" y="${p.y-48}" width="${w}" height="15" fill="${c}"/>` +
+        `<text x="${p.x}" y="${p.y-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
+    }
+  }
+
+  /* --- STATIC overlay（スタティック経路の方向線＋blackhole/dangling 終端＋トレース・ハイライト）--- */
+  if (showStatic) {
+    /* blackhole/dangling 終端ノードを親 device の周囲に扇状配置（POS 非登録・render 時派生・決定的） */
+    const sstubPos = {}, _sIdx = {};
+    for (const st of (DATA.static_stubs || [])) {
+      const base = POS[st.dev]; if (!base) continue;
+      const i = (_sIdx[st.dev] = (_sIdx[st.dev] || 0)); _sIdx[st.dev]++;
+      const ang = (35 + i * 30) * Math.PI / 180; const R = 120;   /* 物理 stub(-45°開始)と被らない向き */
+      sstubPos[st.id] = { x: Math.round((base.x + R * Math.cos(ang)) * 10) / 10,
+                          y: Math.round((base.y + R * Math.sin(ang)) * 10) / 10 };
+    }
+    /* 方向線（device → 対向 device or 終端 stub）。矢じり付き Q 曲線。 */
+    for (const e of (DATA.static_edges || [])) {
+      const a = POS[e.a]; if (!a) continue;
+      const b = e.b ? POS[e.b] : (e.stub ? sstubPos[e.stub] : null);
+      if (!b) continue;
+      const onTrace = e.b && traceEdgeSet.has(e.a + ">" + e.b);
+      const cls = ["se-edge"];
+      if (e.default) cls.push("se-default");
+      if (e.ecmp) cls.push("se-ecmp");
+      if (e.kind === "blackhole") cls.push("se-blackhole");
+      else if (e.kind === "dangling") cls.push("se-dangling");
+      else if (e.kind === "viaif") cls.push("se-viaif");
+      if (onTrace) cls.push("trace-edge");
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 - 26;
+      parts.push(`<path class="${cls.join(" ")}" data-elem="sedge" data-id="${esc(e.id)}" marker-end="url(#se-arrow)" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" style="cursor:pointer"/>`);
+      parts.push(`<path class="lk-hit" data-elem="sedge" data-id="${esc(e.id)}" d="M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}" fill="none"/>`);
+      /* ラベル（prefix・nh）: hover かトレース経路上のとき表示 */
+      if (hoverLink === e.id || onTrace) {
+        const lines = [e.prefix, e.nh ? "→ " + e.nh : null].filter(Boolean);
+        stackLabel(labelParts, mx, my - 9 - (lines.length - 1) * 13, lines, { show: true, deco: `sedge:${esc(e.id)}` });
+      }
+    }
+    /* 終端ノード（blackhole=✕ / dangling=? / viaif）。スポーク＋楕円。 */
+    for (const st of (DATA.static_stubs || [])) {
+      const base = POS[st.dev], p = sstubPos[st.id]; if (!base || !p) continue;
+      const glyph = st.kind === "blackhole" ? "✕" : st.kind === "dangling" ? "?" : "IF";
+      const ncls = ["sstubnode", st.kind === "blackhole" ? "se-blackhole" : st.kind === "dangling" ? "se-dangling" : "se-viaif"];
+      parts.push(`<g class="${ncls.join(" ")}" data-elem="sstub" data-id="${esc(st.id)}"><ellipse cx="${p.x}" cy="${p.y}" rx="52" ry="22"/>` +
+        `<text x="${p.x}" y="${p.y+4}" text-anchor="middle">${glyph} ${esc(st.label || st.kind)}</text></g>`);
+    }
+  }
+
+  /* --- BGP edges --- */
+  if (showBgp) {
+    for (const e of DATA.bgpEdges) {
+      let a, b, eA, eB;
+      if (e.kind === "over-link") { const l = DATA.links.find(x=>x.id===e.link); if (!l) continue; a = POS[l.a]; b = POS[l.b]; eA = l.a; eB = l.b; }
+      else if (e.kind === "loopback") { a = POS[e.a]; b = POS[e.b]; eA = e.a; eB = e.b; }
+      else { a = POS[e.a]; b = POS[e.ext]; eA = e.a; eB = e.ext; }
+      const c = BGP_COLOR[e.type] || "var(--ink-dim)";
+      const mx = (a.x+b.x)/2, my = (a.y+b.y)/2 - (e.kind==="loopback" ? 70 : 0);
+      const ecls = ["bgp-edge", e.type];
+      if (hoverBgp === e.id) ecls.push("lk-hover");   /* ライン hover 強調 */
+      /* ノード選択による強調は物理リンクと同一規則（eBGP/iBGP で差をつけない） */
+      const eselA = hl.has(eA), eselB = hl.has(eB);
+      if (eselA && eselB) ecls.push("sel-between");
+      else if ((eselA || eselB) && !multiSel) ecls.push("sel-edge");
+      /* セッション選択時だけでなく、下敷きリンクのライン選択（hotNet・v4/v6 とも）でも曲線を太らせる */
+      const overNet = e.kind === "over-link" ? (DATA.links.find(x=>x.id===e.link) || {}).subnet : null;
+      if (hotBgp === e.id || (overNet && netHot(overNet))) ecls.push("bgp-hot");
+      /* RR-client セッション: 実線 class "rr" を付与し、パスを RR(rrFrom)→client(対向) 向きで描いて
+         矢じり #rr-arrow が client を指すようにする（type 色 c は維持）。
+         eA/eB は描画上の端点 device。rrFrom が eB 側なら始終点を入れ替える。 */
+      let pa = a, pb = b;
+      if (e.rr && e.rrFrom) {
+        ecls.push("rr");
+        if (e.rrFrom === eB) { pa = b; pb = a; }
+      }
+      const marker = (e.rr && e.rrFrom) ? ' marker-end="url(#rr-arrow)"' : "";
+      const pmx = (pa.x+pb.x)/2, pmy = (pa.y+pb.y)/2 - (e.kind==="loopback" ? 70 : 0);
+      parts.push(`<path class="${ecls.join(" ")}" data-elem="bgpedge" data-id="${e.id}"${marker} stroke="${c}" d="M ${pa.x} ${pa.y} Q ${pmx} ${pmy} ${pb.x} ${pb.y}" style="cursor:pointer"/>`);
+      if (e.kind === "loopback")
+        labelParts.push(`<text class="subnet-tag" data-deco="bgpedge:${e.id}" x="${mx}" y="${my+12}" text-anchor="middle">${esc(e.label)}</text>`);
+      /* BGP ビュー: 端点ノードの選択時またはセッション連動時のみアドレス・ソース IF を表示 */
+      if (S.view === "bgp") {
+        /* IP からその機器の IF 名を逆引き（loopback セッションにも IF 名を出すため） */
+        const ifOf = (dev, ip) => {
+          const d0 = DATA.devices[dev];
+          const f = d0 && d0.ifs.find(i => i.ip && i.ip.split("/")[0] === ip);
+          return f ? f.n : null;
+        };
+        let aIp = null, bIp = null, aIp6 = null, bIp6 = null, aIf = null, bIf = null, endA = e.a, endB = e.b, net = null;
+        if (e.kind === "over-link") {
+          const l = DATA.links.find(x=>x.id===e.link);
+          if (l) { aIp = l.aip; bIp = l.bip; aIp6 = l.aip6; bIp6 = l.bip6; aIf = l.ai; bIf = l.bi; endA = l.a; endB = l.b; net = l.subnet; }
+        } else if (e.kind === "external") { aIp = e.aip; bIp = e.bip; aIf = e.srcIf || null; endB = e.ext; }
+        else { aIp = e.aip; bIp = e.bip; aIf = ifOf(e.a, e.aip); bIf = ifOf(e.b, e.bip); }
+        /* アドレス・IF ラベルの表示条件:
+           - ライン自体の hover（曲線 or 下敷きリンク）→ 常に表示
+           - ライン選択中 → 選択中のセッション/サブネット（v4/v6 の対を含む）に一致するものだけ
+             （端点を共有するだけの無関係セッションを光らせない。両 hot 共存時は両方）
+           - それ以外 → 端点ノードの「確定選択」のみ（hover では出さない＝hover はライン強調のみ）。
+             複数選択時は両端が選択されたセッションのみ（物理リンクの IF ラベル規則と同じ） */
+        const lineHover = hoverBgp === e.id || (e.kind === "over-link" && hoverLink === e.link);
+        const showAddr = lineHover || ((hotBgp || hotNet)
+          ? (hotBgp === e.id || (net && netHot(net)))
+          : (multiSel ? (S.sel.has(endA) && S.sel.has(endB)) : (S.sel.has(endA) || S.sel.has(endB))));
+        if (showAddr) for (const [pt,qt,ip,ip6,ifn] of [[a,b,aIp,aIp6,aIf],[b,a,bIp,bIp6,bIf]]) {
+          if (!ip) continue;
+          const t = 0.2;
+          const lx = pt.x + (qt.x-pt.x)*t, ly = pt.y + (qt.y-pt.y)*t + 18;
+          /* IF名 / IPv4 / IPv6 を改行で縦積み（他ビューのリンク端ラベルと同形式） */
+          stackLabel(labelParts, lx, ly - 10, [ifn, ip, ip6].filter(Boolean), {show: true, deco:`bgpedge:${e.id}`});
+        }
+      }
+    }
+  }
+
+  /* --- external peers (BGP)。機器と同じノード描画（vbar は AS 色） --- */
+  if (showBgp) {
+    const extMaxc = nodeLabelMaxChars(NODE_W);
+    for (const e of DATA.extPeers) {
+      const p = POS[e.id];
+      const ecls = ["node", "ext"];
+      if (S.sel.has(e.id)) ecls.push("selected");
+      else if (hoverNode === e.id) ecls.push("hovered");
+      if (S.matches.includes(e.id)) ecls.push("search-hit");
+      // 外部ピアは hn（neighbor IP）の 1 行のみ。AS は vbar 色・枠ラベル・ホバー title で識別する。
+      // 機器ノード（hn + sub 2 行）と意図的に非対称。副ラベル行（class=sub）は存在しない。
+      parts.push(`<g class="${ecls.join(" ")}" data-elem="ext" data-id="${e.id}">
+        <title>${esc(e.label)}</title>
+        <rect class="body" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}" rx="9"/>
+        <rect class="vbar" x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="5" height="${NODE_H}" rx="2.5" fill="${asColor(e.as)}"/>
+        <text class="hn" x="${p.x-NODE_W/2+16}" y="${p.y-3}">${esc(truncateLabel(e.sub, extMaxc))}</text>
+      </g>`);
+    }
+  }
+
+  /* --- device nodes --- */
+  for (const [id,d] of Object.entries(DATA.devices)) {
+    const p = POS[id];
+    const cls = ["node"];
+    if (S.sel.has(id)) cls.push("selected");
+    else if (hoverNode === id) cls.push("hovered");
+    if (S.matches.includes(id)) cls.push("search-hit");
+    if (traceDevs.has(id)) cls.push("trace-hop");   /* STATIC トレース経路上の機器 */
+    /* BGP ビュー: Route Reflector / RR Client の役割でリング＋バッジを付与（他ビュー不変）。
+       階層 RR で両属する場合は RR を優先表示（バッジは "RR"）。 */
+    let rrBadge = null;
+    if (S.view === "bgp") {
+      const roles = bgpRoles();
+      if (roles.rr.has(id)) { cls.push("rrnode"); rrBadge = "RR"; }
+      else if (roles.rrc.has(id)) { cls.push("rrcnode"); rrBadge = "RRC"; }
+    }
+    const vbarColor = S.view === "bgp" ? asColor(d.as) : (d.vendor === "cisco_ios" ? "#5b8def" : "#43b97f");
+    const sub = S.view === "ospf" ? (d.ospf_rid ? `rid ${d.ospf_rid}` : "ospf rid なし")
+      : S.view === "bgp" ? (d.bgp_rid ? `rid ${d.bgp_rid}` : "bgp rid なし") : d.vendor;
+    const {w, h} = nodeScale(d.degree||0);
+    const maxc = nodeLabelMaxChars(w);
+    parts.push(`<g class="${cls.join(" ")}" data-elem="dev" data-id="${id}">
+      <title>${esc(d.hostname)}</title>
+      <rect class="body" x="${p.x-w/2}" y="${p.y-h/2}" width="${w}" height="${h}" rx="9"/>
+      <rect class="vbar" x="${p.x-w/2}" y="${p.y-h/2}" width="5" height="${h}" rx="2.5" fill="${vbarColor}"/>
+      <text class="hn" x="${p.x-w/2+16}" y="${p.y-3}">${esc(truncateLabel(d.hostname, badgeHnMaxc(w, maxc, rrBadge)))}</text>
+      <text class="sub" x="${p.x-w/2+16}" y="${p.y+15}">${esc(truncateLabel(sub, maxc))}</text>${rrBadge ? `
+      <rect class="rrbadge" x="${p.x+w/2-(rrBadge.length*6+10)}" y="${p.y-h/2+4}" width="${rrBadge.length*6+6}" height="13" rx="3"/>
+      <text class="rrbadge-t" x="${p.x+w/2-(rrBadge.length*6+10)/2-2}" y="${p.y-h/2+13.5}" text-anchor="middle">${rrBadge}</text>` : ""}
+    </g>`);
+  }
+
+  /* --- stub / loopback ノード描画（segment 様式に統一）---
+     対向のない IF（stub / loopback）を segment と同じ .segnode 楕円 + .lk スポーク + area-badge で描画。
+     ビュー規則は segment と同じ: Physical=全件 / OSPF=area あり（OSPF 参加）のみ / BGP=出さない。
+     id は dev:ifn（lpId）。data-elem="seg"・data-id でセグメントと同じ hittest/選択/可視性/詳細パネルに乗る
+     （segById が DATA.segments を引けないとき stub_nodes をフォールバック）。
+     同一 device 内の index を扇状に決定的配置（Math.round で決定化）。
+     ハイライト・IF/IP ラベル（hover/選択/hot 時に stackLabel）も segment と完全に共通。
+     色は kind で区別（lpnode=loopback / stubnode=stub）。device ノードの後（前面）・labelParts 統合の前。
+     STATIC ビューでは描かない（forwarding オーバーレイに集中させ視覚ノイズを避ける）。 */
+  if (S.view !== "bgp" && S.view !== "static") {
+    const _stubIdx = {};
+    for (const st of (DATA.stub_nodes || [])) {
+      if (S.view === "ospf" && !st.area) continue;   /* OSPF ビューは OSPF 参加（area あり）のみ */
+      const base = POS[st.dev];
+      if (!base) continue;   /* POS に無い dev はスキップ */
+      const sid = lpId(st);
+      /* data 属性に出す id/dev は config 由来の IF 名（生値）を含むため esc する（属性ブレイク防止）。
+         esc は dataset 読出しでデコードされるため decoState キー一致は保たれる。 */
+      const esid = esc(sid), edev = esc(st.dev);
+      const i = (_stubIdx[st.dev] = (_stubIdx[st.dev] || 0));
+      _stubIdx[st.dev]++;
+      /* 扇状配置: ang は -45° から 32° 刻み（決定的）。R=115 px。座標を round で決定化 */
+      const ang = (-45 + i * 32) * Math.PI / 180;
+      const R = 115;
+      const sx = Math.round((base.x + R * Math.cos(ang)) * 10) / 10;
+      const sy = Math.round((base.y + R * Math.sin(ang)) * 10) / 10;
+      const segSel = hl.has(sid);
+      const segHot = netHot(st.subnet);
+      /* スポーク線（device → stub 楕円）: segment の seglink と同形（hittest 用 .lk-hit も併設） */
+      const edge = !multiSel && (segSel || hl.has(st.dev));
+      const stroke = (showOspf && st.area) ? `stroke="${areaColor(String(st.area))}"` : "";
+      parts.push(`<line class="lk ${edge?"sel-edge":""} ${segHot?"bgp-hot":""} ${hoverLink===sid?"lk-hover":""}" data-elem="seglink" data-id="${esid}" data-mem="${edev}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}" ${stroke}/>`);
+      parts.push(`<line class="lk-hit" data-elem="seglink" data-id="${esid}" data-mem="${edev}" x1="${base.x}" y1="${base.y}" x2="${sx}" y2="${sy}"/>`);
+      /* IF/IP ラベル: この loopback/stub 自身の選択/スポークホバー/サブネット hot 時のみ（親機器選択には連動しない
+         ＝複数機器選択や、別 loopback/stub 選択で親機器が選択されても無関係なラベルを出さない）。 */
+      const showIf = S.sel.has(sid) || hoverLink === sid || segHot;
+      if (showIf) {
+        const t = 0.62;
+        const lx = base.x + (sx-base.x)*t, ly = base.y + (sy-base.y)*t - 8;
+        const lines = [st.ifn, st.ip].filter(Boolean);
+        stackLabel(labelParts, lx, ly - 9 - (lines.length-1)*13, lines, {show: true, deco:`seglink:${esid}:${edev}`});
+      }
+      /* stub 楕円ノード: segment と同寸（点線楕円 rx62/ry26 + subnet テキスト）。色は kind で区別 */
+      const segCls = ["segnode", st.kind === "loopback" ? "lpnode" : "stubnode"];
+      if (S.sel.has(sid)) segCls.push("selected");
+      else if (hoverNode === sid) segCls.push("hovered");
+      if (segHot) segCls.push("bgp-hot");
+      if (S.matches.includes(sid)) segCls.push("search-hit");
+      parts.push(`<g class="${segCls.join(" ")}" data-elem="seg" data-id="${esid}"><ellipse cx="${sx}" cy="${sy}" rx="62" ry="26"/><text x="${sx}" y="${sy+3}" text-anchor="middle">${esc(st.subnet)}</text></g>`);
+      /* area badge（OSPF ビューで area あり時のみ）: segment の area-badge と同形 */
+      if (showOspf && st.area) {
+        const {txt, fill: _c} = areaBadge(String(st.area));
+        const _w = txt.length*6.4+12;
+        parts.push(`<g class="area-badge" data-deco="seg:${esid}"><rect x="${sx-_w/2}" y="${sy-48}" width="${_w}" height="15" fill="${_c}"/><text x="${sx}" y="${sy-37}" text-anchor="middle" fill="#fff">${esc(txt)}</text></g>`);
+      }
+    }
+  }
+
+  /* ラベルをノードより前面に: labelParts を全ノード描画後に統合（z-order 再構成 改修②）*/
+  parts.push(labelParts.join(""));
+  world.innerHTML = parts.join("");
+  world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
+  applyVisibility();
+  renderMinimap();
+}
+
+let _rafId = 0, _rafFn = null;
+function schedule(fn) {
+  _rafFn = fn;
+  if (_rafId) return;
+  _rafId = requestAnimationFrame(() => { _rafId = 0; const f = _rafFn; _rafFn = null; f(); });
+}
+
+function applyTransform() {
+  world.setAttribute("transform", `translate(${S.tx} ${S.ty}) scale(${S.k})`);
+  if (!S.minimap) return;
+  const mv = $("#minisvg .mview");
+  if (!mv) { renderMinimap(); return; }
+  const r = $("#canvas").getBoundingClientRect();
+  mv.setAttribute("x", -S.tx/S.k); mv.setAttribute("y", -S.ty/S.k);
+  mv.setAttribute("width", r.width/S.k); mv.setAttribute("height", r.height/S.k);
+}
+
+/* visibility: filters / connected-only / search dim / legend-click 強調 */
+function applyVisibility() {
+  const adj = adjacency();
+  /* フォーカスモード: 選択ノードの N-hop 隣接サブグラフ以外を dim（非表示にはしない） */
+  const focusActive = S.focusMode && S.sel.size;
+  const focusSet = focusActive ? nHopNeighbors(adj, [...S.sel], S.focusHops) : null;
+  /* 凡例クリックフィルタ: 該当ラインとその端点ノード以外を dim */
+  let lgNodes = null, lgLine = null;
+  if (S.legendHot) {
+    const lg = S.legendHot;
+    const areaHit = a => a != null && String(a).split("/").includes(lg.slice(5));
+    lgNodes = new Set();
+    const asN = lg.startsWith("as:") ? lg.slice(3) : null;
+    const asHit = id => {
+      const d = DATA.devices[id]; if (d) return String(d.as) === asN;
+      const e = DATA.extPeers.find(x=>x.id===id); return !!e && String(e.as) === asN;
+    };
+    lgLine = el => {
+      if (el.dataset.elem === "link") {
+        const l = DATA.links.find(x=>x.id===el.dataset.id); if (!l) return false;
+        if (lg === "admin-down") return !!l.admin_down;
+        if (lg.startsWith("area:")) return !l.admin_down && areaHit(l.area);
+        if (lg.startsWith("as:")) return asHit(l.a) && asHit(l.b);
+        /* eBGP/iBGP 強調時は over-link セッションの下敷きリンクも許容（半分だけ dim になるのを防ぐ） */
+        return DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id && e.type === lg);
+      }
+      if (el.dataset.elem === "seglink") {
+        const s = segById(el.dataset.id);
+        if (lg.startsWith("area:")) return !!s && areaHit(s.area);
+        /* loopback/stub 凡例強調時は該当 kind の stub スポークを許容 */
+        if (lg === "loopback" || lg === "stub") return !!s && s.kind === lg;
+        /* segment 自体は AS を持たない。なお BGP ビューでは segment が描画されないため as: 強調時にこの seglink 分岐は実際には非到達 */
+        if (lg.startsWith("as:")) { return !!s && asHit(el.dataset.mem); }
+        return false;
+      }
+      const e = DATA.bgpEdges.find(x=>x.id===el.dataset.id);
+      if (lg.startsWith("as:")) {
+        if (!e) return false;
+        const ends = e.kind==="loopback" ? [e.a,e.b] : e.kind==="external" ? [e.a,e.ext]
+                   : (l => l ? [l.a,l.b] : [])(DATA.links.find(x=>x.id===e.link));
+        return ends.length > 0 && ends.every(asHit);
+      }
+      /* rrarrow / rr / rrc 凡例: RR セッション（rr=true）のエッジを強調。
+         rr/rrc はノード強調が主目的だが、対応する RR エッジも一緒に光らせる。 */
+      if (lg === "rr" || lg === "rrc" || lg === "rrarrow") return !!e && !!e.rr;
+      return !!e && e.type === lg;
+    };
+    if (lg === "admin-down") {
+      for (const l of DATA.links) if (l.admin_down) { lgNodes.add(l.a); lgNodes.add(l.b); }
+    } else if (lg.startsWith("area:")) {
+      for (const l of DATA.links) if (!l.admin_down && areaHit(l.area)) { lgNodes.add(l.a); lgNodes.add(l.b); }
+      for (const s of DATA.segments) if (areaHit(s.area)) { lgNodes.add(s.id); for (const m of s.members) lgNodes.add(m.dev); }
+      for (const st of (DATA.stub_nodes || [])) if (areaHit(st.area)) { lgNodes.add(lpId(st)); lgNodes.add(st.dev); }
+    } else if (lg === "loopback" || lg === "stub") {
+      /* loopback/stub 一括強調: 該当 kind の stub ノード自身＋親デバイスを lgNodes に追加 */
+      for (const st of (DATA.stub_nodes || [])) if (st.kind === lg) { lgNodes.add(lpId(st)); lgNodes.add(st.dev); }
+    } else if (lg.startsWith("as:")) {
+      /* AS 別一括強調: 該当 AS の device / extPeer を lgNodes に追加 (B4) */
+      for (const [id,d] of Object.entries(DATA.devices)) if (String(d.as) === asN) lgNodes.add(id);
+      for (const e of DATA.extPeers) if (String(e.as) === asN) lgNodes.add(e.id);
+    } else if (lg === "rr" || lg === "rrc" || lg === "rrarrow") {
+      /* RR 構成の凡例強調: rr→RR ノード、rrc→client ノード、rrarrow→両方を強調 */
+      const roles = bgpRoles();
+      if (lg !== "rrc") for (const n of roles.rr) lgNodes.add(n);
+      if (lg !== "rr") for (const n of roles.rrc) lgNodes.add(n);
+    } else {
+      for (const e of DATA.bgpEdges) if (e.type === lg) for (const n of bgpNodes(e.id)) lgNodes.add(n);
+    }
+  }
+  const visible = id => {
+    if (S.hiddenNodes.has(id)) return false;   /* 表示ノードパネルで個別に非表示指定されたノード */
+    if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
+    if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
+    if (asHidden(id)) return false;
+    if (S.connectedOnly && S.sel.size) {
+      if (S.sel.has(id)) return true;
+      return [...S.sel].some(s => adj[s] && adj[s].has(id));
+    }
+    return true;
+  };
+  /* ラベル・バッジ（data-deco="<elem>:<id>[:<mem>]"）へ親要素と同じ可視性を伝播するための記録。
+     stub/loopback ノードは data-elem="seg"・area-badge は data-deco="seg:<id>" なので
+     segment と同じ経路で hidden/dim・凡例 dim が伝播する（旧 lpstub 常設特例は廃止）。*/
+  const decoState = {};
+  world.querySelectorAll("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']").forEach(el => {
+    const id = el.dataset.id;
+    const hidden = !visible(id);
+    const dim = (S.matches.length > 0 && !S.matches.includes(id)) || (lgNodes && !lgNodes.has(id))
+             || (focusActive && !focusSet.has(id));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+    decoState[`${el.dataset.elem}:${id}`] = { hidden, dim };
+  });
+  world.querySelectorAll("[data-elem='link'],[data-elem='seglink'],[data-elem='bgpedge']").forEach(el => {
+    let ends = [];
+    if (el.dataset.elem === "link") { const l = DATA.links.find(x=>x.id===el.dataset.id); ends = l ? [l.a,l.b] : []; }
+    else if (el.dataset.elem === "seglink") ends = [el.dataset.id, el.dataset.mem];
+    else { const e = DATA.bgpEdges.find(x=>x.id===el.dataset.id);
+           ends = e.kind==="loopback" ? [e.a,e.b] : e.kind==="external" ? [e.a,e.ext]
+                : (l => l ? [l.a,l.b] : [])(DATA.links.find(x=>x.id===e.link)); }
+    const hidden = ends.length === 0 || !ends.every(visible);
+    const dim = (S.matches.length > 0 && !ends.some(id=>S.matches.includes(id))) || (lgLine && !lgLine(el))
+             || (focusActive && !ends.every(id=>focusSet.has(id)));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+    const key = el.dataset.elem === "seglink"
+      ? `seglink:${el.dataset.id}:${el.dataset.mem}` : `${el.dataset.elem}:${el.dataset.id}`;
+    decoState[key] = { hidden, dim };
+  });
+  /* STATIC オーバーレイ: 端点（始点 device・対向 device）が非表示/dim ならエッジも追従（宙吊り防止） */
+  world.querySelectorAll("[data-elem='sedge']").forEach(el => {
+    const e = (DATA.static_edges || []).find(x => x.id === el.dataset.id);
+    const ends = e ? [e.a, e.b].filter(Boolean) : [];
+    const hidden = !e || !ends.every(visible);
+    const dim = (S.matches.length > 0 && !ends.some(id => S.matches.includes(id)))
+             || (focusActive && !ends.every(id => focusSet.has(id)));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+  });
+  world.querySelectorAll("[data-elem='sstub']").forEach(el => {
+    const st = (DATA.static_stubs || []).find(x => x.id === el.dataset.id);
+    const dev = st ? st.dev : null;
+    const hidden = !dev || !visible(dev);
+    const dim = !!dev && ((S.matches.length > 0 && !S.matches.includes(dev)) || (focusActive && !focusSet.has(dev)));
+    el.classList.toggle("hidden", hidden);
+    el.classList.toggle("dim", dim);
+  });
+  world.querySelectorAll("[data-deco]").forEach(el => {
+    const st = decoState[el.dataset.deco];
+    if (!st) return;
+    el.classList.toggle("hidden", st.hidden);
+    el.classList.toggle("dim", st.dim);
+  });
+}
+
+/* その subnet が現在のビューで線として描画されるか
+   （描画されない subnet の表行は連動クリック対象にしない＝押しても図に何も起きない行を作らない） */
+function netDrawn(net) {
+  const onLink = l => l.subnet === net || l.dual === net;   /* v6=dual も同一ライン扱い */
+  if (S.view === "physical") return true;
+  if (S.view === "bgp")
+    return DATA.links.some(l => onLink(l) && DATA.bgpEdges.some(e => e.kind === "over-link" && e.link === l.id));
+  return DATA.links.some(l => onLink(l) && l.area && !l.admin_down)
+      || DATA.segments.some(s => s.subnet === net && s.area);
+}
+
+/* ================= details panel ================= */
+function renderDetails() {
+  const sel = [...S.sel];
+  $("#selcount").textContent = sel.length ? `${sel.length} selected` : "";
+  const db = $("#dbody");
+  /* STATIC ビューでトレース結果があれば先頭に表示（選択が無くても表示する） */
+  const traceHtml = (S.view === "static" && S.trace && S.trace.result) ? renderTraceResult(S.trace.result) : "";
+  if (!sel.length && !traceHtml) {
+    db.innerHTML = `<div class="placeholder">
+      ノードを<b>クリック</b>すると詳細を表示します。<br>
+      クリックで<b>選択/解除をトグル</b>（複数可）<br>
+      <b>カーソルを乗せる</b>だけでも選択と同じ<br>ハイライトでプレビューできます<br><br>
+      ライン（リンク/セグメント/BGP）を<br>クリックすると<b>端点ノードも自動選択</b>され、<br>
+      表の該当行と連動ハイライトします<br>
+      空白を<b>ダブルクリック</b> / <b>Esc</b> で全解除<br><br>
+      ノードは<b>ドラッグで移動</b>できます<br>（リロードで決定的初期配置に戻ります）<br><br>
+      <b>凡例の項目クリック</b>で該当要素を強調、<br>
+      <b>表示ノード</b>ボタンでノード単位の表示指定、<br>
+      <b>SVG / PNG</b> ボタンで現在の表示を保存。<br><br>
+      検索パターン（全種）:<br>
+      <b>/ または Ctrl+F</b> — 検索欄へフォーカス<br>
+      <b>ドロップダウン</b> — 対象フィールドを選択<br>
+      　（host: 等を書かずに絞り込み）<br>
+      <b>文字列</b> — hostname / IP(v4・v6) / description /<br>
+      　AS番号 / vendor / IF名 を横断検索<br>
+      <b>host:r1</b> — hostname のみ<br>
+      <b>ip:10.0.0.</b> — IPアドレスのみ<br>
+      <b>desc:uplink</b> — description のみ<br>
+      <b>as:65001</b> — AS番号のみ<br>
+      <b>vendor:junos</b> — ベンダーのみ<br>
+      <b>net:10.0.0</b> — サブネットのみ<br>
+      <b>Enter</b> — 次のヒットへ移動<br>
+      ヒット 0 件のときは検索欄が赤くなります。</div>`;
+    return;
+  }
+  const html = [];
+  if (traceHtml) html.push(traceHtml);
+  /* 複数選択: 選択ノード間リンクの IF 情報 */
+  if (sel.length >= 2) {
+    const pairs = [];
+    for (const l of DATA.links)
+      if (S.sel.has(l.a) && S.sel.has(l.b)) pairs.push(
+        `<div class="linkpair${netDrawn(l.subnet)&&netHot(l.subnet)?" hot":""}"${netDrawn(l.subnet)?` data-net="${esc(l.subnet)}"`:""}><span class="subnet">${esc(l.subnet)}${l.dual?` · ${esc(l.dual)}`:""}</span>${l.admin_down?' <span class="st-down">admin_down</span>':""}<br>` +
+        `<span class="ifn">${esc(DATA.devices[l.a].hostname)} ${esc(l.ai)}</span> <span class="ipd">${esc(l.aip)}${l.aip6?` · ${esc(l.aip6)}`:""}</span><br>` +
+        `<span class="ifn">${esc(DATA.devices[l.b].hostname)} ${esc(l.bi)}</span> <span class="ipd">${esc(l.bip)}${l.bip6?` · ${esc(l.bip6)}`:""}</span></div>`);
+    for (const s of DATA.segments) {
+      const ms = s.members.filter(m => S.sel.has(m.dev));
+      if (S.sel.has(s.id) ? ms.length >= 1 : ms.length >= 2) pairs.push(
+        `<div class="linkpair${netDrawn(s.subnet)&&netHot(s.subnet)?" hot":""}"${netDrawn(s.subnet)?` data-net="${esc(s.subnet)}"`:""}><span class="subnet">${esc(s.subnet)}</span> <span class="ipd">segment</span><br>` +
+        ms.map(m=>`<span class="ifn">${esc(DATA.devices[m.dev].hostname)} ${esc(m.ifn)}</span> <span class="ipd">${esc(m.ip)}</span>`).join("<br>") + `</div>`);
+    }
+    html.push(`<div class="csec"><h4>SELECTED LINKS (${pairs.length})</h4>${pairs.join("") || '<div class="placeholder">選択ノード間に直接リンクはありません</div>'}</div>`);
+  }
+  for (const id of sel) {
+    const d = DATA.devices[id];
+    if (!d) { /* segment / stub / loopback / ext peer */
+      const s = segById(id);
+      if (s) html.push(`<div class="card"><div class="chead"><b>${esc(s.subnet)}</b><span class="badge">${esc(s.kind || "segment")}</span>${s.area?`<span class="badge as">area ${esc(s.area)}</span>`:""}</div>
+        <div class="csec"><h4>MEMBERS</h4><table class="dt">${s.members.map(m=>`<tr><td>${esc(DATA.devices[m.dev].hostname)}</td><td>${esc(m.ifn)}</td><td class="dim-t">${esc(m.ip)}</td></tr>`).join("")}</table></div></div>`);
+      const e = DATA.extPeers.find(x=>x.id===id);
+      if (e) html.push(`<div class="card"><div class="chead"><b>${esc(e.label)}</b><span class="badge">external peer</span></div>
+        <div class="csec"><div class="placeholder">config 非提供の対向（片側オーバーレイ）<br>${esc(e.sub)}</div></div></div>`);
+      continue;
+    }
+    html.push(`<div class="card"><div class="chead">
+        <b>${esc(d.hostname)}</b>
+        <span class="badge">${esc(d.vendor)}</span>
+        <span class="badge as">AS ${d.as}</span>
+        ${d.ospf_rid||d.bgp_rid?`<span class="badge rid">rid ${esc(d.ospf_rid||d.bgp_rid)}</span>`:""}
+      </div>
+      <div class="csec"><h4>INTERFACES (${d.ifs.length})</h4>
+        <table class="dt"><tr><th>Name</th><th>IPv4</th><th>IPv6</th><th>Desc</th><th>St</th></tr>
+        ${d.ifs.map(i=>{const n0=i.ip?IP2NET[i.ip.split("/")[0]]:null;const net=(n0&&netDrawn(n0)?n0:null)||stubNetForDetail(id,i.n);const v6=ifV6List(i);return `<tr class="ifrow${net&&netHot(net)?" hot":""}"${net?` data-net="${esc(net)}"`:""}><td>${esc(i.n)}</td><td class="dim-t">${i.ip?esc(i.ip):"—"}</td><td class="dim-t">${v6.length?v6.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>"):"—"}</td><td class="dim-t">${i.d?esc(i.d):"—"}</td><td class="${i.st==="up"?"st-up":"st-down"}">${esc(i.st)}</td></tr>`;}).join("")}</table></div>
+      ${d.bgp.length?`<div class="csec"><h4>BGP SESSIONS</h4>
+        <table class="dt"><tr><th>neighbor</th><th>peer AS</th><th>type</th><th>af</th><th>src</th><th>attr</th></tr>
+        ${d.bgp.map(b=>`<tr class="bgprow${hotBgp===b.link?" hot":""}" data-bgplink="${esc(b.link)}"><td>${esc(b.nb)}</td><td class="dim-t">${b.pas}</td><td class="dim-t">${esc(b.type)}</td><td class="dim-t">${esc(b.af)}</td><td class="dim-t">${b.src?esc(b.src):"—"}</td><td class="dim-t">${[b.rr?"RR":null,b.nhs?"NHS":null].filter(Boolean).join(" ")||"—"}</td></tr>`).join("")}</table></div>`:""}
+      ${d.ospf.length?`<div class="csec"><h4>OSPF NETWORKS</h4>
+        <table class="dt"><tr><th>network</th><th>area</th></tr>
+        ${d.ospf.map(o=>{const on=netDrawn(o.net);const areaLabel=o.at?`${esc(o.area)} (${esc(o.at)})`:esc(o.area);return `<tr class="ospfrow${on&&netHot(o.net)?" hot":""}"${on?` data-net="${esc(o.net)}"`:""}><td>${esc(o.net)}</td><td class="dim-t">${areaLabel}</td></tr>`;}).join("")}</table></div>`:""}
+      ${d.static.length?`<div class="csec"><h4>STATIC ROUTES</h4>
+        <table class="dt"><tr><th>prefix</th><th>next hop</th></tr>
+        ${d.static.map(s=>`<tr><td>${esc(s.p)}</td><td class="dim-t">${esc(s.nh)}</td></tr>`).join("")}</table></div>`:""}
+      ${d.redistribute&&d.redistribute.length?`<div class="csec"><h4>REDISTRIBUTE</h4>
+        <table class="dt"><tr><th>into</th><th>source</th><th>metric</th><th>route-map</th></tr>
+        ${d.redistribute.map(r=>`<tr><td>${esc(r.into)}</td><td>${esc(r.source)}</td><td class="dim-t">${r.metric!=null?r.metric:"—"}</td><td class="dim-t">${r.route_map?esc(r.route_map):"—"}</td></tr>`).join("")}</table></div>`:""}
+    </div>`);
+  }
+  db.innerHTML = html.join("");
+}
+
+/* ================= 表ビュー（ADDRESSES / INTERFACES） ================= */
+const SPEED_NORM = { "1g":"1000", "10g":"10000" };   /* ベンダー間の速度表記ゆれ正規化（比較用） */
+let lastTsv = "";   /* 直近に描画した表の TSV（コピー用。表示中のフィルタ・ソート適用後） */
+
+function searchIncomplete() {
+  const m = S.search.match(OP_RE);
+  return !!(m && !m[2]);
+}
+/* 検索クエリの解釈: テキストの演算子（host: 等）が最優先、無ければドロップダウン（S.sfield）のフィールド */
+function searchQuery() {
+  const m = S.search.match(OP_RE);
+  if (m) return { field: m[1], value: m[2] };
+  return { field: S.sfield === "all" ? null : S.sfield, value: S.search };
+}
+/* 表の行に検索（自由文字列 / フィールド演算子 / ドロップダウン）を適用 */
+function rowSearchHit(texts) {
+  if (!S.search) return true;
+  const q = searchQuery();
+  if (q.field) return !q.value || (texts[q.field] || "").includes(q.value);
+  return Object.values(texts).some(t => t && t.includes(S.search));
+}
+function cmpVal(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+function sortRows(rows, sort, keyFns) {
+  if (!sort) return rows;
+  const f = (keyFns && keyFns[sort.key]) || (r => r[sort.key] == null ? "" : String(r[sort.key]).toLowerCase());
+  const dir = sort.dir === "desc" ? -1 : 1;
+  const arr = rows.map((r, i) => [r, i]);
+  arr.sort((x, y) => {
+    const ka = f(x[0]), kb = f(y[0]);
+    let c = 0;
+    if (Array.isArray(ka)) {
+      /* タプルキーの先頭要素はバンド（null=末尾固定 等）: 昇順/降順に関わらず順序固定 */
+      if (ka[0] !== kb[0]) return cmpVal(ka[0], kb[0]);
+      for (let i = 1; i < ka.length && !c; i++) c = cmpVal(ka[i], kb[i]);
+    } else c = cmpVal(ka, kb);
+    /* 降順でもタイブレーク（元データ順）は反転させない＝安定ソート */
+    return c ? c * dir : (x[1] - y[1]);
+  });
+  return arr.map(x => x[0]);
+}
+/* ソート可能な th（▲/▼ 付き） */
+function thSort(view, key, label) {
+  const so = S.sort[view];
+  const mark = so && so.key === key ? (so.dir === "asc" ? " ▲" : " ▼") : "";
+  return `<th class="sortable" data-key="${key}">${label}${mark}</th>`;
+}
+/* 検索欄の件数/0件警告を「表示中の行数」基準に上書き */
+function tableSearchFeedback(n) {
+  const inc = searchIncomplete();
+  $("#searchcount").textContent = S.search && !inc ? `${n}` : "";
+  $("#search").classList.toggle("nohit", !!S.search && !inc && n === 0);
+}
+/* グラフビューの件数/0件警告（ノードヒット基準）。表ビューから戻ったときの固着防止に render からも呼ぶ */
+function graphSearchFeedback() {
+  const inc = searchIncomplete();
+  $("#searchcount").textContent = S.search && !inc ? `${S.matches.length}` : "";
+  $("#search").classList.toggle("nohit", !!S.search && !inc && S.matches.length === 0);
+}
+
+function renderTableView() {
+  if (S.view === "checks") { $("#tableview").innerHTML = renderChecksView(); return; }
+  if (S.view === "diff") { $("#tableview").innerHTML = renderDiffView(); return; }
+  if (S.view === "config") {
+    $("#tableview").innerHTML = renderConfigView();
+    /* 編集モード: DOM 挿入直後に行番号ガターを初期行番号で初期化 */
+    if (S.configEdit) {
+      const _eta = document.querySelector('textarea.cfgedit[data-cfgpane="E"]');
+      if (_eta) { const _g = document.querySelector('[data-cfggut="E"]'); if (_g) _g.innerHTML = cfgGutHtml(_eta.value.replace(/\n$/, "").split("\n").length, 0); }
+    }
+    return;
+  }
+  $("#tableview").innerHTML = S.view === "addr" ? renderAddrTable() : renderIfsTable();
+}
+
+/* v4 subnet "a.b.c.d/p" → 範囲情報（IPAM 計算用）。パース不能なら null */
+function v4SubnetRange(net) {
+  const m = String(net).match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/);
+  if (!m) return null;
+  const base = ((+m[1]<<24) | (+m[2]<<16) | (+m[3]<<8) | (+m[4])) >>> 0, p = +m[5];
+  return { base, p, usable: p === 32 ? 1 : (p === 31 ? 2 : 2 ** (32 - p) - 2) };
+}
+const NO_NET = "__none__";   /* サブネット推論外（loopback 等）グループのキー */
+
+function renderAddrTable() {
+  /* 1行 = 1IF（IPv4/IPv6 を併記して1行で管理） */
+  const rows = [];
+  for (const [id,d] of Object.entries(DATA.devices)) {
+    for (const i of d.ifs) {
+      /* primary アドレス行（i.ip / i.ip6）*/
+      if (i.ip || i.ip6) rows.push({
+        devId:id, dev:d.hostname, ifn:i.n, ip:i.ip, ip6:i.ip6, desc:i.d, st:i.st,
+        vendor:d.vendor, as:String(d.as),
+        netV4: i.ip ? netOfV4(i.ip) : null,
+        netV6: i.ip6 ? (IP2NET[i.ip6.split("/")[0]] || null) : null,
+      });
+      /* secondary / 追加 GUA: addrs[] から primary と重複しない行を追加 */
+      for (const a of (i.addrs||[])) {
+        if (a.scope === "link-local") continue;   // link-local(fe80::) は ADDRESSES 表に出さない
+        const cidr = a.ip && a.prefix != null ? `${a.ip}/${a.prefix}` : a.ip || null;
+        if (!cidr) continue;
+        if (a.af === "v4" && cidr === i.ip) continue;   /* primary と重複 */
+        if (a.af === "v6" && cidr === i.ip6) continue;
+        const isV4 = a.af === "v4";
+        rows.push({
+          devId:id, dev:d.hostname, ifn:i.n,
+          ip: isV4 ? cidr : null, ip6: isV4 ? null : cidr,
+          desc:i.d, st:i.st, vendor:d.vendor, as:String(d.as),
+          netV4: isV4 ? netOfV4(cidr) : null,
+          netV6: !isV4 ? (IP2NET[a.ip] || null) : null,
+          _secondary: true,
+        });
+      }
+    }
+  }
+  /* 整合性チェック: 同一アドレスが複数機器に存在 → 重複 IP（v4/v6 別・ホスト単位） */
+  const byHost = {};
+  for (const r of rows) {
+    if (r.ip) (byHost[`v4:${r.ip.split("/")[0]}`] ||= new Set()).add(r.devId);
+    if (r.ip6) (byHost[`v6:${r.ip6.split("/")[0]}`] ||= new Set()).add(r.devId);
+  }
+  /* addrs[] の全アドレスも重複検出に含める */
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs)
+      for (const a of (i.addrs||[])) {
+        if (a.scope === "link-local") continue;   // link-local は重複IP判定の対象外
+        if (a.ip) (byHost[`${a.af==="v6"?"v6":"v4"}:${a.ip}`] ||= new Set()).add(id);
+      }
+  const dupOf = (r, addr, af) => {
+    if (!addr) return null;
+    const devs = byHost[`${af}:${addr.split("/")[0]}`];
+    return devs && devs.size >= 2
+      ? [...devs].filter(x => x !== r.devId).map(x => DATA.devices[x].hostname).join(", ")
+      : null;
+  };
+  /* グループキー = netV4 ?? netV6 ?? 推論外（dual-stack の v6 は v4 側グループへ統合） */
+  const groupKey = r => r.netV4 || r.netV6 || NO_NET;
+  /* 使用率は検索フィルタに依存しない全行から計算 */
+  const groupsAll = new Map();
+  for (const r of rows) {
+    const k = groupKey(r);
+    if (!groupsAll.has(k)) groupsAll.set(k, []);
+    groupsAll.get(k).push(r);
+  }
+  /* 検索フィルタ（グループの subnet も対象） */
+  const flt = rows.filter(r => rowSearchHit({
+    host:r.dev.toLowerCase(),
+    ip:[r.ip, r.ip6].filter(Boolean).join(" ").toLowerCase(),
+    desc:(r.desc||"").toLowerCase(), as:r.as, vendor:r.vendor.toLowerCase(),
+    ifn:r.ifn.toLowerCase(),
+    net:[r.netV4, r.netV6].filter(Boolean).join(" ").toLowerCase(),
+  }));
+  const groupsFlt = new Map();
+  for (const r of flt) {
+    const k = groupKey(r);
+    if (!groupsFlt.has(k)) groupsFlt.set(k, []);
+    groupsFlt.get(k).push(r);
+  }
+  /* グループ順: v4 サブネット数値昇順 → v6-only 文字列順 → 推論外（決定的） */
+  const keys = [...groupsFlt.keys()].sort((a, b) => {
+    const ra = a !== NO_NET && v4SubnetRange(a), rb = b !== NO_NET && v4SubnetRange(b);
+    const ka = a === NO_NET ? [2, 0, ""] : ra ? [0, ra.base, ""] : [1, 0, a];
+    const kb = b === NO_NET ? [2, 0, ""] : rb ? [0, rb.base, ""] : [1, 0, b];
+    for (let i = 0; i < 3; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+    return 0;
+  });
+  tableSearchFeedback(flt.length);
+  /* メンバー行のソートキー（ip は v4 数値順・null 末尾） */
+  const keyFns = {
+    ip:  r => r.ip  ? [0, ipToU32(r.ip.split("/")[0]), ""] : [1, 0, ""],
+    ip6: r => r.ip6 ? [0, 0, r.ip6] : [1, 0, ""],
+  };
+  const tsvLines = ["Network(v4)\tNetwork(v6)\tDevice\tInterface\tIPv4\tIPv6\tDescription\tStatus"];
+  const allCollapsed = keys.length > 0 && keys.every(k => S.collapsedNets.has(k));
+  let html = `<div class="thead"><h3>ADDRESSES</h3><span class="cnt">${flt.length} 行 / ${keys.length} サブネット</span>
+      <button class="tbtn" data-foldall="${allCollapsed?"open":"close"}">${allCollapsed?"全展開":"全折りたたみ"}</button>
+      <span class="sp"></span>
+      <button class="tbtn" data-copy="1" title="フィルタ通過した全行をTSVでコピー（折りたたみ中の行も含む）">コピー</button></div>
+    <table class="dt"><tr>${thSort("addr","dev","Device")}${thSort("addr","ifn","Interface")}${thSort("addr","ip","IPv4")}${thSort("addr","ip6","IPv6")}${thSort("addr","desc","Description")}${thSort("addr","st","St")}</tr>`;
+  for (const key of keys) {
+    const members = sortRows(groupsFlt.get(key), S.sort.addr, keyFns);
+    /* グループ見出し: subnet（dual は v4 · v6 を1行に統合）＋使用率 */
+    let label, usage;
+    if (key === NO_NET) {
+      label = "—（サブネット推論外: loopback 等）";
+      usage = `${groupsAll.get(key).length} IF`;
+    } else {
+      label = key + (NET_PAIR[key] ? ` · ${NET_PAIR[key]}` : "");
+      const rng = v4SubnetRange(key);
+      const all = groupsAll.get(key);
+      if (rng) {
+        const used = new Set(all.filter(r => r.ip).map(r => ipToU32(r.ip.split("/")[0])));
+        usage = `${used.size}/${rng.usable}`;
+      } else usage = `${all.length} IF`;
+    }
+    const closed = S.collapsedNets.has(key);
+    html += `<tr class="grph" data-grp="${esc(key)}"><td colspan="6">${closed?"▸":"▾"} ${esc(label)}` +
+      `<span class="usage">${esc(usage)}</span></td></tr>`;
+    for (const r of members) {
+      tsvLines.push([r.netV4||"", r.netV6||"", r.dev, r.ifn, r.ip||"", r.ip6||"", r.desc||"", r.st].join("\t"));
+      if (closed) continue;
+      const dup4 = dupOf(r, r.ip, "v4"), dup6 = dupOf(r, r.ip6, "v6");
+      html += `<tr class="trow">
+        <td>${esc(r.dev)}</td>
+        <td class="dim-t">${esc(r.ifn)}</td>
+        <td class="${dup4?"chk-bad":"dim-t"}"${dup4?` title="重複IP: ${esc(dup4)} にも同一アドレス"`:""}>${r.ip?esc(r.ip):"—"}${dup4?" ⚠":""}</td>
+        <td class="${dup6?"chk-bad":"dim-t"}"${dup6?` title="重複IP: ${esc(dup6)} にも同一アドレス"`:""}>${r.ip6?esc(r.ip6):"—"}${dup6?" ⚠":""}</td>
+        <td class="${r.desc?"dim-t":"no-desc"}"${r.desc?"":' title="description 未設定"'}>${r.desc?esc(r.desc):"—"}</td>
+        <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}</td></tr>`;
+    }
+  }
+  lastTsv = tsvLines.join("\n");
+  html += `</table>
+    <div class="tnote">見出しクリックで折りたたみ（▾/▸） / 使用率 = 使用アドレス数/収容数（v4） /
+    ⚠ 赤 = 重複IP（複数機器に同一アドレス） / オレンジの "—" = description 未設定 /
+    列ヘッダクリックでグループ内をソート（昇順⇄降順⇄解除） / コピーは折りたたみ中の行も含む</div>`;
+  return html;
+}
+
+/* ---- INTERFACES 用ヘルパー ---- */
+/* 対向情報: link は {label, sub, peerDev, peerIf}（行ジャンプ可）/ segment・external はラベルのみ / 無ければ null */
+function connectedTo(devId, ifn) {
+  for (const l of DATA.links) {
+    if (l.a === devId && l.ai === ifn) return { label:`${DATA.devices[l.b].hostname} ${l.bi}`, sub:l.subnet, peerDev:l.b, peerIf:l.bi };
+    if (l.b === devId && l.bi === ifn) return { label:`${DATA.devices[l.a].hostname} ${l.ai}`, sub:l.subnet, peerDev:l.a, peerIf:l.ai };
+  }
+  for (const s of DATA.segments) {
+    if (s.members.some(m => m.dev === devId && m.ifn === ifn)) {
+      const others = s.members.filter(m => m.dev !== devId).map(m => DATA.devices[m.dev].hostname).join(", ");
+      return { label:`seg ${s.subnet} → ${others}`, sub:s.subnet };
+    }
+  }
+  for (const e of DATA.bgpEdges) {
+    if (e.kind === "external" && e.a === devId && e.srcIf === ifn) {
+      const ext = DATA.extPeers.find(x => x.id === e.ext);
+      return { label: ext ? `${ext.label} (${ext.sub})` : "external", sub:null };
+    }
+  }
+  return null;
+}
+/* IF 種別: unused（ip/ip6/desc すべて無し）/ loopback / connected / stub */
+function ifKind(devId, i) {
+  if (!i.ip && !i.ip6 && !i.d) return "unused";
+  if (/^lo(opback)?\d*$/i.test(i.n)) return "loopback";
+  if (connectedTo(devId, i.n)) return "connected";
+  return "stub";
+}
+const IFK_LABEL = { connected:"接続", stub:"スタブ", unused:"未使用", loopback:"loopback" };
+const isPhysical = n => n.includes("/");                                  /* スロット番号を持つ物理ポート */
+const lineCard = n => n.includes("/") ? n.slice(0, n.lastIndexOf("/")) : "(virtual)";
+/* 自然順ソートキー: 数字部をゼロ埋めして文字列比較（Gi0/2 < Gi0/10） */
+const naturalKey = s => String(s).toLowerCase().replace(/\d+/g, m => m.padStart(8, "0"));
+
+/* ---- ポートの運用状態（予約 / 使用不可）の手動指定。ブラウザ localStorage に永続化 ----
+   実装版ではこれは config ではなく「運用アノテーション」として config と分離して保持する想定 */
+const PORTSTATE_KEY = "ct-portstate";
+let portRole = {};
+(function initPortRole() {
+  /* サンプルの role フィールドを初期値として投入（デモ用） */
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs) if (i.role) portRole[`${id}:${i.n}`] = i.role;
+  /* localStorage の手動指定で上書き（"auto" = 初期 role を打ち消す明示クリア） */
+  try { Object.assign(portRole, JSON.parse(localStorage.getItem(PORTSTATE_KEY) || "{}")); }
+  catch (e) { /* file:// で localStorage 不可な環境はセッション内のみ動作 */ }
+})();
+const effRole = (devId, ifn) => {                       /* 有効な運用状態（reserved/disabled or null） */
+  const v = portRole[`${devId}:${ifn}`];
+  return v === "reserved" || v === "disabled" ? v : null;
+};
+function cyclePortRole(devId, ifn) {                     /* − → 予約 → 使用不可 → −（auto で明示クリア） */
+  const e = effRole(devId, ifn);
+  portRole[`${devId}:${ifn}`] = e === "reserved" ? "disabled" : e === "disabled" ? "auto" : "reserved";
+  try { localStorage.setItem(PORTSTATE_KEY, JSON.stringify(portRole)); } catch (e2) { /* 永続化不可は無視 */ }
+}
+/* 物理ポートの運用カテゴリ: disabled / reserved / free（未使用）/ used（接続・スタブ） */
+function portCat(devId, i) {
+  const e = effRole(devId, i.n);
+  if (e) return e;
+  return ifKind(devId, i) === "unused" ? "free" : "used";
+}
+const CAT_LABEL = { used:"使用", reserved:"予約", disabled:"不可", free:"空き" };
+
+/* ---- ポート備考（予約理由などのメモ）。運用状態と同様にブラウザ localStorage へ永続化 ---- */
+const PORTNOTE_KEY = "ct-portnote";
+let portNote = {};
+(function initPortNote() {
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs) if (i.note) portNote[`${id}:${i.n}`] = i.note;
+  try { Object.assign(portNote, JSON.parse(localStorage.getItem(PORTNOTE_KEY) || "{}")); }
+  catch (e) { /* localStorage 不可な環境はセッション内のみ */ }
+})();
+const noteOf = (devId, ifn) => portNote[`${devId}:${ifn}`] || "";
+function setPortNote(devId, ifn, text) {
+  portNote[`${devId}:${ifn}`] = text;   /* 空文字も保存（初期 note を打ち消す明示クリア） */
+  try { localStorage.setItem(PORTNOTE_KEY, JSON.stringify(portNote)); } catch (e) { /* 永続化不可は無視 */ }
+}
+
+/* ================= CHECKS view (D2 設計検証パネル) ================= */
+function renderChecksView() {
+  const checks = DATA.checks;
+  if (!checks || checks.length === 0) {
+    return '<div class="thead"><h3>CHECKS</h3><span class="cnt">0 件</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">問題は検出されませんでした。</div>';
+  }
+  const sevBadge = sev => {
+    if (sev === "error")   return `<span class="badge" style="color:var(--danger);border-color:var(--danger)">${esc(sev)}</span>`;
+    if (sev === "warning") return `<span class="badge" style="color:var(--accent);border-color:var(--accent)">${esc(sev)}</span>`;
+    return `<span class="badge">${esc(sev)}</span>`;
+  };
+  const errors   = checks.filter(c => c.severity === "error").length;
+  const warnings = checks.filter(c => c.severity === "warning").length;
+  const summary  = [errors ? `${errors} error` : "", warnings ? `${warnings} warning` : ""].filter(Boolean).join(", ");
+  let html = `<div class="thead"><h3>CHECKS</h3><span class="cnt">${esc(summary)}</span></div>`;
+  html += `<table class="dt" style="max-width:1080px;margin:0 24px 48px"><tr>
+    <th style="width:80px">Severity</th>
+    <th style="width:160px">Kind</th>
+    <th>Message</th>
+    <th>Refs</th></tr>`;
+  for (const c of checks) {
+    html += `<tr class="trow">
+      <td>${sevBadge(c.severity)}</td>
+      <td class="dim-t" style="font-size:11px">${esc(c.kind)}</td>
+      <td>${esc(c.message)}</td>
+      <td class="dim-t" style="font-size:10px">${(c.refs||[]).map(r=>esc(r)).join("<br>")}</td></tr>`;
+  }
+  html += "</table>";
+  return html;
+}
+
+/* ================= CONFIG view (生 running-config 閲覧・検索) =================
+   左ペイン=機器リスト（グローバル検索でフィルタ）/ 右ペイン=選択機器の生 config を行番号付きで表示。
+   検索 S.search は機器名/id/config 本文を横断し、一致機器を残し・一致行をハイライトする。
+   図との連動はしない（閲覧・検索専用）。原本そのまま表示のため機密が含まれ得る旨を警告する。 */
+
+/* ---- CONFIG ワークベンチ Phase B: 編集スクラッチ・source・行差分 ---- */
+const CFGSCRATCH_KEY = "ct-cfgscratch";
+(function initCfgScratch() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CFGSCRATCH_KEY) || "{}");
+    /* scratch:<id> キー・文字列値のみ採用（prototype 汚染・不正値の防御） */
+    for (const k of Object.keys(parsed)) {
+      if (k.startsWith("scratch:") && typeof parsed[k] === "string") S.configScratch[k] = parsed[k];
+    }
+  } catch (e) { /* localStorage 不可・不正 JSON はセッション内のみ */ }
+})();
+function saveCfgScratch() {
+  try { localStorage.setItem(CFGSCRATCH_KEY, JSON.stringify(S.configScratch)); } catch (e) { /* 永続化不可は無視 */ }
+}
+/* source key（"dev:<id>" / "prev:<id>"）→ 原本テキスト。
+   scratch:* は cfgTextOf 経由でのみ扱う（直接渡すと dev 扱いに誤落下するため呼び出し不可）。 */
+function cfgRawOf(key) {
+  const idx = key.indexOf(":");
+  const kind = key.slice(0, idx), id = key.slice(idx + 1);
+  if (kind === "prev") return (DATA.raw_configs_prev || {})[id] || "";
+  return (DATA.raw_configs || {})[id] || "";
+}
+/* 表示テキスト。scratch:* のみ編集バッファ（S.configScratch）を読む。
+   dev:/prev: は常に原本（cfgRawOf）→ 編集しても原本は保持され、原本 vs 編集の比較が成立する。 */
+function cfgTextOf(key) {
+  if (key.startsWith("scratch:")) return S.configScratch[key] != null ? S.configScratch[key] : cfgRawOf("dev:" + key.slice(8));
+  return cfgRawOf(key);
+}
+/* 編集有り判定: scratch が原本と異なる場合 true。末尾改行の差は無視する。 */
+function cfgIsDirty(cur) {
+  if (cur == null) return false;
+  const sk = "scratch:" + cur;
+  const s = S.configScratch[sk];
+  if (s == null) return false;
+  return s.replace(/\n$/, "") !== cfgRawOf("dev:" + cur).replace(/\n$/, "");
+}
+/* ペインの source key を解決: 自由比較は select.cfgsrc・編集モードは select 不在のため
+   textarea/ペインの data-cfgkey にフォールバック（保存/置換/差分/コピーで共通利用）。 */
+function cfgPaneKey(paneEl, ta) {
+  const sel = paneEl && paneEl.querySelector("select.cfgsrc");
+  if (sel) return sel.value;
+  return (ta && ta.dataset.cfgkey) || (paneEl && paneEl.dataset.cfgkey) || null;
+}
+/* 選択可能な source 一覧（現行 dev:* ＋ 前回 prev:* ＋ 既存の編集コピー scratch:*） */
+function cfgSources() {
+  const out = [];
+  const host = id => (DATA.devices[id] && DATA.devices[id].hostname) || id;
+  Object.keys(DATA.raw_configs || {}).sort().forEach(id => out.push({ key: "dev:" + id, label: host(id) }));
+  Object.keys(DATA.raw_configs_prev || {}).sort().forEach(id => out.push({ key: "prev:" + id, label: host(id) + " (前回)" }));
+  Object.keys(S.configScratch).sort().forEach(k => {
+    if (k.startsWith("scratch:")) out.push({ key: k, label: host(k.slice(8)) + " (編集中)" });
+  });
+  return out;
+}
+/* LCS 行整列: a→b の編集列を順序付き ops に分類（決定的）。
+   各 op は {t:"same",ai,bi} / {t:"del",ai}（a だけ＝削除） / {t:"add",bi}（b だけ＝追加）。
+   skipped=true は大規模で整列省略（呼び出し側は素のまま描画する）。 */
+function lineAlign(a, b) {
+  const n = a.length, m = b.length;
+  /* 同一テキストの早道（編集モード突入直後＝原本コピー等）: O(n) で全 same を返し DP を回避 */
+  if (n === m) {
+    let same = true;
+    for (let k = 0; k < n; k++) { if (a[k] !== b[k]) { same = false; break; } }
+    if (same) { const ops = []; for (let k = 0; k < n; k++) ops.push({ t: "same", ai: k, bi: k }); return { ops, skipped: false }; }
+  }
+  /* O(n*m) DP のメモリ上限ガード（n*m が 4000000 以上＝約 2000行×2000行で整列省略） */
+  if (n * m >= 4000000) return { ops: [], skipped: true };
+  const dp = [];   /* Int32Array で行確保（ゼロ初期化・JS Array より省メモリ・LCS 長は min(n,m) で int32 内） */
+  for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { ops.push({ t: "same", ai: i, bi: j }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { ops.push({ t: "del", ai: i }); i++; }
+    else { ops.push({ t: "add", bi: j }); j++; }
+  }
+  while (i < n) { ops.push({ t: "del", ai: i }); i++; }
+  while (j < m) { ops.push({ t: "add", bi: j }); j++; }
+  return { ops, skipped: false };
+}
+function cfgDiffCounts(ops) {
+  let adds = 0, dels = 0;
+  for (const o of ops) { if (o.t === "add") adds++; else if (o.t === "del") dels++; }
+  return { adds, dels };
+}
+/* 1 行の HTML（行番号セル＋本文。num=null は空セル・text=null は空行）。extraCls は前置きスペース込み */
+function cfgLineHtml(num, text, extraCls) {
+  const txt = text != null ? (esc(text) || "&nbsp;") : "&nbsp;";
+  return `<div class="cfgline${extraCls || ""}"><span class="cfgln">${num != null ? num : ""}</span><span class="cfgtx">${txt}</span></div>`;
+}
+/* 比較（両ペイン読取）の対称整列: same=両側に行・del=左に行(赤)＋右に空行・add=左に空行＋右に行(緑)。
+   両ペインの行数が一致＝完全整列。q は検索ヒット小文字。 */
+function cfgSymRows(lLines, rLines, q) {
+  const { ops, skipped } = lineAlign(lLines, rLines);
+  const hitCls = ln => (!!q && ln != null && ln.toLowerCase().includes(q)) ? " hit" : "";
+  if (skipped) {
+    return { left: lLines.map((ln, i) => cfgLineHtml(i + 1, ln, hitCls(ln))).join(""),
+             right: rLines.map((ln, i) => cfgLineHtml(i + 1, ln, hitCls(ln))).join(""),
+             adds: 0, dels: 0, skipped: true };
+  }
+  const L = [], R = [];
+  for (const o of ops) {
+    if (o.t === "same") { L.push(cfgLineHtml(o.ai + 1, lLines[o.ai], hitCls(lLines[o.ai]))); R.push(cfgLineHtml(o.bi + 1, rLines[o.bi], hitCls(rLines[o.bi]))); }
+    else if (o.t === "del") { L.push(cfgLineHtml(o.ai + 1, lLines[o.ai], " diff-del" + hitCls(lLines[o.ai]))); R.push(cfgLineHtml(null, null, " gap")); }
+    else { L.push(cfgLineHtml(null, null, " gap")); R.push(cfgLineHtml(o.bi + 1, rLines[o.bi], " diff-add" + hitCls(rLines[o.bi]))); }
+  }
+  const { adds, dels } = cfgDiffCounts(ops);
+  return { left: L.join(""), right: R.join(""), adds, dels, skipped: false };
+}
+/* 統一差分プレビュー（unified diff 形式・読取専用）: before と after を lineAlign で比較し
+   same=コンテキスト行(ctx)・del=削除行(del・−)・add=追加行(add・+) として1ペインに並べる。
+   q は検索クエリ（ヒット行に .hit を付ける）。skipped 時は after を全コンテキストとして返す。 */
+function cfgUnifiedRows(before, after, q) {
+  const { ops, skipped } = lineAlign(before, after);
+  const { adds, dels } = skipped ? { adds: 0, dels: 0 } : cfgDiffCounts(ops);
+  const hit = ln => !!q && ln.toLowerCase().includes(q);
+  if (skipped) {
+    const rows = after.map((ln, i) =>
+      `<div class="urow ctx${hit(ln) ? " hit" : ""}"><span class="ug">${i + 1}</span><span class="us"> </span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    return { html: rows.join(""), adds: 0, dels: 0, skipped: true };
+  }
+  const rows = [];
+  for (const o of ops) {
+    if (o.t === "same") {
+      const ln = before[o.ai];
+      rows.push(`<div class="urow ctx${hit(ln) ? " hit" : ""}" data-b="${o.bi}"><span class="ug">${o.ai + 1}</span><span class="us"> </span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    } else if (o.t === "del") {
+      const ln = before[o.ai];
+      rows.push(`<div class="urow del${hit(ln) ? " hit" : ""}"><span class="ug">${o.ai + 1}</span><span class="us">−</span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    } else {
+      const ln = after[o.bi];
+      rows.push(`<div class="urow add${hit(ln) ? " hit" : ""}" data-b="${o.bi}"><span class="ug"></span><span class="us">+</span><span class="utx">${esc(ln) || "&nbsp;"}</span></div>`);
+    }
+  }
+  return { html: rows.join(""), adds, dels, skipped: false };
+}
+/* 行番号ガター HTML 生成: n 行ぶんの番号 div を返す。curIdx 行に "cur" クラスを付与。 */
+function cfgGutHtml(n, curIdx) {
+  let s = "";
+  for (let i = 0; i < n; i++) s += `<div class="n${i === curIdx ? " cur" : ""}" data-i="${i}">${i + 1}</div>`;
+  return s;
+}
+/* textarea のカーソル行インデックスを返す（0 始まり）。 */
+function cfgCurLine(ta) {
+  return ta.value.slice(0, ta.selectionStart).split("\n").length - 1;
+}
+/* CSS セレクタ内で使う属性値のエスケープ（" \ ] を安全化）。 */
+function cssEsc(s) { return String(s).replace(/["\\\]]/g, "\\$&"); }
+/* 編集モードのライブ差分更新: textarea 編集に応じて右 unified 差分・行番号ガター・差分カウントを更新。
+   COMPARE モード（S.configSplit）は対象外。既存 300ms debounce から呼ばれる。 */
+function updateCfgEditDiff(ta) {
+  const rKey = ta.dataset.cfgkey;          /* "scratch:<cur>" */
+  if (!rKey) return;
+  const cur = rKey.replace(/^scratch:/, "");
+  const before = cfgRawOf("dev:" + cur).replace(/\n$/, "").split("\n");
+  const after = ta.value.replace(/\n$/, "").split("\n");
+  const uni = cfgUnifiedRows(before, after, "");
+  const uniEl = document.querySelector('[data-cfgunified="' + cssEsc(rKey) + '"]');
+  if (uniEl) uniEl.innerHTML = uni.html;
+  const gut = document.querySelector('[data-cfggut="E"]');
+  if (gut) gut.innerHTML = cfgGutHtml(after.length, -1);
+  const sum = document.querySelector('[data-cfgsum="' + cssEsc(rKey) + '"]');
+  if (sum) sum.textContent = `+${uni.adds} \u2212${uni.dels}${uni.skipped ? " (差分省略:大規模)" : ""}`;
+  cfgEditHighlightCur(ta);
+}
+/* カーソル行ハイライト: ガター行番号と unified diff の対応行に cur クラスを付与。 */
+function cfgEditHighlightCur(ta) {
+  const idx = cfgCurLine(ta);
+  const gut = document.querySelector('[data-cfggut="E"]');
+  if (gut) {
+    gut.querySelectorAll(".n").forEach(el => el.classList.toggle("cur", +el.dataset.i === idx));
+    gut.scrollTop = ta.scrollTop;
+  }
+  const rKey = ta.dataset.cfgkey;
+  const uniEl = rKey ? document.querySelector('[data-cfgunified="' + cssEsc(rKey) + '"]') : null;
+  if (uniEl) uniEl.querySelectorAll(".urow").forEach(el => el.classList.toggle("cur", el.dataset.b === String(idx)));
+}
+/* compat shim: 旧 updateCfgSplitDiff 呼び出し元（全置換ハンドラ）との互換を保つ。
+   編集モードは updateCfgEditDiff へ委譲、COMPARE モードは何もしない（比較は再描画なし）。 */
+function updateCfgSplitDiff() {
+  if (!S.configEdit) return;
+  const split = document.querySelector("#tableview .cfgsplit");
+  if (!split) return;
+  const ta = split.querySelector("textarea.cfgedit");
+  if (!ta) return;
+  updateCfgEditDiff(ta);
+}
+/* 2ペイン比較モード（読取専用・対称整列）。編集は「編集」モードへ分離（ここでは textarea を出さない）。 */
+function renderCfgSplit(q) {
+  const srcs = cfgSources();
+  let lKey = S.configSrcL || ("dev:" + (S.configDev || "")) ;
+  if (!srcs.some(s => s.key === lKey)) lKey = srcs[0].key;
+  let rKey = S.configSrcR || (srcs[1] ? srcs[1].key : srcs[0].key);
+  if (!srcs.some(s => s.key === rKey)) rKey = (srcs[1] || srcs[0]).key;
+  const lLines = cfgTextOf(lKey).replace(/\n$/, "").split("\n");
+  const rLines = cfgTextOf(rKey).replace(/\n$/, "").split("\n");
+  const sym = cfgSymRows(lLines, rLines, q);
+
+  const toolbar = `<div class="cfgtools">`
+    + `<button class="tbtn on" data-cfgtoggle="split" title="2ペイン比較を終了">比較</button>`
+    + `<button class="tbtn${S.configWrap ? " on" : ""}" data-cfgtoggle="wrap" title="長い行を折り返す">折返し</button>`
+    + `<span class="cfgdiffsum">+${sym.adds} −${sym.dels}${sym.skipped ? " (差分省略:大規模)" : ""}</span>`
+    + `<span class="sp"></span></div>`;
+
+  const selOf = (key, pane) => `<select class="cfgsrc" data-cfgpane="${pane}">`
+    + srcs.map(s => `<option value="${esc(s.key)}"${s.key === key ? " selected" : ""}>${esc(s.label)}</option>`).join("")
+    + `</select>`;
+  const pane = (key, side, rowsHtml) => `<div class="cfgpane">`
+    + `<div class="cfgpane-h">${selOf(key, side)}`
+    + `<button class="tbtn" data-cfgcopytext="${side}" title="このペインの内容をコピー">コピー</button></div>`
+    + `<div class="cfgpre${S.configWrap ? " wrap" : ""}" data-cfgpre="${side}">${rowsHtml}</div>`
+    + `</div>`;
+  return toolbar + `<div class="cfgsplit">`
+    + pane(lKey, "L", sym.left)
+    + pane(rKey, "R", sym.right)
+    + `</div>`;
+}
+
+/* ノード駆動編集モード（q=検索クエリ・cur=選択機器 id で固定）: 左=編集 textarea＋行番号ガター／
+   右=統一差分プレビュー（読取専用・git 風）。source ドロップダウンは出さず data-cfgkey でペインの
+   source を保持（保存/置換/差分/コピーの各ハンドラが cfgPaneKey でそこから解決）。 */
+function renderCfgEdit(q, cur) {
+  const host = (DATA.devices[cur] && DATA.devices[cur].hostname) || cur;
+  const rKey = "scratch:" + cur;
+  const before = cfgRawOf("dev:" + cur).replace(/\n$/, "").split("\n");
+  const after = cfgTextOf(rKey).replace(/\n$/, "").split("\n");
+  const uni = cfgUnifiedRows(before, after, q);
+
+  const toolbar = `<div class="cfgtools">`
+    + `<button class="tbtn on" data-cfgtoggle="edit" title="編集を終了して一覧に戻る">編集</button>`
+    + `<span class="cfgdiffsum" data-cfgsum="${esc(rKey)}">+${uni.adds} −${uni.dels}${uni.skipped ? " (差分省略:大規模)" : ""}</span>`
+    + `<div class="cfgreplace"><input class="cfgfind" data-cfgpane="E" placeholder="検索文字列" spellcheck="false">`
+    + `<input class="cfgrepl" data-cfgpane="E" placeholder="置換文字列" spellcheck="false">`
+    + `<button class="tbtn" data-cfgreplace="E" title="検索文字列をすべて置換">全置換</button>`
+    + `<span class="cfgreplmsg" data-cfgpane="E"></span></div>`
+    + `<span class="sp"></span>`
+    + `<button class="tbtn" data-cfgrevert="${esc(cur + "")}" title="編集を破棄して原本に戻す">↩ 元に戻す</button>`
+    + `<button class="tbtn" data-cfgdl="${esc(cur + "")}" title="編集後を ${esc(cfgFileName(host))} として保存">⬇ ダウンロード</button>`
+    + `<button class="tbtn" data-cfgcopytext="E" title="編集後を全文コピー">📋 コピー</button>`
+    + `</div>`;
+
+  /* 左: 編集 textarea＋行番号ガター。data-cfgkey で scratch を保持 */
+  const lPane = `<div class="cfgpane" data-cfgkey="${esc(rKey)}">`
+    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="cfgedited">編集中</span></span></div>`
+    + `<div class="cfgedit-wrap"><div class="cfgedit-gut" data-cfggut="E"></div>`
+    + `<textarea class="cfgedit" data-cfgpane="E" data-cfgkey="${esc(rKey)}" spellcheck="false">${esc(cfgTextOf(rKey))}</textarea></div></div>`;
+
+  /* 右: 統一差分プレビュー（読取専用・git 風）。data-cfgkey で dev:cur を保持 */
+  const rPane = `<div class="cfgpane" data-cfgkey="dev:${esc(cur + "")}">`
+    + `<div class="cfgpane-h"><span class="cfgsrc-fixed">${esc(host)} <span class="dim-t">vs 原本（差分プレビュー）</span></span></div>`
+    + `<div class="cfgpre cfgunified" data-cfgunified="${esc(rKey)}">${uni.html}</div></div>`;
+
+  return toolbar + `<div class="cfgsplit">` + lPane + rPane + `</div>`;
+}
+
+function renderConfigView() {
+  const raw = DATA.raw_configs || {};
+  const ids = Object.keys(raw).sort();
+  if (!ids.length) {
+    return '<div class="thead"><h3>CONFIG</h3><span class="cnt">0 件</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">保存された生 config がありません（再生成してください）。</div>';
+  }
+  /* 検索はグローバル検索バーを流用。演算子（host: 等）は素の値で扱い、未完演算子（"host:"）は
+     値が空＝フィルタ無効として他の表ビューとカウント表示を整合させる */
+  const q = searchQuery().value;
+  const hostOf = id => (DATA.devices[id] && DATA.devices[id].hostname) || id;
+  /* 検索: 機器名 / id / config 本文のいずれかにマッチする機器を残す（全文横断） */
+  const match = id => !q || hostOf(id).toLowerCase().includes(q)
+    || id.toLowerCase().includes(q) || raw[id].toLowerCase().includes(q);
+  const shown = ids.filter(match);
+  tableSearchFeedback(shown.length);
+
+  const head = `<div class="thead"><h3>CONFIG</h3><span class="cnt">${ids.length} 機器${q ? ` / ${shown.length} 一致` : ""}</span></div>`
+    + `<div class="cfgwarn">⚠ この表示は読み込んだ running-config を<b>原本のまま</b>含みます。`
+    + `password / secret / community / 鍵 等の機密が含まれる場合があります（共有・保存時は取り扱い注意）。</div>`;
+  if (!shown.length) {
+    return head + '<div class="tnote" style="padding:18px 24px">一致する機器がありません。</div>';
+  }
+  /* 2ペイン比較・編集モード（横並び。新旧版は --diff-against 時に prev:* が source に出る） */
+  if (S.configSplit) return head + renderCfgSplit(q);
+  /* 選択機器: 未選択/不在/絞り込みで外れた場合は一致先頭へ（cur は常に shown 内） */
+  let cur = S.configDev;
+  if (!cur || shown.indexOf(cur) < 0) cur = shown[0];
+  /* ノード駆動編集モード（選択機器の 編集前 vs 編集中）。編集対象は検索フィルタで切替えない
+     （編集中はリスト非表示・トグルの scratch 生成と同じ全機器ベースで cur を解決し機器すり替えを防ぐ） */
+  if (S.configEdit) {
+    let ecur = S.configDev;
+    if (!ecur || ids.indexOf(ecur) < 0) ecur = ids[0];
+    return head + renderCfgEdit(q, ecur);
+  }
+
+  /* 行数は本文と同じ数え方（末尾改行を1つ除いてから分割）でリストと本文を一致させる */
+  const lineCount = id => raw[id].replace(/\n$/, "").split("\n").length;
+  const devList = shown.map(id => {
+    const dirty = cfgIsDirty(String(id)) ? `<span class="cfgdirty" title="未保存の編集あり">●</span>` : "";
+    return `<div class="cfgdev${id === cur ? " active" : ""}" data-cfgdev="${esc(id)}">`
+      + `<span class="cfgdev-h">${esc(hostOf(id))}${dirty}</span>`
+      + `<span class="cfgdev-c">${lineCount(id)} 行</span></div>`;
+  }).join("");
+
+  /* parse 状態モード: DATA.parse_status[cur] が行配列としてあれば 3 段階色分け可能 */
+  const psArr = (DATA.parse_status || {})[cur];
+  const parseOn = S.configParse && Array.isArray(psArr);
+
+  /* 右ペイン本文: 末尾改行を除いて行分割し、行番号付きで描画（検索一致行をハイライト）。
+     grep モード時は一致行のみ・parse未対応のみ時は unparsed 行のみ抜粋（元行番号を保持）。 */
+  cfgHitIdx = -1;   /* ナビ位置をリセット（再描画ごと） */
+  const lines = raw[cur].replace(/\n$/, "").split("\n");
+  let hitCount = 0;
+  const psCount = { parsed: 0, ignored: 0, unparsed: 0 };
+  const rows = [];
+  lines.forEach((ln, i) => {
+    const hit = !!q && ln.toLowerCase().includes(q);
+    if (hit) hitCount++;
+    const ps = parseOn ? (psArr[i] || "unparsed") : null;
+    if (ps && psCount[ps] !== undefined) psCount[ps]++;
+    if (S.configGrep && q && !hit) return;                         /* grep: 一致行のみ */
+    if (parseOn && S.configUnparsedOnly && ps !== "unparsed") return; /* 未対応のみ */
+    /* ここは cfgLineHtml を使わない: parse 状態クラス(ps-*)と検索ナビ用 data-cfgi 属性が必要なため直書き */
+    rows.push(`<div class="cfgline${hit ? " hit" : ""}${ps ? " ps-" + ps : ""}" data-cfgi="${i}">`
+      + `<span class="cfgln">${i + 1}</span><span class="cfgtx">${esc(ln) || "&nbsp;"}</span></div>`);
+  });
+  const body = rows.join("");
+
+  /* ツールバー: 折返し / 一致行のみ(grep) / parse状態 トグル・検索一致行ナビ・全文コピー */
+  const navHtml = q
+    ? `<span class="cfgnav"><button class="tbtn" data-cfgnav="prev" title="前の一致行">‹</button>`
+      + `<span id="cfgnavpos">${hitCount ? "–/" + hitCount : "0/0"}</span>`
+      + `<button class="tbtn" data-cfgnav="next" title="次の一致行">›</button> 一致行</span>`
+    : "";
+  const parseToggle = Array.isArray(psArr)
+    ? `<button class="tbtn${S.configParse ? " on" : ""}" data-cfgtoggle="parse" title="parse できた行/未対応行を色分け">parse状態</button>`
+      + (parseOn ? `<button class="tbtn${S.configUnparsedOnly ? " on" : ""}" data-cfgtoggle="unparsed" title="未対応行のみ抜粋">未対応のみ</button>` : "")
+    : "";
+  const legend = parseOn
+    ? `<span class="cfglegend">`
+      + `<span class="ps-parsed">■</span>parse済 ${psCount.parsed}`
+      + ` <span class="ps-ignored">■</span>無視 ${psCount.ignored}`
+      + ` <span class="ps-unparsed">■</span>未対応 ${psCount.unparsed}</span>`
+    : "";
+  const toolbar = `<div class="cfgtools">`
+    + `<button class="tbtn" data-cfgtoggle="edit" title="選択中の機器を編集（編集前 vs 編集中）">編集</button>`
+    + `<button class="tbtn" data-cfgtoggle="split" title="2つの config を横並び比較">比較</button>`
+    + `<button class="tbtn${S.configWrap ? " on" : ""}" data-cfgtoggle="wrap" title="長い行を折り返す">折返し</button>`
+    + `<button class="tbtn${S.configGrep ? " on" : ""}" data-cfgtoggle="grep" title="検索一致行のみ抜粋">一致行のみ</button>`
+    + parseToggle
+    + navHtml
+    + legend
+    + `<span class="sp"></span>`
+    + `<button class="tbtn" data-cfgcopy="${esc(cur)}" title="この config 全文をコピー">コピー</button></div>`;
+
+  return head + toolbar
+    + `<div class="cfgwrap"><div class="cfglist">${devList}</div>`
+    + `<div class="cfgbody"><div class="cfgbody-h">${esc(hostOf(cur))} <span class="dim-t">(${esc(cur)})</span></div>`
+    + `<div class="cfgpre${S.configWrap ? " wrap" : ""}">${body}</div></div></div>`;
+}
+
+/* ================= DIFF view (D3b トポロジー差分表示) ================= */
+function renderDiffView() {
+  /* グローバル DIFF が null/undefined のとき（タブが出ないはずだが）安全に空表示 */
+  if (!DIFF) {
+    return '<div class="thead"><h3>DIFF</h3><span class="cnt">—</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">差分データがありません（--diff-against なし）。</div>';
+  }
+
+  /* セクション固定順（決定的描画） */
+  const SECTIONS = [
+    ["devices", "Devices"],
+    ["interfaces", "Interfaces"],
+    ["links", "Links"],
+    ["segments", "Segments"],
+    ["routing_bgp", "Routing / BGP"],
+    ["routing_ospf", "Routing / OSPF"],
+    ["routing_static", "Routing / Static"],
+  ];
+
+  /* エントリのラベル（セクション別・XSS エスケープ済み） */
+  function entryLabel(sec, e) {
+    if (sec === "devices")   return esc(e.id || String(e));
+    if (sec === "interfaces") return esc(e.id || String(e));
+    if (sec === "links")     return esc((e.subnet||"") + "  " + (e.a_device||"") + "::" + (e.a_if||"") + " -- " + (e.b_device||"") + "::" + (e.b_if||""));
+    if (sec === "segments")  return esc(e.id || String(e));
+    if (sec === "routing_bgp")    return esc((e.device||"") + " -> " + (e.neighbor_ip||"") + " (" + (e.af||"") + ")");
+    if (sec === "routing_ospf")   return esc((e.device||"") + " network=" + (e.network||"") + " (" + (e.af||"") + ")");
+    if (sec === "routing_static") return esc((e.device||"") + " prefix=" + (e.prefix||"") + " (" + (e.af||"") + ")");
+    return esc(String(e));
+  }
+  function changedLabel(sec, ch) {
+    if (sec === "devices" || sec === "interfaces" || sec === "segments") return esc(ch.id || String(ch));
+    if (sec === "routing_bgp")    return esc((ch.device||"") + " -> " + (ch.neighbor_ip||"") + " (" + (ch.af||"") + ")");
+    if (sec === "routing_ospf")   return esc((ch.device||"") + " network=" + (ch.network||"") + " (" + (ch.af||"") + ")");
+    if (sec === "routing_static") return esc((ch.device||"") + " prefix=" + (ch.prefix||"") + " (" + (ch.af||"") + ")");
+    return esc(String(ch));
+  }
+
+  /* 全体の総変更件数 */
+  let totalChanges = 0;
+  for (const [sec] of SECTIONS) {
+    const s = DIFF[sec] || {};
+    totalChanges += (s.added||[]).length + (s.removed||[]).length + (s.changed||[]).length;
+  }
+
+  if (totalChanges === 0) {
+    return '<div class="thead"><h3>DIFF</h3><span class="cnt">差分なし</span></div>'
+      + '<div class="tnote" style="padding:18px 24px">差分なし — 前回と同一のトポロジーです。</div>';
+  }
+
+  let html = `<div class="thead"><h3>DIFF</h3><span class="cnt">計 ${totalChanges} 件</span></div>`;
+  html += '<table class="dt" style="max-width:1080px;margin:0 24px 48px">';
+  html += '<tr><th style="width:120px">Kind</th><th>Entry</th></tr>';
+
+  for (const [sec, label] of SECTIONS) {
+    const s = DIFF[sec] || {};
+    const added   = s.added   || [];
+    const removed = s.removed || [];
+    const changed = s.changed || [];
+    const n = added.length + removed.length + changed.length;
+    if (n === 0) continue;
+    const summary = `+${added.length} -${removed.length} ~${changed.length}`;
+    html += `<tr><td colspan="2" style="background:var(--panel);padding:7px 6px;font-size:11px;letter-spacing:.06em;border-top:1px solid var(--panel-edge)">`
+          + `<b>${esc(label)}</b> <span style="color:var(--ink-dim);margin-left:8px;font-size:10px">${esc(summary)}</span></td></tr>`;
+    for (const e of added) {
+      html += `<tr class="trow"><td style="color:var(--search);font-size:11px">+added</td><td>${entryLabel(sec, e)}</td></tr>`;
+    }
+    for (const e of removed) {
+      html += `<tr class="trow"><td style="color:var(--danger);font-size:11px">-removed</td><td>${entryLabel(sec, e)}</td></tr>`;
+    }
+    for (const ch of changed) {
+      html += `<tr class="trow"><td style="color:var(--accent);font-size:11px">~changed</td><td>${changedLabel(sec, ch)}`;
+      const fields = ch.fields || {};
+      const fieldKeys = Object.keys(fields).sort();
+      if (fieldKeys.length) {
+        html += '<br><span style="font-size:10px;color:var(--ink-dim)">';
+        for (const f of fieldKeys) {
+          const [ov, nv] = fields[f];
+          html += `${esc(f)}: ${esc(JSON.stringify(ov))} → ${esc(JSON.stringify(nv))}  `;
+        }
+        html += '</span>';
+      }
+      html += '</td></tr>';
+    }
+  }
+  html += "</table>";
+  return html;
+}
+
+function renderIfsTable() {
+  /* 整合性チェック: リンク両端の MTU / 速度不一致（速度は表記ゆれ正規化後に比較） */
+  const norm = s => SPEED_NORM[s] || s;
+  const ifByName = (dev, n) => DATA.devices[dev].ifs.find(i => i.n === n);
+  const bad = {};
+  for (const l of DATA.links) {
+    const ia = ifByName(l.a, l.ai), ib = ifByName(l.b, l.bi);
+    if (!ia || !ib) continue;
+    const mark = (key, dev, ifn, peerDev, peerIf, val) =>
+      ((bad[`${dev}:${ifn}`] ||= {})[key] = `対向 ${DATA.devices[peerDev].hostname} ${peerIf} (${val}) と不一致`);
+    if (ia.mtu != null && ib.mtu != null && ia.mtu !== ib.mtu) {
+      mark("mtu", l.a, l.ai, l.b, l.bi, ib.mtu); mark("mtu", l.b, l.bi, l.a, l.ai, ia.mtu);
+    }
+    if (ia.sp && ib.sp && norm(ia.sp) !== norm(ib.sp)) {
+      mark("sp", l.a, l.ai, l.b, l.bi, ib.sp); mark("sp", l.b, l.bi, l.a, l.ai, ia.sp);
+    }
+  }
+  /* 全 IF 行（種別・対向込み） */
+  const allRows = [];
+  for (const [id,d] of Object.entries(DATA.devices))
+    for (const i of d.ifs)
+      allRows.push({ dev:d.hostname, devId:id, ifn:i.n, ip:i.ip, ip6:i.ip6, desc:i.d, st:i.st,
+                     mtu:i.mtu, sp:i.sp, vendor:d.vendor, as:String(d.as), chk: bad[`${id}:${i.n}`] || null,
+                     kind: ifKind(id, i), conn: connectedTo(id, i.n),
+                     addrs: i.addrs||[], v6list: ifV6List(i), ospf: i.ospf||null });
+  /* 検索フィルタ + 種別チップフィルタ（down は st 基準 / 予約・不可 は運用状態基準 / 他は kind 基準） */
+  const kf = S.ifKindFilter;
+  const rows = allRows.filter(r => rowSearchHit({
+      host:r.dev.toLowerCase(), ip:[r.ip,r.ip6,...r.addrs.map(a=>a.ip)].filter(Boolean).join(" ").toLowerCase(),
+      desc:(r.desc||"").toLowerCase(), as:r.as, vendor:r.vendor.toLowerCase(), ifn:r.ifn.toLowerCase(),
+      net:[r.ip && netOfV4(r.ip), r.ip6 && IP2NET[r.ip6.split("/")[0]]].filter(Boolean).join(" ").toLowerCase() })
+    && (kf === "all" ? true
+        : kf === "down" ? r.st === "down"
+        : kf === "reserved" || kf === "disabled" ? effRole(r.devId, r.ifn) === kf
+        : r.kind === kf));
+  tableSearchFeedback(rows.length);
+
+  const keyFns = {
+    ifn: r => naturalKey(r.ifn),
+    ip:  r => r.ip  ? [0, ipToU32(r.ip.split("/")[0]), ""] : [1, 0, ""],
+    ip6: r => r.ip6 ? [0, 0, r.ip6] : [1, 0, ""],
+    mtu: r => r.mtu == null ? [1, 0] : [0, r.mtu],
+    sp:  r => r.sp == null ? [1, 0] : [0, +(SPEED_NORM[r.sp] || r.sp) || 0],
+  };
+  /* 機器ごとにグループ化（ADDRESSES の grph/折りたたみ基盤を流用。キーは "dev:<id>"） */
+  const tsvLines = ["Device\tInterface\tConnected to\tType\tPortState\tIPv4\tIPv6\tDescription\tStatus\tMTU\tSpeed\t備考"];
+  const connLabel = r => r.conn ? r.conn.label : (r.kind === "stub" ? "(stub)" : "—");
+  /* カテゴリ別カウント（使用/予約/不可/空き）を非ゼロのみ色付きで連結 */
+  const catSpans = c => ["used","reserved","disabled","free"].filter(k => c[k])
+    .map(k => `<span class="c-${k==="reserved"?"rsv":k==="disabled"?"dis":k}">${CAT_LABEL[k]}${c[k]}</span>`).join(" ");
+  let body = "";
+  const renderedKeys = [];   /* フィルタ後に実描画したグループキー（全展開判定用） */
+  for (const [id,d] of Object.entries(DATA.devices)) {
+    const grpRows = rows.filter(r => r.devId === id);
+    if (!grpRows.length) continue;
+    renderedKeys.push("dev:"+id);
+    /* ポート集計は検索/フィルタに依存しない全物理 IF から（容量は絶対値） */
+    const phys = d.ifs.filter(i => isPhysical(i.n));
+    const tally = list => { const c = {used:0,reserved:0,disabled:0,free:0}; for (const i of list) c[portCat(id, i)]++; return c; };
+    const devCat = tally(phys);
+    const cardMap = new Map();
+    for (const i of phys) { const c = lineCard(i.n); if (!cardMap.has(c)) cardMap.set(c, []); cardMap.get(c).push(i); }
+    const cardEntries = [...cardMap];
+    const closed = S.collapsedNets.has("dev:"+id);
+    /* 見出し: 1行目=機器名、2行目=機器サマリ、以降=カードごとの状態別カウント */
+    const cardLines = cardEntries.map(([c, list], idx) => {
+      const tree = idx === cardEntries.length - 1 ? "└" : "├";
+      return `${tree} ${esc(c.padEnd(22))} ${catSpans(tally(list))}  <span class="dim-t">(${list.length})</span>`;
+    }).join("\n");
+    body += `<tr class="grph" data-grp="dev:${esc(id)}"><td colspan="10"><span class="ghtop">${closed?"▸":"▾"} ${esc(d.hostname)} <span class="dim-t">[${esc(d.vendor)}]</span>` +
+      `<span class="usage">物理${phys.length}ポート ${catSpans(devCat)}</span></span>` +
+      (!closed && cardLines ? `<div class="cards2">${cardLines}</div>` : "") + `</td></tr>`;
+    const members = S.sort.ifs ? sortRows(grpRows, S.sort.ifs, keyFns)
+                               : [...grpRows].sort((a,b) => cmpVal(naturalKey(a.ifn), naturalKey(b.ifn)));
+    for (const r of members) {
+      const cl = connLabel(r);
+      const eff = effRole(r.devId, r.ifn);
+      const physical = isPhysical(r.ifn);
+      tsvLines.push([r.dev, r.ifn, cl, IFK_LABEL[r.kind], physical?CAT_LABEL[portCat(r.devId, DATA.devices[r.devId].ifs.find(x=>x.n===r.ifn))]:"", r.ip||"", r.ip6||"", r.desc||"", r.st, r.mtu==null?"":r.mtu, r.sp||"", noteOf(r.devId, r.ifn).replace(/\t/g," ")].join("\t"));
+      if (closed) continue;
+      const jump = r.conn && r.conn.peerDev;
+      const connCell = jump
+        ? `<td class="peer-jump" data-peer="${esc(r.conn.peerDev)}:${esc(r.conn.peerIf)}" title="${esc(r.conn.sub||"")}">${esc(cl)}</td>`
+        : `<td class="dim-t"${r.conn&&r.conn.sub?` title="${esc(r.conn.sub)}"`:""}>${esc(cl)}</td>`;
+      const ovBadge = eff ? `<span class="ifk ifk-${eff==="reserved"?"rsv":"dis"}">${eff==="reserved"?"予約":"使用不可"}</span>` : "";
+      const setCell = physical
+        ? `<td><button class="portset ${eff?"set-"+eff:""}" data-portset="${esc(r.devId)}:${esc(r.ifn)}" title="クリックで − → 予約 → 使用不可 を循環（ブラウザに保存）">${eff==="reserved"?"予約":eff==="disabled"?"不可":"−"}</button></td>`
+        : `<td class="dim-t">—</td>`;
+      body += `<tr class="trow" data-row="${esc(r.devId)}:${esc(r.ifn)}">
+        <td>${esc(r.ifn)}</td>
+        ${connCell}
+        <td class="dim-t">${r.ip?esc(r.ip):"—"}</td>
+        <td class="dim-t">${r.v6list.length ? r.v6list.map(x=>x.ll?`<span class="ll-t">${esc(x.cidr)}</span>`:esc(x.cidr)).join("<br>") : "—"}</td>
+        <td class="${r.desc?"dim-t":"no-desc"}"${r.desc?"":' title="description 未設定"'}>${r.desc?esc(r.desc):"—"}</td>
+        <td class="${r.st==="up"?"st-up":"st-down"}">${esc(r.st)}<span class="ifk ifk-${r.kind==="connected"?"conn":r.kind==="loopback"?"loop":r.kind}">${IFK_LABEL[r.kind]}</span>${ovBadge}</td>
+        <td class="${r.chk&&r.chk.mtu?"chk-bad":"dim-t"}"${r.chk&&r.chk.mtu?` title="${esc(r.chk.mtu)}"`:""}>${r.mtu==null?"—":r.mtu}${r.chk&&r.chk.mtu?" ⚠":""}</td>
+        <td class="${r.chk&&r.chk.sp?"chk-bad":"dim-t"}"${r.chk&&r.chk.sp?` title="${esc(r.chk.sp)}"`:""}>${r.sp?esc(r.sp):"—"}${r.chk&&r.chk.sp?" ⚠":""}</td>
+        ${setCell}
+        <td><input class="noteinput" data-note="${esc(r.devId)}:${esc(r.ifn)}" value="${esc(noteOf(r.devId, r.ifn))}" placeholder="メモ…" autocomplete="off"></td></tr>`;
+    }
+  }
+  lastTsv = tsvLines.join("\n");
+  const chip = (v, label) => `<button class="tbtn ${kf===v?"on":""}" data-ifk="${v}">${label}</button>`;
+  /* 全展開/全折りたたみ判定は実描画したグループ（フィルタ後）で算出 */
+  const allCollapsed = renderedKeys.length > 0 && renderedKeys.every(k => S.collapsedNets.has(k));
+  return `<div class="thead"><h3>INTERFACES</h3><span class="cnt">${rows.length} 行</span>
+      ${chip("all","ALL")}${chip("connected","接続")}${chip("stub","スタブ")}${chip("unused","未使用")}${chip("reserved","予約")}${chip("disabled","不可")}${chip("down","down")}
+      <button class="tbtn" data-foldall="${allCollapsed?"open":"close"}">${allCollapsed?"全展開":"全折りたたみ"}</button>
+      <span class="sp"></span>
+      <button class="tbtn" data-copy="1" title="フィルタ通過した全行をTSVでコピー（折りたたみ中の行も含む）">コピー</button></div>
+    <table class="dt"><tr>${thSort("ifs","ifn","Interface")}<th>Connected to</th>${thSort("ifs","ip","IPv4")}${thSort("ifs","ip6","IPv6")}${thSort("ifs","desc","Description")}${thSort("ifs","st","Status")}${thSort("ifs","mtu","MTU")}${thSort("ifs","sp","Speed")}<th>指定</th><th>備考</th></tr>
+    ${body}</table>
+    <div class="tnote">見出し = 機器ごとの物理ポート状態（<span class="c-used">使用</span>/<span class="c-rsv">予約</span>/<span class="c-dis">不可</span>/<span class="c-free">空き</span>・ラインカード別内訳）。見出しクリックで折りたたみ /
+    種別: <span class="ifk ifk-conn">接続</span>・<span class="ifk ifk-stub">スタブ</span>（IPありだが対向なし）・<span class="ifk ifk-unused">未使用</span>（IP/description とも無し）・<span class="ifk ifk-loop">loopback</span> /
+    <b>指定</b>列のボタンで <span class="ifk ifk-rsv">予約</span> / <span class="ifk ifk-dis">使用不可</span> を循環指定・<b>備考</b>列に予約理由などのメモを記入（いずれもブラウザに永続保存。実装版では config と分離した運用アノテーション） /
+    Connected to の青字はクリックで対向IF行へジャンプ / ⚠ 赤 = MTU/速度不一致 / 列ヘッダクリックでソート（既定はIF名自然順）</div>`;
+}
+
+/* 表ビューの操作（ソート / 折りたたみ / 種別フィルタ / 対向ジャンプ / コピー）はイベント委譲で */
+$("#tableview").addEventListener("click", ev => {
+  const th = ev.target.closest("th.sortable");
+  if (th) {
+    const view = S.view === "addr" ? "addr" : "ifs";
+    const cur = S.sort[view], key = th.dataset.key;
+    S.sort[view] = !cur || cur.key !== key ? {key, dir:"asc"}
+                 : cur.dir === "asc" ? {key, dir:"desc"} : null;
+    renderTableView(); return;
+  }
+  /* INTERFACES 種別フィルタチップ */
+  const ifk = ev.target.closest("[data-ifk]");
+  if (ifk) { S.ifKindFilter = ifk.dataset.ifk; renderTableView(); return; }
+  /* ポート状態指定ボタン（− → 予約 → 使用不可 を循環・永続保存） */
+  const ps = ev.target.closest("[data-portset]");
+  if (ps) { const [pd, ...rest] = ps.dataset.portset.split(":"); cyclePortRole(pd, rest.join(":")); renderTableView(); return; }
+  /* Connected to（リンク対向）クリック → 対向IF行へジャンプ */
+  const pj = ev.target.closest("[data-peer]");
+  if (pj) {
+    const peer = pj.dataset.peer, pdev = peer.split(":")[0];
+    S.collapsedNets.delete("dev:"+pdev);   /* 折りたたみ中なら開く */
+    renderTableView();
+    const target = $(`#tableview [data-row="${peer}"]`);
+    if (target) { target.scrollIntoView({block:"center", behavior:"smooth"}); target.classList.add("row-flash"); }
+    return;
+  }
+  const gr = ev.target.closest("tr.grph");
+  if (gr) {
+    const k = gr.dataset.grp;
+    if (S.collapsedNets.has(k)) S.collapsedNets.delete(k); else S.collapsedNets.add(k);
+    renderTableView(); return;
+  }
+  const fa = ev.target.closest("[data-foldall]");
+  if (fa) {
+    if (fa.dataset.foldall === "open") S.collapsedNets.clear();
+    else document.querySelectorAll("#tableview tr.grph").forEach(t => S.collapsedNets.add(t.dataset.grp));
+    renderTableView(); return;
+  }
+  const cp = ev.target.closest("[data-copy]");
+  if (cp) { copyTsv(cp); return; }
+  /* CONFIG ビュー: 左ペインの機器クリックで本文を切替 */
+  const cd = ev.target.closest("[data-cfgdev]");
+  if (cd) { S.configDev = cd.dataset.cfgdev; renderTableView(); return; }
+  /* CONFIG 編集: ダウンロード（編集後テキストをファイル保存） */
+  const dlb = ev.target.closest("[data-cfgdl]");
+  if (dlb) {
+    const cur = dlb.dataset.cfgdl;
+    const host = (DATA.devices[cur] && DATA.devices[cur].hostname) || cur;
+    downloadText(cfgFileName(host), cfgTextOf("scratch:" + cur));
+    return;
+  }
+  /* CONFIG 編集: 元に戻す（scratch を破棄して原本に戻す） */
+  const rvb = ev.target.closest("[data-cfgrevert]");
+  if (rvb) {
+    const cur = rvb.dataset.cfgrevert;
+    delete S.configScratch["scratch:" + cur];
+    saveCfgScratch();
+    renderTableView();
+    return;
+  }
+  /* CONFIG ツールバー: 折返し / grep トグル */
+  const ct = ev.target.closest("[data-cfgtoggle]");
+  if (ct) {
+    const t = ct.dataset.cfgtoggle;
+    if (t === "wrap") S.configWrap = !S.configWrap;
+    else if (t === "grep") S.configGrep = !S.configGrep;
+    else if (t === "parse") S.configParse = !S.configParse;
+    else if (t === "unparsed") S.configUnparsedOnly = !S.configUnparsedOnly;
+    else if (t === "split") { S.configSplit = !S.configSplit; if (S.configSplit) S.configEdit = false; }
+    else if (t === "edit") {
+      S.configEdit = !S.configEdit;
+      if (S.configEdit) {
+        S.configSplit = false;
+        /* 選択機器の編集コピーを原本から生成（既存編集は温存）。表示は cfgTextOf が原本フォールバック */
+        const keys = Object.keys(DATA.raw_configs || {}).sort();
+        let cur = S.configDev;
+        if (!cur || keys.indexOf(cur) < 0) cur = keys[0];
+        const sk = "scratch:" + cur;
+        if (cur && S.configScratch[sk] == null) { S.configScratch[sk] = cfgRawOf("dev:" + cur); saveCfgScratch(); }
+      }
+    }
+    renderTableView(); return;
+  }
+  /* CONFIG 2ペイン/編集: ペイン内容コピー（toolbar の E ボタンは .cfgpane 外なので直接解決） */
+  const cpt = ev.target.closest("[data-cfgcopytext]");
+  if (cpt) {
+    const pane = cpt.dataset.cfgcopytext;
+    /* 編集モード(E): toolbar は .cfgpane 外 → closest が null になるため textarea を直接解決 */
+    const ta = pane === "E"
+      ? document.querySelector('textarea.cfgedit[data-cfgpane="E"]')
+      : (cpt.closest(".cfgpane") && cpt.closest(".cfgpane").querySelector("textarea.cfgedit"));
+    const paneEl = ta ? ta.closest(".cfgpane") : cpt.closest(".cfgpane");
+    const key = cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
+    copyText(ta ? ta.value : (key ? cfgTextOf(key) : ""), cpt);
+    return;
+  }
+  /* CONFIG 編集ペイン: リテラル全置換（検索文字列→置換文字列・全件）。再描画せず value 直接更新でフォーカス保持 */
+  /* toolbar の E ボタンは .cfgpane 外なので textarea/inputs を直接解決（HIGH-2 修正） */
+  const crp = ev.target.closest("[data-cfgreplace]");
+  if (crp) {
+    const pane = crp.dataset.cfgreplace;
+    let paneEl, ta, find, repl, msg;
+    if (pane === "E") {
+      /* 編集モード: toolbar は .cfgpane 外なので各要素を document から直接解決 */
+      ta = document.querySelector('textarea.cfgedit[data-cfgpane="E"]');
+      find = document.querySelector('input.cfgfind[data-cfgpane="E"]');
+      repl = document.querySelector('input.cfgrepl[data-cfgpane="E"]');
+      msg = document.querySelector('.cfgreplmsg[data-cfgpane="E"]');
+      paneEl = ta ? ta.closest(".cfgpane") : null;
+    } else {
+      paneEl = crp.closest(".cfgpane");
+      ta = paneEl && paneEl.querySelector("textarea.cfgedit");
+      find = paneEl && paneEl.querySelector("input.cfgfind");
+      repl = paneEl && paneEl.querySelector("input.cfgrepl");
+      msg = paneEl && paneEl.querySelector(".cfgreplmsg");
+    }
+    const key = ta && cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
+    if (ta && key && find) {
+      const f = find.value;
+      if (!f) { if (msg) msg.textContent = "検索文字列が空です"; return; }
+      const n = ta.value.split(f).length - 1;            /* リテラル一致件数 */
+      ta.value = ta.value.split(f).join(repl ? repl.value : "");
+      S.configScratch[key] = ta.value; saveCfgScratch();
+      if (pane === "E") updateCfgEditDiff(ta); else updateCfgSplitDiff();
+      if (msg) msg.textContent = n + " 件置換";
+    }
+    return;
+  }
+  /* CONFIG 検索一致行ナビ: 再描画せず一致行へスクロール（フォーカス保持） */
+  const cn = ev.target.closest("[data-cfgnav]");
+  if (cn) {
+    const hits = [...document.querySelectorAll("#tableview .cfgline.hit")];
+    if (hits.length) {
+      hits.forEach(h => h.classList.remove("cur"));
+      /* 初回（cfgHitIdx=-1）は next→先頭・prev→末尾を選ぶ */
+      if (cfgHitIdx < 0) cfgHitIdx = cn.dataset.cfgnav === "next" ? 0 : hits.length - 1;
+      else cfgHitIdx = cn.dataset.cfgnav === "next"
+        ? (cfgHitIdx + 1) % hits.length
+        : (cfgHitIdx - 1 + hits.length) % hits.length;
+      const el = hits[cfgHitIdx];
+      el.classList.add("cur");
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      const pos = document.getElementById("cfgnavpos");
+      if (pos) pos.textContent = (cfgHitIdx + 1) + "/" + hits.length;
+    }
+    return;
+  }
+  /* CONFIG 全文コピー */
+  const cc = ev.target.closest("[data-cfgcopy]");
+  if (cc) { copyText((DATA.raw_configs || {})[cc.dataset.cfgcopy] || "", cc); return; }
+});
+/* 備考メモの編集確定（blur / Enter で change が発火）→ 永続保存。再描画は不要（値は DOM 反映済み） */
+$("#tableview").addEventListener("change", ev => {
+  /* CONFIG 2ペイン: source セレクタ切替 */
+  const sel = ev.target.closest("select.cfgsrc");
+  if (sel) {
+    if (sel.dataset.cfgpane === "L") S.configSrcL = sel.value;
+    else S.configSrcR = sel.value;
+    renderTableView(); return;
+  }
+  const ni = ev.target.closest("input.noteinput");
+  if (!ni) return;
+  const [d, ...rest] = ni.dataset.note.split(":");
+  setPortNote(d, rest.join(":"), ni.value.trim());
+});
+/* CONFIG 編集モード: textarea 入力 → scratch 保存＋ライブ差分更新（debounce 300ms）。
+   保存は即時（cfgPaneKey で key 解決）、差分再計算のみ debounce。 */
+let _cfgDiffTimer = null;
+$("#tableview").addEventListener("input", ev => {
+  const ta = ev.target.closest("textarea.cfgedit");
+  if (!ta) return;
+  const paneEl = ta.closest(".cfgpane");
+  const key = cfgPaneKey(paneEl, ta);   /* 自由比較=select / 編集モード=data-cfgkey */
+  if (key) { S.configScratch[key] = ta.value; saveCfgScratch(); }
+  if (_cfgDiffTimer) clearTimeout(_cfgDiffTimer);
+  _cfgDiffTimer = setTimeout(() => updateCfgEditDiff(ta), 300);
+});
+/* CONFIG 編集モード: キー操作・クリックでカーソル移動後のハイライトを更新 */
+["keyup", "click"].forEach(evName => {
+  $("#tableview").addEventListener(evName, ev => {
+    const ta = ev.target.closest("textarea.cfgedit");
+    if (!ta) return;
+    cfgEditHighlightCur(ta);
+  });
+});
+/* 編集モードの縦スクロール同期: textarea ⇄ 行番号ガター の scrollTop を合わせる
+   （scroll はバブリングしないため capture フェーズで受ける。再入は _cfgScrollLock で防止）。 */
+let _cfgScrollLock = false;
+$("#tableview").addEventListener("scroll", ev => {
+  if (!S.configEdit || _cfgScrollLock) return;
+  const t = ev.target;
+  if (!t.closest) return;
+  const split = t.closest(".cfgsplit");
+  if (!split) return;
+  const ta = split.querySelector("textarea.cfgedit");
+  const gut = split.querySelector('[data-cfggut="E"]');
+  if (!ta || (t !== ta && t !== gut)) return;
+  _cfgScrollLock = true;
+  if (t === ta) { if (gut) gut.scrollTop = ta.scrollTop; } else ta.scrollTop = t.scrollTop;
+  _cfgScrollLock = false;
+}, true);
+function copyTsv(btn) {
+  const done = () => { btn.textContent = "✓"; setTimeout(() => { btn.textContent = "コピー"; }, 900); };
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = lastTsv; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* clipboard 不可環境では無視 */ }
+    ta.remove(); done();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(lastTsv).then(done, fallback);
+  else fallback();
+}
+/* config ダウンロード用ファイル名生成（ホスト名の危険文字を _ 置換） */
+function cfgFileName(host) {
+  const s = String(host).replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+$/, "");
+  return (s || "config") + ".cfg";
+}
+/* テキストファイルをブラウザダウンロード */
+function downloadText(name, text) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+/* 任意テキストをクリップボードへ（copyTsv の汎用版・ボタンに ✓ フィードバック） */
+function copyText(text, btn) {
+  const orig = btn.textContent;
+  const done = () => { btn.textContent = "✓"; setTimeout(() => { btn.textContent = orig; }, 900); };
+  const fallback = () => {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* clipboard 不可環境では無視 */ }
+    ta.remove(); done();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText)
+    navigator.clipboard.writeText(text).then(done, fallback);
+  else fallback();
+}
+
+/* ================= legend / minimap / status ================= */
+function renderLegend() {
+  const L = $("#legend");
+  L.style.display = (S.legend && !isTableView()) ? "" : "none";
+  /* clk 付きの項目はクリックで該当要素を強調（再クリックで解除） */
+  const clk = (lg, sw, label) => `<div class="li clk${S.legendHot===lg?" on":""}" data-lg="${lg}">${sw}${label}</div>`;
+  /* stub/loopback ノードが現在のビューで描画されるか（OSPF は area あり=参加のみ） */
+  const stubVisible = kind => (DATA.stub_nodes || []).some(st => st.kind === kind && (S.view !== "ospf" || st.area));
+  /* 現在のビューに描画される要素だけ凡例に載せる */
+  let rows = `<h4>LEGEND — ${S.view.toUpperCase()}</h4>
+    <div class="li"><span class="sw box"></span>機器</div>
+    ${S.view !== "bgp" ? '<div class="li"><span class="sw seg"></span>セグメント</div>' : ""}
+    ${S.view !== "bgp" && stubVisible("stub") ? clk("stub",'<span class="sw stub2"></span>',"スタブ") : ""}
+    ${S.view !== "bgp" && stubVisible("loopback") ? clk("loopback",'<span class="sw lp"></span>',"loopback") : ""}
+    <div class="li"><span class="sw"></span>リンク</div>
+    ${S.view === "physical" ? clk("admin-down",'<span class="sw dash"></span>',"admin_down") : ""}`;
+  /* 表示条件は render の showBgp/showOspf と同一式（凡例と描画の不一致防止） */
+  if (S.view === "bgp") {
+    rows += clk("ebgp",`<span class="sw" style="border-color:${BGP_COLOR.ebgp}"></span>`,"eBGP")
+      + clk("ibgp",`<span class="sw dash" style="border-color:${BGP_COLOR.ibgp}"></span>`,"iBGP (loopback)")
+      + `<div class="li"><span class="sw box" style="border-style:dashed"></span>外部AS (config未提供)</div>`;
+    /* RR 構成が存在する場合のみ Route Reflector 凡例を追加（データ駆動） */
+    const _roles = bgpRoles();
+    if (_roles.rr.size) {
+      rows += clk("rr",'<span class="sw rr"></span>',"Route Reflector")
+        + clk("rrc",'<span class="sw rrc"></span>',"RR Client")
+        + clk("rrarrow",'<span class="sw rrarrow"></span>',"reflects-to");
+    }
+    /* AS 別一括強調: 実在 AS をデータ駆動で列挙（B4） */
+    for (const a of presentASes(DATA))
+      rows += clk(`as:${a}`,`<span class="sw" style="border-color:${asColor(a)}"></span>`,`AS ${a}`);
+  }
+  if (S.view === "ospf") {
+    /* 実在 OSPF area をデータ駆動で列挙（B4: ハードコード area:0/area:1 を撤廃） */
+    for (const a of presentAreas(DATA))
+      rows += clk(`area:${a}`,`<span class="sw" style="border-color:${areaColor(String(a))}"></span>`,`area ${a}`);
+  }
+  rows += `<div class="note">点線・色付き線の項目はクリックで<br>該当要素を強調（再クリックで解除）</div>`;
+  L.innerHTML = rows;
+}
+$("#legend").addEventListener("click", ev => {
+  const li = ev.target.closest(".li.clk"); if (!li) return;
+  S.legendHot = S.legendHot === li.dataset.lg ? null : li.dataset.lg;
+  renderLegend(); render();
+});
+function renderMinimap() {
+  const mm = $("#minimap");
+  mm.style.display = S.minimap ? "" : "none";
+  if (!S.minimap) return;
+  const dots = Object.entries(POS).map(([id,p]) =>
+    `<circle class="mdot" cx="${p.x}" cy="${p.y}" r="${id in DATA.devices || DATA.extPeers.some(e=>e.id===id) ? 14 : 9}"/>`).join("");
+  const r = $("#canvas").getBoundingClientRect();
+  const vx = -S.tx/S.k, vy = -S.ty/S.k, vw = r.width/S.k, vh = r.height/S.k;
+  $("#minisvg").innerHTML = dots + `<rect class="mview" x="${vx}" y="${vy}" width="${vw}" height="${vh}"/>`;
+}
+function renderStatus() {
+  $("#st-dev").textContent = Object.keys(DATA.devices).length;
+  $("#st-lk").textContent = DATA.links.length;
+  $("#st-seg").textContent = DATA.segments.length;
+  $("#st-bgp").textContent = DATA.bgpEdges.reduce((n,e)=>n+e.afs.length,0);
+}
+
+/* ================= interactions ================= */
+const canvas = $("#canvas");
+
+/* pan + node drag + click/dblclick */
+let drag = null, didDrag = false;
+canvas.addEventListener("mousedown", ev => {
+  const g = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  /* POS に座標を持つノード（device/segment/ext）のみドラッグ対象。
+     stub/loopback も data-elem="seg" だが POS 非登録（親デバイスからの派生扇状配置）なので
+     node=null＝pan にフォールバック（POS[id] undefined 参照のクラッシュ防止＝非ドラッグ仕様）。 */
+  const node = (g && POS[g.dataset.id]) ? g.dataset.id : null;
+  drag = {
+    sx: ev.clientX, sy: ev.clientY, moved: false,
+    node,
+    ox: node ? POS[node].x : S.tx,
+    oy: node ? POS[node].y : S.ty,
+  };
+  canvas.classList.add("dragging");
+});
+window.addEventListener("mousemove", ev => {
+  if (drag) {
+    const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    if (drag.node) { POS[drag.node].x = drag.ox + dx / S.k; POS[drag.node].y = drag.oy + dy / S.k; schedule(render); }
+    else { S.tx = drag.ox + dx; S.ty = drag.oy + dy; schedule(applyTransform); }
+    return;
+  }
+  if (rs) { hideTip(); return; }   /* パネルリサイズ中は hover 処理をスキップ */
+  /* ノード hover = 選択と同じハイライトでプレビュー */
+  const ng = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  let nid = ng ? ng.dataset.id : null;
+  let need = nid !== hoverNode;
+  hoverNode = nid;
+  /* ライン/セグメント hover はハイライト＋IF/IP ラベルのみ（説明ツールチップは出さない） */
+  const lk = ev.target.closest("[data-elem='link'],[data-elem='seglink'],[data-elem='bgpedge'],[data-elem='sedge']");
+  const seg = ev.target.closest("[data-elem='seg']");
+  if (lk && lk.dataset.elem === "link") {
+    const l = DATA.links.find(x=>x.id===lk.dataset.id);
+    if (hoverLink !== l.id) { hoverLink = l.id; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  } else if (lk && lk.dataset.elem === "sedge") {
+    /* STATIC 方向線 hover → prefix/nh ラベル表示（hoverLink に se:N を入れる） */
+    if (hoverLink !== lk.dataset.id) { hoverLink = lk.dataset.id; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  } else if ((lk && lk.dataset.elem === "seglink") || seg) {
+    const sid = seg ? seg.dataset.id : lk.dataset.id;
+    const s = segById(sid);
+    /* 楕円（ノード）hover もスポーク hover と同じく IF/IP ラベルを出す（hoverLink=s.id） */
+    const want = s ? s.id : sid;
+    if (hoverLink !== want) { hoverLink = want; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  } else if (lk && lk.dataset.elem === "bgpedge") {
+    if (hoverLink) { hoverLink = null; need = true; }   /* 直前の物理リンクの IF ラベルが固着しないように */
+    if (hoverBgp !== lk.dataset.id) { hoverBgp = lk.dataset.id; need = true; }   /* hover でアドレス表示 */
+  } else {
+    if (hoverLink) { hoverLink = null; need = true; }
+    if (hoverBgp) { hoverBgp = null; need = true; }
+  }
+  if (need) schedule(render);
+});
+window.addEventListener("mouseup", () => { canvas.classList.remove("dragging");
+  didDrag = !!(drag && drag.moved);   /* mouseup後に発火する click をドラッグ由来か判定するため退避 */
+  if (didDrag) setTimeout(() => { didDrag = false; }, 0);   /* click 不発時（ウィンドウ外で離す等）の固着防止 */
+  drag = null; });
+
+/* click = 選択トグル（複数可・修飾キー不要。もう一度クリックで解除） */
+canvas.addEventListener("click", ev => {
+  if (didDrag) { didDrag = false; return; }   /* ドラッグ終端の click では選択しない */
+  const g = ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext']");
+  if (g) {
+    const id = g.dataset.id;
+    /* セグメント/stub/loopback は subnet そのもの → 楕円クリックも線クリックと同じ「ライン選択」に統一 */
+    if (g.dataset.elem === "seg") {
+      const s = segById(id);
+      if (s) setHotNet(netHot(s.subnet) ? null : s.subnet);
+      return;
+    }
+    if (S.sel.has(id)) S.sel.delete(id); else S.sel.add(id);
+    /* 手動で触ったノードは自動選択の追跡から外す（ライン解除での巻き込み防止） */
+    autoNetSel.delete(id); autoBgpSel.delete(id);
+    update(); return;
+  }
+  const be = ev.target.closest("[data-elem='bgpedge']");
+  if (be) { setHotBgp(be.dataset.id === hotBgp ? null : be.dataset.id); return; }
+  /* 全ビュー共通: リンク/セグメント線のクリックで「ライン選択」（図⇄表ハイライト連動） */
+  const le = ev.target.closest("[data-elem='link'],[data-elem='seglink']");
+  if (le) {
+    /* BGP ビューの物理リンクは over-link セッションそのもの → セッション選択に流し
+       BGP SESSIONS 行と連動させる（曲線・下敷き直線のどちらを押しても同じ挙動） */
+    if (le.dataset.elem === "link" && S.view === "bgp") {
+      const e = DATA.bgpEdges.find(x => x.kind === "over-link" && x.link === le.dataset.id);
+      if (e) { setHotBgp(e.id === hotBgp ? null : e.id); return; }
+    }
+    const net = le.dataset.elem === "link"
+      ? (DATA.links.find(x=>x.id===le.dataset.id) || {}).subnet
+      : (segById(le.dataset.id) || {}).subnet;
+    if (net) setHotNet(netHot(net) ? null : net);
+  }
+});
+/* dblclick: 空白のみ=全解除（選択・ライン選択・BGP連動・凡例強調をすべてクリア。ノード上の個別解除は廃止） */
+canvas.addEventListener("dblclick", ev => {
+  if (ev.target.closest("[data-elem='dev'],[data-elem='seg'],[data-elem='ext'],[data-elem='bgpedge'],[data-elem='link'],[data-elem='seglink']")) return;
+  S.sel.clear();
+  hotBgp = null; hotNet = null; S.legendHot = null;
+  autoNetSel = new Set(); autoBgpSel = new Set();
+  update();
+});
+
+/* 表⇄図 ハイライト連動（BGP セッション行 / OSPF 行 / IF 行 / 選択リンクカード） */
+document.addEventListener("click", ev => {
+  if (isTableView()) return;   /* 表ビュー中は図が見えないため連動クリックを無効化 */
+  const row = ev.target.closest("tr.bgprow");
+  if (row) { setHotBgp(row.dataset.bgplink === hotBgp ? null : row.dataset.bgplink); return; }
+  const nrow = ev.target.closest("tr.ospfrow[data-net], tr.ifrow[data-net], .linkpair[data-net]");
+  if (nrow) setHotNet(netHot(nrow.dataset.net) ? null : nrow.dataset.net);   /* v4/v6 の対の行でも同一ラインとして解除 */
+});
+/* stub/loopback ノードの安定 id（dev:ifn）。segment 様式ノードとして描画・選択する単位 */
+function lpId(st) { return st.dev + ":" + st.ifn; }
+/* stub/loopback ノードを id（dev:ifn）で O(1) 引きするための索引（DATA 不変なので一度だけ構築。
+   segById が hover/click/applyVisibility のホットパスで線形 find しないため）。 */
+const STUB_BY_ID = new Map((DATA.stub_nodes || []).map(st => [lpId(st), st]));
+/* DEVICE DETAILS の IF 行用: その (dev, ifn) が現ビューで描画される stub/loopback ノードなら subnet を返す。
+   IP2NET には stub の IP が無いため詳細パネルの IF 行へ data-net を付けてクリック選択（setHotNet→netNodes）に乗せる。
+   BGP ビューは stub を描画しない・OSPF ビューは area 参加のみ描画＝それ以外は null（選択不可）。 */
+function stubNetForDetail(devId, ifn) {
+  const st = STUB_BY_ID.get(devId + ":" + ifn);
+  if (!st) return null;
+  if (S.view === "bgp") return null;
+  if (S.view === "ospf" && !st.area) return null;
+  return st.subnet;
+}
+/* stub/loopback ノードがカテゴリトグル（S.filters.lo / S.filters.stub）で非表示か。
+   segment の S.filters.seg と対をなす全体表示トグル（visible/selectable 共用）。 */
+function stubFiltered(id) {
+  const st = STUB_BY_ID.get(id);
+  if (!st) return false;
+  return (st.kind === "loopback" && !S.filters.lo) || (st.kind === "stub" && !S.filters.stub);
+}
+/* id が hiddenAS に含まれる AS に属するか（visible/selectable 共用ヘルパ）。
+   通常 device・extPeer のほか、stub/loopback ノード（id = dev:ifn）は親 device の AS で判定。 */
+function asHidden(id) {
+  if (S.filters.hiddenAS.size === 0) return false;
+  const d = DATA.devices[id];
+  if (d && d.as != null && S.filters.hiddenAS.has(String(d.as))) return true;
+  const ep = DATA.extPeers.find(e => e.id === id);
+  if (ep && ep.as != null && S.filters.hiddenAS.has(String(ep.as))) return true;
+  const st = STUB_BY_ID.get(id);  /* stub/loopback 本体: 親 device の AS で判定 */
+  if (st) { const pd = DATA.devices[st.dev];
+    if (pd && pd.as != null && S.filters.hiddenAS.has(String(pd.as))) return true; }
+  return false;
+}
+/* id から segment 相当オブジェクトを引く。DATA.segments に無ければ stub_nodes を
+   segment 形（members 1件）に正規化して返す（hover/click/詳細パネルで segment ロジックを共用） */
+function segById(id) {
+  const s = DATA.segments.find(x => x.id === id);
+  if (s) return s;
+  const st = STUB_BY_ID.get(id);
+  if (st) return { id, subnet: st.subnet, area: st.area, kind: st.kind,
+                   members: [{ dev: st.dev, ifn: st.ifn, ip: st.ip }] };
+  return undefined;
+}
+/* subnet に接続するノード集合（ライン選択時の端点自動選択用。v6=dual も同一ライン扱い） */
+function netNodes(net) {
+  const ids = new Set();
+  for (const l of DATA.links) if (l.subnet === net || l.dual === net) { ids.add(l.a); ids.add(l.b); }
+  for (const s of DATA.segments) if (s.subnet === net) {
+    if (S.view !== "bgp") ids.add(s.id);   /* BGP ビューではセグメントノードを描画しないため除外 */
+    for (const m of s.members) ids.add(m.dev);
+  }
+  /* stub/loopback ノードも segment と同様に subnet 連動選択（BGP ビューでは描画しないため除外） */
+  for (const st of (DATA.stub_nodes || [])) if (st.subnet === net) {
+    if (S.view !== "bgp") ids.add(lpId(st));
+    ids.add(st.dev);
+  }
+  return ids;
+}
+/* BGP セッションの端点ノード集合 */
+/* BGP RR/RRC 役割判定（メモ化・決定的）。
+   DATA.bgpEdges を 1 度だけ走査し、rr=true エッジから
+   rrFrom（RR 側 device）→ rr 集合、対向端（a/b のうち rrFrom でない方・external は ext）→ rrc 集合 を返す。
+   階層 RR では同一 device が rr と rrc の両方に属しうる（両属を許容）。 */
+let _bgpRolesCache = null;
+function bgpRoles() {
+  if (_bgpRolesCache) return _bgpRolesCache;
+  const rr = new Set(), rrc = new Set();
+  for (const e of DATA.bgpEdges) {
+    if (!e.rr || !e.rrFrom) continue;
+    rr.add(e.rrFrom);
+    /* エッジの両端（external は ext 端、over-link は下敷きリンクから a/b）を求め、
+       rrFrom でない側を client とする。over-link は a/b を持たず link 経由で解決する
+       （bgpNodes/BGP edge 描画と同一の引き方）。 */
+    let ends;
+    if (e.kind === "external") ends = [e.a, e.ext];
+    else if (e.kind === "over-link") { const l = DATA.links.find(x=>x.id===e.link); ends = l ? [l.a, l.b] : []; }
+    else ends = [e.a, e.b];
+    for (const n of ends) if (n && n !== e.rrFrom) rrc.add(n);
+  }
+  _bgpRolesCache = { rr, rrc };
+  return _bgpRolesCache;
+}
+
+function bgpNodes(id) {
+  const ids = new Set();
+  const e = DATA.bgpEdges.find(x=>x.id===id);
+  if (!e) return ids;
+  if (e.kind === "over-link") { const l = DATA.links.find(x=>x.id===e.link); if (l) { ids.add(l.a); ids.add(l.b); } }
+  else if (e.kind === "loopback") { ids.add(e.a); ids.add(e.b); }
+  else { ids.add(e.a); ids.add(e.ext); }
+  return ids;
+}
+/* ライン選択での「自動選択分」を手動選択と区別して追跡する
+   （解除・切替時に自動選択分だけを外し、手動選択を巻き込まないため） */
+let autoNetSel = new Set(), autoBgpSel = new Set();
+/* 自動選択の対象にしてよいノードか（非表示ノードを選択に混ぜると図とパネルが乖離する） */
+function selectable(id) {
+  if (S.hiddenNodes.has(id)) return false;
+  if (DATA.segments.some(s=>s.id===id) && !S.filters.seg) return false;
+  if (stubFiltered(id)) return false;        /* loopback/stub のカテゴリ全体トグル */
+  if (asHidden(id)) return false;
+  return true;
+}
+/* ライン選択（subnet 単位）。端点ノードも自動選択し、図と表を同時に再描画 */
+function setHotNet(net) {
+  /* 解除するノードを、アクティブな BGP セッション選択がまだ必要としているなら追跡を付け替えて選択維持 */
+  const keep = hotBgp ? bgpNodes(hotBgp) : null;
+  for (const id of autoNetSel) {
+    if (keep && keep.has(id)) autoBgpSel.add(id);
+    else S.sel.delete(id);
+  }
+  autoNetSel = new Set();
+  hotNet = net;
+  if (net) for (const id of netNodes(net))
+    if (selectable(id) && !S.sel.has(id)) { S.sel.add(id); autoNetSel.add(id); }
+  update();
+}
+/* BGP セッション選択。端点ノードも自動選択し、図と表（bgprow の hot）を同時に再描画 */
+function setHotBgp(id) {
+  const keep = hotNet ? netNodes(hotNet) : null;
+  for (const n of autoBgpSel) {
+    if (keep && keep.has(n)) autoNetSel.add(n);
+    else S.sel.delete(n);
+  }
+  autoBgpSel = new Set();
+  hotBgp = id;
+  if (id) for (const n of bgpNodes(id))
+    if (selectable(n) && !S.sel.has(n)) { S.sel.add(n); autoBgpSel.add(n); }
+  update();
+}
+
+/* tooltip（ライン/セグメント hover の説明表示は廃止。#tooltip はリサイズガードの hideTip でのみ参照） */
+function hideTip() { tooltip.style.display = "none"; }
+
+/* zoom */
+canvas.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const f = ev.deltaY < 0 ? 1.12 : 1/1.12;
+  const k2 = Math.min(4, Math.max(.25, S.k * f));
+  S.tx = mx - (mx - S.tx) * (k2/S.k); S.ty = my - (my - S.ty) * (k2/S.k); S.k = k2;
+  schedule(applyTransform);
+}, {passive:false});
+function zoomFit() {
+  const xs = Object.values(POS).map(p=>p.x), ys = Object.values(POS).map(p=>p.y);
+  const pad = 140;
+  const bx = Math.min(...xs)-pad, by = Math.min(...ys)-pad;
+  const bw = Math.max(...xs)-bx+pad, bh = Math.max(...ys)-by+pad;
+  const r = canvas.getBoundingClientRect();
+  S.k = Math.min(r.width/bw, r.height/bh, 2);
+  S.tx = (r.width - bw*S.k)/2 - bx*S.k; S.ty = (r.height - bh*S.k)/2 - by*S.k;
+  applyTransform();
+}
+function zoomReset() { S.k = 1; S.tx = 0; S.ty = 0; applyTransform(); }
+$("#zin").onclick = () => { S.k = Math.min(4, S.k*1.25); applyTransform(); };
+$("#zout").onclick = () => { S.k = Math.max(.25, S.k/1.25); applyTransform(); };
+$("#zfit").onclick = zoomFit;
+$("#zreset").onclick = zoomReset;
+
+/* STATIC 経路トレース UI */
+$("#trace-go").onclick = runTrace;
+$("#trace-clear").onclick = clearTrace;
+$("#trace-dst").addEventListener("keydown", ev => { if (ev.key === "Enter") { ev.preventDefault(); runTrace(); } });
+
+/* tabs */
+$("#tabs").addEventListener("click", ev => {
+  const b = ev.target.closest("button"); if (!b) return;
+  setView(b.dataset.view);
+});
+function setView(v) {
+  if (v === S.view) return;   /* 同一ビューの再指定でライン選択等をリセットしない */
+  S.view = v;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.view === v));
+  /* ライン選択はタブ固有の文脈なので解除（自動選択した端点ノードも一緒に外す） */
+  for (const id of autoNetSel) S.sel.delete(id);
+  for (const id of autoBgpSel) S.sel.delete(id);
+  autoNetSel = new Set(); autoBgpSel = new Set();
+  hotNet = null;
+  hotBgp = null;
+  S.legendHot = null;   /* 凡例強調はビュー固有の項目を含むためリセット */
+  /* ビューに描画されないノードが選択に残ると図とパネルが乖離するため除外 */
+  if (v === "bgp") for (const s of DATA.segments) S.sel.delete(s.id);
+  if (v === "ospf") for (const s of DATA.segments) if (!s.area) S.sel.delete(s.id);
+  if (v === "bgp") for (const st of (DATA.stub_nodes || [])) S.sel.delete(lpId(st));
+  if (v === "ospf") for (const st of (DATA.stub_nodes || [])) if (!st.area) S.sel.delete(lpId(st));
+  /* 表ビューは何も描画しないビューなので選択は据え置く（BGP→表→BGP の往復で消えないように） */
+  if (v !== "bgp" && !(v === "addr" || v === "ifs")) for (const e of DATA.extPeers) S.sel.delete(e.id);
+  /* ビュー切替でASパネルが開いたまま残らないよう閉じる */
+  const _am = $("#as-menu"); if (_am) _am.classList.remove("open");
+  update();   /* 配置(POS)は共通 → タブ切替で座標は変わらない */
+}
+
+/* search（テキスト入力とフィールドドロップダウンの両方から呼ぶ） */
+function applySearch() {
+  const q = searchQuery();
+  S.matches = !S.search ? []
+    : q.field ? (q.value ? Object.keys(fcorpus).filter(id => (fcorpus[id][q.field] || "").includes(q.value)) : [])
+    : Object.keys(corpus).filter(id => corpus[id].includes(S.search));
+  S.mi = -1;
+  graphSearchFeedback();   /* 表ビュー中は直後の render → renderTableView が行数基準で上書きする */
+  render();
+}
+$("#search").addEventListener("input", ev => {
+  S.search = ev.target.value.trim().toLowerCase();
+  applySearch();
+});
+$("#sfield").addEventListener("change", ev => {
+  S.sfield = ev.target.value;
+  applySearch();
+});
+$("#search").addEventListener("keydown", ev => {
+  /* 検索欄フォーカス中の Ctrl+F も全選択に（末尾の stopPropagation で window 側へ届かないためここで処理） */
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F")) {
+    ev.preventDefault(); ev.target.select(); ev.stopPropagation(); return;
+  }
+  if (ev.key === "Enter" && S.matches.length) {
+    if (isTableView()) return;   /* 表ビューでは Enter 巡回（図のパン）は行わない */
+    /* 非表示ノードは巡回スキップ（件数には含める＝隠したノードの存在は検索で分かる） */
+    const cyc = S.matches.filter(id => !S.hiddenNodes.has(id));
+    if (!cyc.length) return;
+    S.mi = (S.mi + 1) % cyc.length;
+    const id = cyc[S.mi];
+    const r = canvas.getBoundingClientRect();
+    S.tx = r.width/2 - POS[id].x * S.k; S.ty = r.height/2 - POS[id].y * S.k;
+    render();
+  }
+  if (ev.key === "Escape") { ev.target.value = ""; ev.target.dispatchEvent(new Event("input")); ev.target.blur(); }
+  ev.stopPropagation();
+});
+
+/* filters / actions */
+$("#f-seg").onchange = e => { S.filters.seg = e.target.checked; render(); };
+$("#f-lo").onchange = e => { S.filters.lo = e.target.checked; render(); };
+$("#f-stub").onchange = e => { S.filters.stub = e.target.checked; render(); };
+
+/* AS フィルタ ドロップダウン（ポップオーバー）初期化 */
+const asList = presentASes(DATA);
+const asMenuBtn = $("#as-menu-btn");
+const asMenuPanel = $("#as-menu");
+const asMenuList = $("#as-menu-list");
+if (asList.length > 0 && asMenuBtn && asMenuPanel && asMenuList) {
+  /* device に存在する AS の集合（extPeer 専用 AS との判別用） */
+  const deviceAS = new Set(Object.values(DATA.devices).filter(d => d.as != null).map(d => +d.as));
+  /* チェックボックスを動的生成 */
+  asList.forEach(asn => {
+    const lbl = document.createElement("label");
+    lbl.className = "tchk";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.dataset.fas = String(asn);
+    const sw = document.createElement("span");
+    sw.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${asColor(asn)};margin:0 3px 0 2px;vertical-align:middle`;
+    lbl.appendChild(cb);
+    lbl.appendChild(sw);
+    const label = deviceAS.has(asn) ? "AS "+asn : "AS "+asn+" (外部)";
+    lbl.appendChild(document.createTextNode(label));
+    cb.addEventListener("change", e => {
+      const a = e.target.dataset.fas;
+      if (e.target.checked) S.filters.hiddenAS.delete(a);
+      else S.filters.hiddenAS.add(a);
+      render();
+    });
+    asMenuList.appendChild(lbl);
+  });
+  /* ボタンクリックでパネル開閉 */
+  asMenuBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    asMenuPanel.classList.toggle("open");
+  });
+  /* 全表示: hiddenAS をクリアして全チェックボックスを checked に */
+  $("#as-show-all").addEventListener("click", () => {
+    S.filters.hiddenAS.clear();
+    asMenuList.querySelectorAll("input[data-fas]").forEach(cb => { cb.checked = true; });
+    render();
+  });
+  /* 全非表示: 全 AS を hiddenAS に追加して全チェックボックスを unchecked に */
+  $("#as-hide-all").addEventListener("click", () => {
+    asList.forEach(asn => S.filters.hiddenAS.add(String(asn)));
+    asMenuList.querySelectorAll("input[data-fas]").forEach(cb => { cb.checked = false; });
+    render();
+  });
+  /* パネル外クリックで閉じる */
+  document.addEventListener("click", e => {
+    if (asMenuPanel.classList.contains("open") && !asMenuPanel.contains(e.target) && e.target !== asMenuBtn) {
+      asMenuPanel.classList.remove("open");
+    }
+  });
+} else if (asMenuBtn) {
+  asMenuBtn.style.display = "none";
+}
+
+$("#btn-connected").onclick = function() { S.connectedOnly = !S.connectedOnly; this.classList.toggle("on", S.connectedOnly); render(); };
+$("#btn-focus").onclick = function() { S.focusMode = !S.focusMode; this.classList.toggle("on", S.focusMode); render(); };
+
+/* 表示ノード指定パネル: ノード単位で表示/非表示を指定 */
+function renderNodePanel() {
+  const np = $("#nodepanel");
+  np.style.display = S.nodePanel ? "block" : "none";
+  if (!S.nodePanel) return;
+  const row = (id, label, type) =>
+    `<label><input type="checkbox" data-nid="${esc(id)}" ${S.hiddenNodes.has(id)?"":"checked"}> ${esc(label)}<span class="ntype">${type}</span></label>`;
+  np.innerHTML = `<h4>表示するノード</h4>`
+    + Object.entries(DATA.devices).map(([id,d]) => row(id, d.hostname, "機器")).join("")
+    + DATA.segments.map(s => row(s.id, s.subnet, "seg")).join("")
+    + (DATA.stub_nodes || []).map(st => row(lpId(st), st.ifn + " (" + st.ip + ")", st.kind === "loopback" ? "loopback" : "stub")).join("")
+    + DATA.extPeers.map(e => row(e.id, e.label, "ext")).join("");
+}
+$("#nodepanel").addEventListener("change", ev => {
+  const id = ev.target.dataset.nid; if (!id) return;
+  if (ev.target.checked) S.hiddenNodes.delete(id);
+  else { S.hiddenNodes.add(id); S.sel.delete(id); }   /* 非表示にしたノードは選択からも外す（図とパネルの乖離防止） */
+  update();
+});
+$("#btn-nodes").onclick = function() {
+  S.nodePanel = !S.nodePanel;
+  this.classList.toggle("on", S.nodePanel);
+  renderNodePanel();
+};
+$("#btn-minimap").onclick = function() { S.minimap = !S.minimap; this.classList.toggle("on", S.minimap); renderMinimap(); };
+$("#btn-legend").onclick = function() { S.legend = !S.legend; this.classList.toggle("on", S.legend); renderLegend(); };
+$("#btn-theme").onclick = () => {
+  const h = document.documentElement;
+  h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark";
+};
+
+/* エクスポート: 現在の表示状態（配置・ハイライト込み）を SVG / PNG で保存 */
+const SVG_VARS = ["--bg","--bg-dot","--panel","--panel-edge","--panel-glow","--ink","--ink-dim","--ink-faint",
+  "--accent","--search","--danger","--node-fill","--node-edge","--node-ink","--link","--link-dim","--seg-fill",
+  "--lp-edge","--lp-fill","--stub-edge","--stub-fill"];
+function svgSnapshot() {
+  const r = canvas.getBoundingClientRect();
+  const clone = canvas.cloneNode(true);
+  clone.setAttribute("xmlns", _SVG_NS);
+  clone.setAttribute("width", r.width); clone.setAttribute("height", r.height);
+  /* スタンドアロン SVG では html 側の CSS 変数が届かないため、現テーマの値をルートにインライン展開する */
+  const cs = getComputedStyle(document.documentElement);
+  /* 末尾の width/height は埋め込み CSS の #canvas{width:100%...} に属性が負けないための上書き */
+  clone.setAttribute("style", SVG_VARS.map(v => `${v}:${cs.getPropertyValue(v).trim()}`).join(";")
+    + `;width:${r.width}px;height:${r.height}px`);
+  const ns = _SVG_NS;
+  const st = document.createElementNS(ns, "style");
+  st.textContent = document.querySelector("style").textContent;
+  clone.insertBefore(st, clone.firstChild);
+  const bg = document.createElementNS(ns, "rect");
+  bg.setAttribute("width", "100%"); bg.setAttribute("height", "100%");
+  bg.setAttribute("fill", cs.getPropertyValue("--bg").trim());
+  clone.insertBefore(bg, st.nextSibling);
+  return { src: new XMLSerializer().serializeToString(clone), w: r.width, h: r.height };
+}
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+$("#exp-svg").onclick = () => {
+  const s = svgSnapshot();
+  downloadBlob(new Blob([s.src], {type:"image/svg+xml"}), "topology.svg");
+};
+$("#exp-png").onclick = () => {
+  const s = svgSnapshot();
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement("canvas");
+    c.width = s.w * 2; c.height = s.h * 2;   /* 2x で書き出し（報告書貼付向け） */
+    const x = c.getContext("2d");
+    x.scale(2, 2); x.drawImage(img, 0, 0, s.w, s.h);
+    c.toBlob(b => { if (b) downloadBlob(b, "topology.png"); }, "image/png");
+  };
+  img.onerror = () => { downloadBlob(new Blob([s.src], {type:"image/svg+xml"}), "topology.svg"); };  /* PNG 不可なら SVG で代替 */
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s.src);
+};
+
+/* 詳細パネル: リサイズ & 最小化 */
+const detailsEl = $("#details");
+let rs = null;
+$("#resizer").addEventListener("mousedown", ev => {
+  rs = { x: ev.clientX, w: detailsEl.getBoundingClientRect().width };
+  ev.preventDefault();
+});
+window.addEventListener("mousemove", ev => {
+  if (!rs) return;
+  detailsEl.classList.remove("min");
+  $("#btn-panelmin").textContent = "—";
+  detailsEl.style.width = Math.min(560, Math.max(220, rs.w + (rs.x - ev.clientX))) + "px";
+});
+window.addEventListener("mouseup", () => { rs = null; });
+$("#btn-panelmin").onclick = function() {
+  const min = detailsEl.classList.toggle("min");
+  this.textContent = min ? "❮" : "—";
+};
+
+/* keyboard — B5 キーボードショートカット拡充 */
+/* keyToAction: DOM 非依存の純関数。新規ショートカットキーをアクション名に変換する。
+   既存予約キー (f/F/Escape///数字/Ctrl+F) は別処理のため null を返す（マップに含めない）。
+   大文字小文字は toLowerCase() で正規化する。*/
+function keyToAction(key) {
+  const M = {"g":"connected","h":"focus","m":"minimap","l":"legend","?":"shortcuts"};
+  return M[String(key).toLowerCase()] || null;
+}
+/* toggleShortcutsOverlay: shortcuts-overlay の表示/非表示をトグルする。
+   オーバーレイ自身のクリックでも閉じる（onclick はオーバーレイ要素に設定済み）。 */
+function toggleShortcutsOverlay() {
+  $("#shortcuts-overlay").classList.toggle("visible");
+}
+
+window.addEventListener("keydown", ev => {
+  /* Ctrl+F / ⌘F はどこにフォーカスがあっても検索欄へ（ブラウザのページ内検索を抑止） */
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "f" || ev.key === "F")) {
+    ev.preventDefault();
+    const si = $("#search"); si.focus(); si.select();
+    return;
+  }
+  /* Escape のみ: INPUT等にフォーカス中でも AS パネルが開いていれば閉じる（他キーの INPUT ガードは下の行で維持） */
+  if (ev.key === "Escape") { const _am2 = $("#as-menu"); if (_am2 && _am2.classList.contains("open")) { _am2.classList.remove("open"); return; } }
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName) || ev.target.isContentEditable) return;
+  if (ev.key === "f" || ev.key === "F") zoomFit();
+  else if (ev.key === "Escape") { $("#shortcuts-overlay").classList.remove("visible"); const _am = $("#as-menu"); if (_am) _am.classList.remove("open"); S.sel.clear(); hotBgp = null; hotNet = null; S.legendHot = null; autoNetSel = new Set(); autoBgpSel = new Set(); zoomReset(); update(); }
+  else if (ev.key === "/") { ev.preventDefault(); const si = $("#search"); si.focus(); si.select(); }
+  else if (/^\d$/.test(ev.key)) {
+    const _vi = +ev.key - 1;
+    if (_vi >= 0 && _vi < VIEWS.length) setView(VIEWS[_vi]);
+  }
+  else {
+    const _act = keyToAction(ev.key);
+    if (_act === "shortcuts") toggleShortcutsOverlay();
+    else if (_act && !isTableView()) $("#btn-" + _act).click();  /* 既存ボタンの onclick を発火（状態ロジック非二重化）。表ビュー中はグラフ操作系をスキップ */
+  }
+});
+
+/* ================= boot ================= */
+function update() {
+  /* 凡例強調はビュー変更で項目が消えたら無効化（全画面 dim の固着防止） */
+  if (S.legendHot) {
+    const lg = S.legendHot;
+    if (((lg === "ebgp" || lg === "ibgp" || lg.startsWith("as:")) && S.view !== "bgp") || (lg.startsWith("area:") && S.view !== "ospf") || ((lg === "loopback" || lg === "stub" || lg === "admin-down") && S.view === "bgp")) S.legendHot = null;
+  }
+  render(); renderDetails(); renderLegend();
+  syncHashToState();  /* URL ハッシュを現在の view+sel に同期（B3） */
+}
+$("#btn-minimap").classList.add("on");
+$("#btn-legend").classList.add("on");
+$("#btn-focus").classList.add("on");
+/* shortcuts-overlay: オーバーレイ自身（背景）をクリックで閉じる */
+$("#shortcuts-overlay").addEventListener("click", function(ev) {
+  if (ev.target === this) this.classList.remove("visible");
+});
+renderStatus();
+applyStateFromHash();  /* URL ハッシュから view+sel を復元してから初期描画（B3） */
+update();
+zoomFit();
+window.addEventListener("resize", () => schedule(render));
+
+</script></body></html>

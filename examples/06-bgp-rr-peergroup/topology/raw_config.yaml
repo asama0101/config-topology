@@ -1,0 +1,214 @@
+parse_status:
+  r1:
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  r2:
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - parsed
+  - unparsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  r3:
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  r4:
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+raw_configs:
+  r1: "!\n! Cisco IOS running-config - R1 (intended Route Reflector, AS 65001)\n!\n\
+    ! Scenario: R1 is the iBGP Route Reflector (RR) for AS 65001 and peers\n! R2/R3/R4\
+    \ (RR clients / RRC) via a peer-group (CLIENTS) using loopback\n! update-source.\
+    \ The peer-group carries \"neighbor CLIENTS\n! route-reflector-client\", so R1\
+    \ reflects routes between its clients and the\n! iBGP mesh is logically complete.\
+    \ This is a correct RR configuration\n! (R1 = RR, R2/R3/R4 = RRC); config-topology\
+    \ does NOT fire\n! ibgp_fullmesh_incomplete for this AS.\n!\nhostname R1\n!\n\
+    interface Loopback0\n description RID-AND-IBGP-SOURCE\n ip address 10.255.0.1\
+    \ 255.255.255.255\n!\ninterface GigabitEthernet0/0\n description P2P-to-R2\n ip\
+    \ address 10.0.12.1 255.255.255.0\n no shutdown\n!\ninterface GigabitEthernet0/1\n\
+    \ description P2P-to-R3\n ip address 10.0.13.1 255.255.255.0\n no shutdown\n!\n\
+    interface GigabitEthernet0/2\n description P2P-to-R4\n ip address 10.0.14.1 255.255.255.0\n\
+    \ no shutdown\n!\nrouter ospf 1\n router-id 10.255.0.1\n network 10.255.0.1 0.0.0.0\
+    \ area 0\n network 10.0.12.0 0.0.0.255 area 0\n network 10.0.13.0 0.0.0.255 area\
+    \ 0\n network 10.0.14.0 0.0.0.255 area 0\n!\nrouter bgp 65001\n bgp router-id\
+    \ 10.255.0.1\n neighbor CLIENTS peer-group\n neighbor CLIENTS remote-as 65001\n\
+    \ neighbor CLIENTS update-source Loopback0\n neighbor CLIENTS send-community both\n\
+    \ neighbor CLIENTS timers 10 30\n neighbor CLIENTS route-reflector-client\n neighbor\
+    \ 10.255.0.2 peer-group CLIENTS\n neighbor 10.255.0.3 peer-group CLIENTS\n neighbor\
+    \ 10.255.0.4 peer-group CLIENTS\n!\nend\n"
+  r2: '## Juniper JunOS set-format config - R2 (iBGP client, AS 65001)
+
+    ##
+
+    ## R2 peers ONLY with the hub R1 (group internal, local-address = loopback).
+
+    ## It does not peer R3 or R4 -> contributes to the incomplete iBGP mesh.
+
+    ##
+
+    set system host-name R2
+
+    set interfaces lo0 unit 0 family inet address 10.255.0.2/32
+
+    set interfaces ge-0/0/0 unit 0 description P2P-to-R1
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.12.2/24
+
+    set routing-options autonomous-system 65001
+
+    set routing-options router-id 10.255.0.2
+
+    set protocols ospf area 0 interface lo0.0
+
+    set protocols ospf area 0 interface ge-0/0/0.0
+
+    set protocols bgp group internal type internal
+
+    set protocols bgp group internal neighbor 10.255.0.1 local-address 10.255.0.2
+
+    set protocols bgp group internal neighbor 10.255.0.1 peer-as 65001
+
+    '
+  r3: "!\n! Cisco IOS running-config - R3 (iBGP client, AS 65001)\n!\n! R3 peers ONLY\
+    \ with the hub R1 using an individual neighbor statement\n! (demonstrates update-source\
+    \ / send-community / timers WITHOUT a peer-group).\n! It does not peer R2 or R4\
+    \ -> contributes to the incomplete iBGP mesh.\n!\nhostname R3\n!\ninterface Loopback0\n\
+    \ description RID-AND-IBGP-SOURCE\n ip address 10.255.0.3 255.255.255.255\n!\n\
+    interface GigabitEthernet0/0\n description P2P-to-R1\n ip address 10.0.13.3 255.255.255.0\n\
+    \ no shutdown\n!\nrouter ospf 1\n router-id 10.255.0.3\n network 10.255.0.3 0.0.0.0\
+    \ area 0\n network 10.0.13.0 0.0.0.255 area 0\n!\nrouter bgp 65001\n bgp router-id\
+    \ 10.255.0.3\n neighbor 10.255.0.1 remote-as 65001\n neighbor 10.255.0.1 update-source\
+    \ Loopback0\n neighbor 10.255.0.1 send-community standard\n neighbor 10.255.0.1\
+    \ timers 10 30\n!\nend\n"
+  r4: "!\n! Cisco IOS running-config - R4 (iBGP client, AS 65001)\n!\n! R4 peers ONLY\
+    \ with the hub R1 via a peer-group (CLIENTS) that inherits\n! remote-as / update-source\
+    \ / send-community / timers from the group template.\n! It does not peer R2 or\
+    \ R3 -> contributes to the incomplete iBGP mesh.\n!\nhostname R4\n!\ninterface\
+    \ Loopback0\n description RID-AND-IBGP-SOURCE\n ip address 10.255.0.4 255.255.255.255\n\
+    !\ninterface GigabitEthernet0/0\n description P2P-to-R1\n ip address 10.0.14.4\
+    \ 255.255.255.0\n no shutdown\n!\nrouter ospf 1\n router-id 10.255.0.4\n network\
+    \ 10.255.0.4 0.0.0.0 area 0\n network 10.0.14.0 0.0.0.255 area 0\n!\nrouter bgp\
+    \ 65001\n bgp router-id 10.255.0.4\n neighbor CLIENTS peer-group\n neighbor CLIENTS\
+    \ remote-as 65001\n neighbor CLIENTS update-source Loopback0\n neighbor CLIENTS\
+    \ send-community both\n neighbor CLIENTS timers 10 30\n neighbor 10.255.0.1 peer-group\
+    \ CLIENTS\n!\nend\n"

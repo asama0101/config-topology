@@ -1,0 +1,11 @@
+static:
+- af: v4
+  device: r1
+  next_hop: 10.5.5.2
+  prefix: 192.168.50.0/24
+  vrf: RED
+- af: v4
+  device: r2
+  next_hop: 10.6.6.1
+  prefix: 192.168.60.0/24
+  vrf: BLUE

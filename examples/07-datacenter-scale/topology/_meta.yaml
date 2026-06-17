@@ -1,0 +1,13 @@
+generated_from:
+- core1.cfg
+- core2.cfg
+- leaf1.cfg
+- leaf2.conf
+- leaf3.cfg
+- leaf4.conf
+- spine1.cfg
+- spine2.conf
+- spine3.cfg
+- spine4.conf
+schema_version: '1.0'
+title: Network Topology (config-derived)

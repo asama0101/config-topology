@@ -1,0 +1,6 @@
+generated_from:
+- apply-groups.conf
+- valid-ios.cfg
+- valid-junos.conf
+schema_version: '1.0'
+title: Network Topology (config-derived)

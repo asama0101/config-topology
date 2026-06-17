@@ -1,0 +1,12 @@
+diagnostics:
+- kind: junos_apply_groups_unexpanded
+  message: apply-groups/groups を多用した config です。`show configuration | display inheritance
+    | display set` で展開した出力を渡すと取りこぼしを防げます。
+  refs: []
+  severity: warning
+- kind: junos_brace_format
+  message: brace-format.conf は JunOS 波括弧(hierarchical)形式と推定されます。`show configuration
+    | display set` の出力を渡してください。
+  refs:
+  - brace-format.conf
+  severity: warning

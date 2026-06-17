@@ -1,0 +1,170 @@
+parse_status:
+  r1:
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  r2:
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  r3:
+  - ignored
+  - parsed
+  - parsed
+  - unparsed
+  - parsed
+  - unparsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  r4:
+  - ignored
+  - parsed
+  - parsed
+  - unparsed
+  - parsed
+  - unparsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+raw_configs:
+  r1: "!\n! Cisco IOS running-config - R1 (ABR: area 0 backbone + area 1)\n!\nhostname\
+    \ R1\n!\ninterface Loopback0\n description ROUTER-ID-LOOPBACK\n ip address 1.1.1.1\
+    \ 255.255.255.255\n!\ninterface GigabitEthernet0/0\n description BACKBONE-P2P-to-R2\
+    \ (area 0)\n ip address 10.0.12.1 255.255.255.0\n ip ospf cost 10\n ip ospf network\
+    \ point-to-point\n no shutdown\n!\ninterface GigabitEthernet0/1\n description\
+    \ AREA1-P2P-to-R3 (stub)\n ip address 10.0.13.1 255.255.255.0\n ip ospf cost 30\n\
+    \ ip ospf network point-to-point\n no shutdown\n!\nrouter ospf 1\n router-id 1.1.1.1\n\
+    \ area 1 stub no-summary\n passive-interface Loopback0\n network 1.1.1.1 0.0.0.0\
+    \ area 0\n network 10.0.12.0 0.0.0.255 area 0\n network 10.0.13.0 0.0.0.255 area\
+    \ 1\n!\nend\n"
+  r2: "!\n! Cisco IOS running-config - R2 (ABR: area 0 backbone + area 2 NSSA)\n!\n\
+    hostname R2\n!\ninterface Loopback0\n description ROUTER-ID-LOOPBACK\n ip address\
+    \ 2.2.2.2 255.255.255.255\n!\ninterface GigabitEthernet0/0\n description BACKBONE-P2P-to-R1\
+    \ (area 0)\n ip address 10.0.12.2 255.255.255.0\n ip ospf cost 10\n ip ospf network\
+    \ point-to-point\n no shutdown\n!\ninterface GigabitEthernet0/1\n description\
+    \ AREA2-P2P-to-R4 (nssa)\n ip address 10.0.24.2 255.255.255.0\n ip ospf cost 20\n\
+    \ no shutdown\n!\nrouter ospf 1\n router-id 2.2.2.2\n area 2 nssa\n passive-interface\
+    \ Loopback0\n network 2.2.2.2 0.0.0.0 area 0\n network 10.0.12.0 0.0.0.255 area\
+    \ 0\n network 10.0.24.0 0.0.0.255 area 2\n!\nend\n"
+  r3: '## Juniper JunOS set-format running-config - R3 (area 1 stub member; mismatch
+    link to R4)
+
+    set system host-name R3
+
+    set interfaces lo0 unit 0 family inet address 3.3.3.3/32
+
+    set interfaces ge-0/0/0 unit 0 description AREA1-P2P-to-R1
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.13.3/24
+
+    set interfaces ge-0/0/1 unit 0 description MISMATCH-LINK-to-R4
+
+    set interfaces ge-0/0/1 unit 0 family inet address 10.0.34.3/24
+
+    set routing-options router-id 3.3.3.3
+
+    set protocols ospf area 1 stub
+
+    set protocols ospf area 1 interface lo0.0 passive
+
+    set protocols ospf area 1 interface ge-0/0/0.0 metric 30
+
+    set protocols ospf area 1 interface ge-0/0/0.0 interface-type p2p
+
+    set protocols ospf area 1 interface ge-0/0/1.0 metric 40
+
+    '
+  r4: '## Juniper JunOS set-format running-config - R4 (area 2 NSSA member; mismatch
+    link to R3)
+
+    set system host-name R4
+
+    set interfaces lo0 unit 0 family inet address 4.4.4.4/32
+
+    set interfaces ge-0/0/0 unit 0 description AREA2-P2P-to-R2
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.24.4/24
+
+    set interfaces ge-0/0/1 unit 0 description MISMATCH-LINK-to-R3
+
+    set interfaces ge-0/0/1 unit 0 family inet address 10.0.34.4/24
+
+    set routing-options router-id 4.4.4.4
+
+    set protocols ospf area 2 nssa
+
+    set protocols ospf area 2 interface lo0.0 passive
+
+    set protocols ospf area 2 interface ge-0/0/0.0 metric 20
+
+    set protocols ospf area 2 interface ge-0/0/0.0 interface-type p2p
+
+    set protocols ospf area 3 interface ge-0/0/1.0 metric 40
+
+    '

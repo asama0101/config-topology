@@ -1,0 +1,76 @@
+bgp:
+- af: v4
+  device: r1
+  local_as: 65001
+  local_ip: 10.255.0.1
+  neighbor_ip: 10.255.0.2
+  peer_as: 65001
+  peer_group: CLIENTS
+  route_reflector_client: true
+  send_community: both
+  timers:
+    holdtime: 30
+    keepalive: 10
+  type: ibgp
+  update_source: Loopback0
+- af: v4
+  device: r1
+  local_as: 65001
+  local_ip: 10.255.0.1
+  neighbor_ip: 10.255.0.3
+  peer_as: 65001
+  peer_group: CLIENTS
+  route_reflector_client: true
+  send_community: both
+  timers:
+    holdtime: 30
+    keepalive: 10
+  type: ibgp
+  update_source: Loopback0
+- af: v4
+  device: r1
+  local_as: 65001
+  local_ip: 10.255.0.1
+  neighbor_ip: 10.255.0.4
+  peer_as: 65001
+  peer_group: CLIENTS
+  route_reflector_client: true
+  send_community: both
+  timers:
+    holdtime: 30
+    keepalive: 10
+  type: ibgp
+  update_source: Loopback0
+- af: v4
+  device: r2
+  local_as: 65001
+  local_ip: 10.255.0.2
+  neighbor_ip: 10.255.0.1
+  peer_as: 65001
+  type: ibgp
+  update_source: 10.255.0.2
+- af: v4
+  device: r3
+  local_as: 65001
+  local_ip: 10.255.0.3
+  neighbor_ip: 10.255.0.1
+  peer_as: 65001
+  send_community: standard
+  timers:
+    holdtime: 30
+    keepalive: 10
+  type: ibgp
+  update_source: Loopback0
+- af: v4
+  device: r4
+  local_as: 65001
+  local_ip: 10.255.0.4
+  neighbor_ip: 10.255.0.1
+  peer_as: 65001
+  peer_group: CLIENTS
+  send_community: both
+  timers:
+    holdtime: 30
+    keepalive: 10
+  type: ibgp
+  update_source: Loopback0

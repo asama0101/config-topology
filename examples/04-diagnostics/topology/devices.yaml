@@ -1,0 +1,163 @@
+devices:
+- as: 65536
+  bgp_router_id: 10.255.0.1
+  hostname: CORE-IOS
+  id: core-ios
+  ospf_router_id: 10.255.0.1
+  sections: []
+  vendor: cisco_ios
+- as: 65536
+  bgp_router_id: null
+  hostname: EDGE-JUNOS
+  id: edge-junos
+  ospf_router_id: null
+  sections: []
+  vendor: juniper_junos
+- as: null
+  bgp_router_id: null
+  hostname: GROUPS-RTR
+  id: groups-rtr
+  ospf_router_id: null
+  sections: []
+  vendor: juniper_junos
+interfaces:
+- addresses:
+  - af: v4
+    ip: 10.0.0.1
+    prefix: 30
+  admin_status: up
+  description: to-EDGE-JUNOS
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::GigabitEthernet0/0
+  ip: 10.0.0.1/30
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 192.168.10.1
+    prefix: 24
+  admin_status: up
+  description: LAN-A
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::GigabitEthernet0/1
+  ip: 192.168.10.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.255.0.1
+    prefix: 32
+  admin_status: up
+  description: router-id
+  device: core-ios
+  duplex: null
+  encapsulation: null
+  id: core-ios::Loopback0
+  ip: 10.255.0.1/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.0.2
+    prefix: 30
+  admin_status: up
+  description: to-CORE-IOS
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::ge-0/0/0
+  ip: 10.0.0.2/30
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 192.168.20.1
+    prefix: 24
+  admin_status: up
+  description: LAN-B
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::ge-0/0/1
+  ip: 192.168.20.1/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 172.16.30.1
+    prefix: 24
+  admin_status: up
+  description: LAN-C
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::ge-0/0/2
+  ip: 172.16.30.1/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/2
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.255.0.2
+    prefix: 32
+  admin_status: up
+  description: null
+  device: edge-junos
+  duplex: null
+  encapsulation: null
+  id: edge-junos::lo0
+  ip: 10.255.0.2/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null

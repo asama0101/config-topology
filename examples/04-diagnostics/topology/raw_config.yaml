@@ -1,0 +1,123 @@
+parse_status:
+  core-ios:
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - unparsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  edge-junos:
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  groups-rtr:
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - unparsed
+  - unparsed
+  - unparsed
+  - unparsed
+  - unparsed
+  - unparsed
+  - unparsed
+  - unparsed
+  - parsed
+raw_configs:
+  core-ios: "!\n! Cisco IOS-XE running-config (sample) - asdot 4-byte ASN demo\n!\n\
+    hostname CORE-IOS\n!\ninterface GigabitEthernet0/0\n description to-EDGE-JUNOS\n\
+    \ ip address 10.0.0.1 255.255.255.252\n no shutdown\n!\ninterface GigabitEthernet0/1\n\
+    \ description LAN-A\n ip address 192.168.10.1 255.255.255.0\n no shutdown\n!\n\
+    interface Loopback0\n description router-id\n ip address 10.255.0.1 255.255.255.255\n\
+    !\nrouter bgp 1.0\n bgp router-id 10.255.0.1\n neighbor 10.0.0.2 remote-as 1.0\n\
+    \ neighbor 10.0.0.2 description eBGP-to-EDGE-JUNOS\n!\nrouter ospf 1\n router-id\
+    \ 10.255.0.1\n network 192.168.10.0 0.0.0.255 area 0\n!\nend\n"
+  edge-junos: '## Juniper JunOS configuration in `set` format (sample) - OSPF interface
+    all demo
+
+    set system host-name EDGE-JUNOS
+
+    set interfaces ge-0/0/0 description to-CORE-IOS
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.0.2/30
+
+    set interfaces ge-0/0/1 description LAN-B
+
+    set interfaces ge-0/0/1 unit 0 family inet address 192.168.20.1/24
+
+    set interfaces ge-0/0/2 description LAN-C
+
+    set interfaces ge-0/0/2 unit 0 family inet address 172.16.30.1/24
+
+    set interfaces lo0 unit 0 family inet address 10.255.0.2/32
+
+    set routing-options autonomous-system 65536
+
+    set protocols ospf area 0 interface all
+
+    set protocols bgp group ext type external
+
+    set protocols bgp group ext neighbor 10.0.0.1 peer-as 65536
+
+    '
+  groups-rtr: '## Juniper JunOS set format dominated by groups / apply-groups.
+
+    ## The actual interface/protocol config is inherited from groups and is NOT
+
+    ## expanded here, so the parser sees almost no body. diagnose flags it so the
+
+    ## user knows to re-export with `show configuration | display inheritance`.
+
+    set groups IF_TEMPLATE interfaces <ge-*> unit 0 family inet
+
+    set groups IF_TEMPLATE interfaces <ge-*> mtu 1500
+
+    set groups OSPF_BASE protocols ospf area 0.0.0.0 interface all
+
+    set groups OSPF_BASE protocols ospf area 0.0.0.0 interface all metric 10
+
+    set groups BGP_POLICY policy-options prefix-list DEFAULT_ROUTE 0.0.0.0/0
+
+    set apply-groups IF_TEMPLATE
+
+    set apply-groups OSPF_BASE
+
+    set apply-groups BGP_POLICY
+
+    set system host-name GROUPS-RTR
+
+    '

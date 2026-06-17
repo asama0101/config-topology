@@ -1,0 +1,117 @@
+parse_status:
+  r1:
+  - ignored
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - ignored
+  r2:
+  - ignored
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+raw_configs:
+  r1: "!\n! Cisco IOS / IOS-XE running-config\n! Scenario 02 static-forwarding : R1\n\
+    !\nhostname R1\n!\ninterface GigabitEthernet0/0\n description to-R2\n ip address\
+    \ 10.0.12.1 255.255.255.0\n no shutdown\n!\ninterface GigabitEthernet0/1\n description\
+    \ exit-interface-link\n ip address 10.0.13.1 255.255.255.0\n no shutdown\n!\n\
+    interface Loopback0\n ip address 1.1.1.1 255.255.255.255\n!\nrouter ospf 1\n network\
+    \ 1.1.1.1 0.0.0.0 area 0\n!\n! --- static routes (variety) ---\n! normal next-hop\
+    \ IP\nip route 10.10.0.0 255.255.0.0 10.0.12.2\n! exit-interface (IF form)\nip\
+    \ route 10.20.0.0 255.255.0.0 GigabitEthernet0/1\n! IF + next-hop IP together\n\
+    ip route 10.30.0.0 255.255.0.0 GigabitEthernet0/0 10.0.12.2\n! blackhole (Null0)\n\
+    ip route 10.40.0.0 255.255.0.0 Null0\n! AD + name (must be separated / ignored)\n\
+    ip route 10.50.0.0 255.255.0.0 10.0.12.2 200 name BACKUP\n! default route\nip\
+    \ route 0.0.0.0 0.0.0.0 10.0.12.2\n!\nend\n"
+  r2: '## Juniper JunOS configuration in `set` format
+
+    ## Scenario 02 static-forwarding : R2
+
+    set system host-name R2
+
+    set interfaces ge-0/0/0 description to-R1
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.12.2/24
+
+    set interfaces ge-0/0/1 description exit-interface-link
+
+    set interfaces ge-0/0/1 unit 0 family inet address 10.0.13.2/24
+
+    set interfaces lo0 unit 0 family inet address 2.2.2.2/32
+
+    set protocols ospf area 0 interface lo0.0
+
+    ## --- static routes ---
+
+    ## normal next-hop
+
+    set routing-options static route 172.16.0.0/16 next-hop 10.0.12.1
+
+    ## blackhole (discard)
+
+    set routing-options static route 172.17.0.0/16 discard
+
+    ## blackhole (reject)
+
+    set routing-options static route 172.18.0.0/16 reject
+
+    ## ECMP via two qualified-next-hop (both resolvable: 10.0.12.1 and 10.0.13.1)
+
+    set routing-options static route 172.19.0.0/16 qualified-next-hop 10.0.12.1
+
+    set routing-options static route 172.19.0.0/16 qualified-next-hop 10.0.13.1
+
+    ## default route
+
+    set routing-options static route 0.0.0.0/0 next-hop 10.0.12.1
+
+    '

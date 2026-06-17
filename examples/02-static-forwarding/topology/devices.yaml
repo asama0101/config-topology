@@ -1,0 +1,136 @@
+devices:
+- as: null
+  bgp_router_id: null
+  hostname: R1
+  id: r1
+  ospf_router_id: null
+  sections: []
+  vendor: cisco_ios
+- as: null
+  bgp_router_id: null
+  hostname: R2
+  id: r2
+  ospf_router_id: null
+  sections: []
+  vendor: juniper_junos
+interfaces:
+- addresses:
+  - af: v4
+    ip: 10.0.12.1
+    prefix: 24
+  admin_status: up
+  description: to-R2
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::GigabitEthernet0/0
+  ip: 10.0.12.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.13.1
+    prefix: 24
+  admin_status: up
+  description: exit-interface-link
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::GigabitEthernet0/1
+  ip: 10.0.13.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 1.1.1.1
+    prefix: 32
+  admin_status: up
+  description: null
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::Loopback0
+  ip: 1.1.1.1/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.12.2
+    prefix: 24
+  admin_status: up
+  description: to-R1
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::ge-0/0/0
+  ip: 10.0.12.2/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.13.2
+    prefix: 24
+  admin_status: up
+  description: exit-interface-link
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::ge-0/0/1
+  ip: 10.0.13.2/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 2.2.2.2
+    prefix: 32
+  admin_status: up
+  description: null
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::lo0
+  ip: 2.2.2.2/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null

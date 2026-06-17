@@ -1,0 +1,89 @@
+parse_status:
+  r1:
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - ignored
+  - ignored
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - ignored
+  - parsed
+  - ignored
+  - ignored
+  r2:
+  - ignored
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+  - parsed
+raw_configs:
+  r1: "!\n! Cisco IOS / IOS-XE running-config (VRF demo: R1)\n!\nhostname R1\n!\n\
+    ip vrf RED\n!\ninterface GigabitEthernet0/0\n description to-R2-global\n ip address\
+    \ 10.0.12.1 255.255.255.0\n no shutdown\n!\ninterface GigabitEthernet0/1\n description\
+    \ CUST-RED-link\n ip vrf forwarding RED\n ip address 10.5.5.1 255.255.255.0\n\
+    \ no shutdown\n!\ninterface GigabitEthernet0/2\n description GLOBAL-overlap-link\n\
+    \ ip address 10.5.5.1 255.255.255.0\n no shutdown\n!\ninterface Loopback0\n ip\
+    \ address 1.1.1.1 255.255.255.255\n!\nrouter bgp 65020\n neighbor 10.0.12.2 remote-as\
+    \ 65002\n address-family ipv4 vrf RED\n  neighbor 10.5.5.2 remote-as 65010\n exit-address-family\n\
+    !\nip route vrf RED 192.168.50.0 255.255.255.0 10.5.5.2\n!\nend\n"
+  r2: '## Juniper JunOS configuration in `set` format (VRF demo: R2)
+
+    set system host-name R2
+
+    set interfaces ge-0/0/0 description to-R1-global
+
+    set interfaces ge-0/0/0 unit 0 family inet address 10.0.12.2/24
+
+    set interfaces ge-0/0/1 description CUST-BLUE-link
+
+    set interfaces ge-0/0/1 unit 0 family inet address 10.6.6.2/24
+
+    set interfaces lo0 unit 0 family inet address 2.2.2.2/32
+
+    set routing-options autonomous-system 65002
+
+    set protocols bgp group ext type external
+
+    set protocols bgp group ext neighbor 10.0.12.1 peer-as 65020
+
+    set routing-instances BLUE interface ge-0/0/1.0
+
+    set routing-instances BLUE routing-options static route 192.168.60.0/24 next-hop
+    10.6.6.1
+
+    set routing-instances BLUE protocols bgp group v neighbor 10.6.6.1 peer-as 65020
+
+    '

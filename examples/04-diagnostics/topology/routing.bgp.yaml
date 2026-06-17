@@ -1,0 +1,15 @@
+bgp:
+- af: v4
+  device: core-ios
+  local_as: 65536
+  local_ip: 10.0.0.1
+  neighbor_ip: 10.0.0.2
+  peer_as: 65536
+  type: ibgp
+- af: v4
+  device: edge-junos
+  local_as: 65536
+  local_ip: 10.0.0.2
+  neighbor_ip: 10.0.0.1
+  peer_as: 65536
+  type: ebgp

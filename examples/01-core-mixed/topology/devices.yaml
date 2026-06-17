@@ -1,0 +1,256 @@
+devices:
+- as: 65001
+  bgp_router_id: 1.1.1.1
+  hostname: R1
+  id: r1
+  ospf_router_id: null
+  sections: []
+  vendor: cisco_ios
+- as: 65001
+  bgp_router_id: 2.2.2.2
+  hostname: R2
+  id: r2
+  ospf_router_id: 2.2.2.2
+  sections: []
+  vendor: juniper_junos
+- as: 65002
+  bgp_router_id: 3.3.3.3
+  hostname: R3
+  id: r3
+  ospf_router_id: null
+  sections: []
+  vendor: cisco_ios
+- as: 65001
+  bgp_router_id: 4.4.4.4
+  hostname: R4
+  id: r4
+  ospf_router_id: 4.4.4.4
+  sections: []
+  vendor: juniper_junos
+interfaces:
+- addresses:
+  - af: v4
+    ip: 1.1.1.1
+    prefix: 32
+  admin_status: up
+  description: ROUTER-ID-LOOPBACK
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::Loopback0
+  ip: 1.1.1.1/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.12.1
+    prefix: 24
+  - af: v6
+    ip: 2001:db8:12::1
+    prefix: 64
+  admin_status: up
+  description: P2P-to-R2 (dual-stack)
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::GigabitEthernet0/0
+  ip: 10.0.12.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.100.1
+    prefix: 24
+  admin_status: up
+  description: SEG-to-R3-R4 10.0.100.0/24
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::GigabitEthernet0/1
+  ip: 10.0.100.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 2.2.2.2
+    prefix: 32
+  admin_status: up
+  description: null
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::lo0
+  ip: 2.2.2.2/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.12.2
+    prefix: 24
+  - af: v6
+    ip: 2001:db8:12::2
+    prefix: 64
+  admin_status: up
+  description: P2P-to-R1-dual-stack
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::ge-0/0/0
+  ip: 10.0.12.2/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.23.2
+    prefix: 24
+  admin_status: up
+  description: P2P-to-R3
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::ge-0/0/1
+  ip: 10.0.23.2/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 3.3.3.3
+    prefix: 32
+  admin_status: up
+  description: ROUTER-ID-LOOPBACK
+  device: r3
+  duplex: null
+  encapsulation: null
+  id: r3::Loopback0
+  ip: 3.3.3.3/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.23.3
+    prefix: 24
+  admin_status: up
+  description: P2P-to-R2
+  device: r3
+  duplex: null
+  encapsulation: null
+  id: r3::GigabitEthernet0/0
+  ip: 10.0.23.3/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.100.3
+    prefix: 24
+  admin_status: up
+  description: SEG-to-R1-R4 10.0.100.0/24
+  device: r3
+  duplex: null
+  encapsulation: null
+  id: r3::GigabitEthernet0/1
+  ip: 10.0.100.3/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 4.4.4.4
+    prefix: 32
+  admin_status: up
+  description: null
+  device: r4
+  duplex: null
+  encapsulation: null
+  id: r4::lo0
+  ip: 4.4.4.4/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.100.4
+    prefix: 24
+  admin_status: up
+  description: SEG-to-R1-R3 10.0.100.0/24
+  device: r4
+  duplex: null
+  encapsulation: null
+  id: r4::ge-0/0/0
+  ip: 10.0.100.4/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null

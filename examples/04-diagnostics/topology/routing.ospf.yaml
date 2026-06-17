@@ -1,0 +1,26 @@
+ospf:
+- af: v4
+  area: '0'
+  device: core-ios
+  network: 192.168.10.0/24
+  process: 1
+- af: v4
+  area: '0'
+  device: edge-junos
+  network: 10.0.0.0/30
+  process: null
+- af: v4
+  area: '0'
+  device: edge-junos
+  network: 10.255.0.2/32
+  process: null
+- af: v4
+  area: '0'
+  device: edge-junos
+  network: 172.16.30.0/24
+  process: null
+- af: v4
+  area: '0'
+  device: edge-junos
+  network: 192.168.20.0/24
+  process: null

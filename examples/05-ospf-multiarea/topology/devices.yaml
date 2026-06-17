@@ -1,0 +1,299 @@
+devices:
+- as: null
+  bgp_router_id: null
+  hostname: R1
+  id: r1
+  ospf_router_id: 1.1.1.1
+  sections: []
+  vendor: cisco_ios
+- as: null
+  bgp_router_id: null
+  hostname: R2
+  id: r2
+  ospf_router_id: 2.2.2.2
+  sections: []
+  vendor: cisco_ios
+- as: null
+  bgp_router_id: 3.3.3.3
+  hostname: R3
+  id: r3
+  ospf_router_id: 3.3.3.3
+  sections: []
+  vendor: juniper_junos
+- as: null
+  bgp_router_id: 4.4.4.4
+  hostname: R4
+  id: r4
+  ospf_router_id: 4.4.4.4
+  sections: []
+  vendor: juniper_junos
+interfaces:
+- addresses:
+  - af: v4
+    ip: 1.1.1.1
+    prefix: 32
+  admin_status: up
+  description: ROUTER-ID-LOOPBACK
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::Loopback0
+  ip: 1.1.1.1/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  ospf:
+    passive: true
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.12.1
+    prefix: 24
+  admin_status: up
+  description: BACKBONE-P2P-to-R2 (area 0)
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::GigabitEthernet0/0
+  ip: 10.0.12.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  ospf:
+    cost: 10
+    network_type: point-to-point
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.13.1
+    prefix: 24
+  admin_status: up
+  description: AREA1-P2P-to-R3 (stub)
+  device: r1
+  duplex: null
+  encapsulation: null
+  id: r1::GigabitEthernet0/1
+  ip: 10.0.13.1/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  ospf:
+    cost: 30
+    network_type: point-to-point
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 2.2.2.2
+    prefix: 32
+  admin_status: up
+  description: ROUTER-ID-LOOPBACK
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::Loopback0
+  ip: 2.2.2.2/32
+  l2_l3: l3
+  mtu: null
+  name: Loopback0
+  oper_status: null
+  ospf:
+    passive: true
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.12.2
+    prefix: 24
+  admin_status: up
+  description: BACKBONE-P2P-to-R1 (area 0)
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::GigabitEthernet0/0
+  ip: 10.0.12.2/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/0
+  oper_status: null
+  ospf:
+    cost: 10
+    network_type: point-to-point
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.24.2
+    prefix: 24
+  admin_status: up
+  description: AREA2-P2P-to-R4 (nssa)
+  device: r2
+  duplex: null
+  encapsulation: null
+  id: r2::GigabitEthernet0/1
+  ip: 10.0.24.2/24
+  l2_l3: l3
+  mtu: null
+  name: GigabitEthernet0/1
+  oper_status: null
+  ospf:
+    cost: 20
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 3.3.3.3
+    prefix: 32
+  admin_status: up
+  description: null
+  device: r3
+  duplex: null
+  encapsulation: null
+  id: r3::lo0
+  ip: 3.3.3.3/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  ospf:
+    passive: true
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.13.3
+    prefix: 24
+  admin_status: up
+  description: null
+  device: r3
+  duplex: null
+  encapsulation: null
+  id: r3::ge-0/0/0
+  ip: 10.0.13.3/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  ospf:
+    cost: 30
+    network_type: p2p
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.34.3
+    prefix: 24
+  admin_status: up
+  description: null
+  device: r3
+  duplex: null
+  encapsulation: null
+  id: r3::ge-0/0/1
+  ip: 10.0.34.3/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/1
+  oper_status: null
+  ospf:
+    cost: 40
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 4.4.4.4
+    prefix: 32
+  admin_status: up
+  description: null
+  device: r4
+  duplex: null
+  encapsulation: null
+  id: r4::lo0
+  ip: 4.4.4.4/32
+  l2_l3: l3
+  mtu: null
+  name: lo0
+  oper_status: null
+  ospf:
+    passive: true
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.24.4
+    prefix: 24
+  admin_status: up
+  description: null
+  device: r4
+  duplex: null
+  encapsulation: null
+  id: r4::ge-0/0/0
+  ip: 10.0.24.4/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/0
+  oper_status: null
+  ospf:
+    cost: 20
+    network_type: p2p
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
+- addresses:
+  - af: v4
+    ip: 10.0.34.4
+    prefix: 24
+  admin_status: up
+  description: null
+  device: r4
+  duplex: null
+  encapsulation: null
+  id: r4::ge-0/0/1
+  ip: 10.0.34.4/24
+  l2_l3: l3
+  mtu: null
+  name: ge-0/0/1
+  oper_status: null
+  ospf:
+    cost: 40
+  shutdown: false
+  source: parsed
+  speed: null
+  switchport: null
+  vlan: null
